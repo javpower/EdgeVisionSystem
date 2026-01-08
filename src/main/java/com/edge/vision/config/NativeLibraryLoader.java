@@ -63,9 +63,7 @@ public class NativeLibraryLoader {
      * 获取应用程序目录
      */
     private static String getApplicationDirectory() {
-        // 尝试多种方式获取应用目录
-        String path = System.getProperty("user.dir");
-
+        // 定义需要查找的库名称
         String osName = System.getProperty("os.name").toLowerCase();
         String onnxLibName;
         String opencvLibName;
@@ -81,26 +79,49 @@ public class NativeLibraryLoader {
             opencvLibName = "libopencv_java470.so";
         }
 
-        // 检查当前目录
-        File appDir = new File(path);
-        if (new File(appDir, onnxLibName).exists() ||
-            new File(appDir, opencvLibName).exists()) {
-            logger.debug("Found libraries in current directory: {}", path);
-            return path;
+        // 1. 首先检查工作目录 (user.dir) - 最常见的情况
+        String workDir = System.getProperty("user.dir");
+        File dir = new File(workDir);
+        if (new File(dir, onnxLibName).exists() ||
+            new File(dir, opencvLibName).exists()) {
+            logger.info("Found libraries in working directory: {}", workDir);
+            return workDir;
         }
 
-        // 检查父目录（用于 macOS .app 包或其他情况）
-        File parentDir = appDir.getParentFile();
-        if (parentDir != null) {
-            if (new File(parentDir, onnxLibName).exists() ||
-                new File(parentDir, opencvLibName).exists()) {
-                logger.debug("Found libraries in parent directory: {}", parentDir.getAbsolutePath());
-                return parentDir.getAbsolutePath();
+        // 2. 在 Native Image 中，尝试获取可执行文件所在目录
+        boolean isNativeImage = System.getProperty("org.graalvm.nativeimage.imagecode") != null;
+
+        if (isNativeImage) {
+            // 尝试获取进程的可执行文件路径
+            try {
+                // Linux/Unix: /proc/self/exe
+                File exePath = new File("/proc/self/exe");
+                if (exePath.exists()) {
+                    File realExe = exePath.getCanonicalFile();
+                    File exeDir = realExe.getParentFile();
+                    if (exeDir != null) {
+                        logger.info("Found executable directory via /proc/self/exe: {}", exeDir);
+                        return exeDir.getAbsolutePath();
+                    }
+                }
+            } catch (IOException e) {
+                logger.debug("Failed to resolve /proc/self/exe: {}", e.getMessage());
+            }
+
+            // 尝试使用 java.home (在 Native Image 中可能指向可执行文件)
+            String javaHome = System.getProperty("java.home");
+            if (javaHome != null && !javaHome.isEmpty()) {
+                File homeFile = new File(javaHome);
+                if (homeFile.exists()) {
+                    logger.info("Using java.home as application directory: {}", javaHome);
+                    return javaHome;
+                }
             }
         }
 
-        logger.debug("Library detection: using current directory: {}", path);
-        return path;
+        // 3. 回退到工作目录
+        logger.info("Falling back to working directory: {}", workDir);
+        return workDir;
     }
 
     /**
@@ -327,24 +348,34 @@ public class NativeLibraryLoader {
             libFileName = "libopencv_java470.so";
         }
 
+        logger.info("Loading OpenCV from directory: {}, library: {}", appDir, libFileName);
+
         // 首先尝试从应用目录加载
         File libFile = new File(appDir, libFileName);
+        logger.info("Library file exists: {}, absolute path: {}, can read: {}",
+                    libFile.exists(), libFile.getAbsolutePath(), libFile.canRead());
+
         if (libFile.exists()) {
             try {
+                logger.info("Attempting to load OpenCV from: {}", libFile.getAbsolutePath());
                 System.load(libFile.getAbsolutePath());
                 logger.info("OpenCV loaded successfully from: {}", libFile.getAbsolutePath());
                 return;
             } catch (UnsatisfiedLinkError e) {
-                logger.warn("Failed to load OpenCV from {}: {}", libFile, e.getMessage());
+                logger.error("Failed to load OpenCV from {}: {}", libFile, e.getMessage());
+                logger.error("Error details: ", e);
+                // 继续尝试其他方法
             }
         }
 
         // 回退到从系统库路径加载
+        logger.info("Attempting to load OpenCV from system library path");
         try {
             System.loadLibrary("opencv_java470");
             logger.info("OpenCV loaded successfully from system library path");
         } catch (UnsatisfiedLinkError e) {
             logger.error("Failed to load OpenCV library. Please ensure {} is in the application directory or system library path", libFileName);
+            logger.error("java.library.path: {}", System.getProperty("java.library.path"));
             throw new RuntimeException("OpenCV native library not found: " + libFileName, e);
         }
     }

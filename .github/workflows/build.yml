@@ -50,7 +50,6 @@ jobs:
       shell: pwsh
       run: |
         mkdir dist
-        mkdir dist\lib
         mkdir dist\models
 
         # 复制可执行文件
@@ -64,20 +63,27 @@ jobs:
           copy models\*.onnx dist\models\
         }
 
-        # 复制 Native 库到 lib 目录
-        Write-Host "Copying native libraries to lib/..."
-        Get-ChildItem -Path target\native -Recurse -File | ForEach-Object {
-          if ($_.Extension -in '.dll', '.so', '.dylib') {
-            copy $_.FullName dist\lib\
+        # 复制 Windows Native 库到根目录（只复制 x64 的 .dll）
+        Write-Host "Copying Windows native libraries (x64) to dist/..."
+        # OpenCV: nu\pattern\opencv\windows\x86_64\
+        Get-ChildItem -Path target\native -Recurse -File -Filter "*.dll" |
+          Where-Object { $_.Directory -like "*windows\x86_64*" } |
+          ForEach-Object {
+            copy $_.FullName dist\
             Write-Host "Copied: $($_.Name)"
           }
-        }
+        # ONNX Runtime: ai\onnxruntime\native\win-x64\
+        Get-ChildItem -Path target\native -Recurse -File -Filter "*.dll" |
+          Where-Object { $_.Directory -like "*win-x64*" } |
+          ForEach-Object {
+            copy $_.FullName dist\
+            Write-Host "Copied: $($_.Name)"
+          }
 
         # 创建启动脚本
         @"
         @echo off
         echo Starting Edge Vision System...
-        set PATH=%~dp0lib;%PATH%
         edge-vision.exe --spring.config.additional-location=application.yml
         pause
         "@ | Out-File -FilePath dist\run.bat -Encoding ASCII
@@ -133,7 +139,6 @@ jobs:
 
     - name: Package Application
       run: |
-        mkdir -p dist/lib
         mkdir -p dist/models
 
         # 复制可执行文件
@@ -147,18 +152,20 @@ jobs:
           cp models/*.onnx dist/models/
         fi
 
-        # 复制 Native 库到 lib 目录
-        echo "Copying native libraries to lib/..."
-        find target/native -type f \( -name "*.so" -o -name "*.dll" -o -name "*.dylib" \) -exec cp {} dist/lib/ \;
+        # 复制 Linux Native 库到根目录（只复制 x86_64 的 .so）
+        echo "Copying Linux native libraries (x86_64) to dist/..."
+        # OpenCV: nu/pattern/opencv/linux/x86_64/
+        find target/native -path "*/linux/x86_64/*.so" -exec cp {} dist/ \;
+        # ONNX Runtime: ai/onnxruntime/native/linux-x64/
+        find target/native -path "*/linux-x64/*.so" -exec cp {} dist/ \;
+        # ONNX Runtime: ai/onnxruntime/native/linux/x86_64/ (备用路径)
+        find target/native -path "*/linux/x86_64/*.so" -exec cp {} dist/ \;
 
         # 创建启动脚本
         cat > dist/run.sh << 'EOF'
         #!/bin/bash
         # 获取脚本所在目录
         DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-
-        # 设置库路径
-        export LD_LIBRARY_PATH="$DIR/lib:$LD_LIBRARY_PATH"
 
         # 添加 CUDA 库路径（如果存在）
         if [ -d "/usr/local/cuda/lib64" ]; then
