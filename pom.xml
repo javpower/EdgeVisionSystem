@@ -8,7 +8,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>2.7.14</version>
+        <version>3.2.0</version>
         <relativePath/>
     </parent>
 
@@ -23,8 +23,8 @@
     <properties>
         <java.version>17</java.version>
         <opencv.version>4.7.0-0</opencv.version>
-        <onnxruntime.version>1.15.0</onnxruntime.version>
-        <graalvm.version>0.9.28</graalvm.version>
+        <onnxruntime.version>1.16.0</onnxruntime.version>
+        <graalvm.version>0.10.0</graalvm.version>
     </properties>
 
     <dependencies>
@@ -112,14 +112,16 @@
                     <mainClass>com.edge.vision.EdgeVisionApplication</mainClass>
                     <imageName>edge-vision</imageName>
                     <buildArgs>
+                        <!-- Spring Boot 3.x native image settings -->
                         <buildArg>--no-fallback</buildArg>
-                        <buildArg>--install-exit-handlers</buildArg>
                         <buildArg>--report-unsupported-elements-at-runtime</buildArg>
                         <!-- Handle JNI libraries (OpenCV, ONNX Runtime) -->
                         <buildArg>--allow-incomplete-classpath</buildArg>
                         <buildArg>-H:+ReportExceptionStackTraces</buildArg>
                         <!-- Increase memory for compilation -->
-                        <buildArg>-J-Xmx4g</buildArg>
+                        <buildArg>-J-Xmx6g</buildArg>
+                        <!-- Enable runtime proxy generation -->
+                        <buildArg>-H:+AddAllCharsets</buildArg>
                     </buildArgs>
                 </configuration>
                 <executions>

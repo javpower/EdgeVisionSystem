@@ -46,7 +46,14 @@ jobs:
     - name: Build Native Image
       shell: pwsh
       run: |
-        mvn '-Pnative,gpu' package -DskipTests
+        mvn '-Pnative,gpu' package -DskipTests -X -B 2>&1 | tee build.log
+
+    - name: Upload build logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: windows-build-log
+        path: build.log
 
     - name: Package Application
       run: |
@@ -104,7 +111,14 @@ jobs:
 
     - name: Build Native Image
       run: |
-        mvn -Pnative,gpu package -DskipTests
+        mvn -Pnative,gpu package -DskipTests -X -B 2>&1 | tee build.log
+
+    - name: Upload build logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: linux-build-log
+        path: build.log
 
     - name: Create AppImage
       run: |
@@ -188,7 +202,14 @@ jobs:
 
     - name: Build Native Image
       run: |
-        mvn -Pnative package -DskipTests -e
+        mvn -Pnative package -DskipTests -X -B 2>&1 | tee build.log
+
+    - name: Upload build logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: macos-build-log
+        path: build.log
 
     - name: Create DMG
       run: |
