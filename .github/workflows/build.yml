@@ -212,21 +212,19 @@ jobs:
 
         # Create run script with CUDA support
         cat > dist/run.sh << 'EOF'
-#!/bin/bash
-# 添加 CUDA 库路径（如果存在）
-if [ -d "/usr/local/cuda/lib64" ]; then
-    export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
-fi
-
-# 检查 NVIDIA 驱动
-if ! command -v nvidia-smi &> /dev/null; then
-    echo "Warning: nvidia-smi not found. GPU acceleration will not be available."
-    echo "To use GPU, ensure NVIDIA drivers are installed."
-fi
-
-# 运行应用
-./edge-vision --spring.config.additional-location=application.yml
-EOF
+        #!/bin/bash
+        # 添加 CUDA 库路径（如果存在）
+        if [ -d "/usr/local/cuda/lib64" ]; then
+            export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
+        fi
+        # 检查 NVIDIA 驱动
+        if ! command -v nvidia-smi &> /dev/null; then
+            echo "Warning: nvidia-smi not found. GPU acceleration will not be available."
+            echo "To use GPU, ensure NVIDIA drivers are installed."
+        fi
+        # 运行应用
+        ./edge-vision --spring.config.additional-location=application.yml
+        EOF
         chmod +x dist/run.sh
 
     - name: Upload Linux Artifact
