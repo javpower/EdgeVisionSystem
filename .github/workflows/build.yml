@@ -63,15 +63,17 @@ jobs:
           copy models\*.onnx dist\models\
         }
 
-        # 复制 Windows Native 库到根目录（只复制 x64 的 .dll）
-        Write-Host "Copying Windows native libraries (x64) to dist/..."
+        # 复制 Windows x64 Native 库（OpenCV + ONNX Runtime GPU）
+        Write-Host "Copying Windows x64 native libraries to dist/..."
+
         # OpenCV: nu\pattern\opencv\windows\x86_64\
         Get-ChildItem -Path target\native -Recurse -File -Filter "*.dll" |
-          Where-Object { $_.Directory -like "*windows\x86_64*" } |
+          Where-Object { $_.Directory -like "*windows\x86_64*" -and $_.Name -like "opencv*.dll" } |
           ForEach-Object {
             copy $_.FullName dist\
             Write-Host "Copied: $($_.Name)"
           }
+
         # ONNX Runtime: ai\onnxruntime\native\win-x64\
         Get-ChildItem -Path target\native -Recurse -File -Filter "*.dll" |
           Where-Object { $_.Directory -like "*win-x64*" } |
@@ -152,14 +154,14 @@ jobs:
           cp models/*.onnx dist/models/
         fi
 
-        # 复制 Linux Native 库到根目录（只复制 x86_64 的 .so）
-        echo "Copying Linux native libraries (x86_64) to dist/..."
+        # 复制 Linux x86_64 Native 库（OpenCV + ONNX Runtime GPU）
+        echo "Copying Linux x86_64 native libraries to dist/..."
+
         # OpenCV: nu/pattern/opencv/linux/x86_64/
-        find target/native -path "*/linux/x86_64/*.so" -exec cp {} dist/ \;
+        find target/native -path "*/linux/x86_64/*.so" -name "libopencv*.so" -exec cp {} dist/ \;
+
         # ONNX Runtime: ai/onnxruntime/native/linux-x64/
         find target/native -path "*/linux-x64/*.so" -exec cp {} dist/ \;
-        # ONNX Runtime: ai/onnxruntime/native/linux/x86_64/ (备用路径)
-        find target/native -path "*/linux/x86_64/*.so" -exec cp {} dist/ \;
 
         # 创建启动脚本
         cat > dist/run.sh << 'EOF'
