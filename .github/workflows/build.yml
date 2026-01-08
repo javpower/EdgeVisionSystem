@@ -42,9 +42,9 @@ jobs:
         restore-keys: ${{ runner.os }}-m2
 
     - name: Build Native Image with GPU support
-      shell: pwsh
+      shell: cmd
       run: |
-        mvn clean package -Pnative,gpu -DskipTests
+        mvn clean package "-Pnative,gpu" -DskipTests
 
     - name: Package Application
       shell: pwsh

@@ -169,12 +169,7 @@
                         <buildArg>--report-unsupported-elements-at-runtime</buildArg>
 
                         <!-- 文件大小优化 -->
-                        <buildArg>-H:-RemoveSaturatedTypeFlows</buildArg>
                         <buildArg>-H:+ReportExceptionStackTraces</buildArg>
-                        <buildArg>-H:+PrintAnalysisCallTree</buildArg>
-
-                        <!-- 移除调试信息 (减小 20-30%) -->
-                        <buildArg>-H:-DebugInfo</buildArg>
                         <buildArg>-H:-IncludeAllLocales</buildArg>
                         <buildArg>-H:+AddAllCharsets</buildArg>
 
