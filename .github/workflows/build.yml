@@ -213,7 +213,6 @@ jobs:
         # Create run script with CUDA support
         cat > dist/run.sh << 'EOF'
 #!/bin/bash
-
 # 添加 CUDA 库路径（如果存在）
 if [ -d "/usr/local/cuda/lib64" ]; then
     export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
