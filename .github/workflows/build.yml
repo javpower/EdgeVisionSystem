@@ -60,9 +60,14 @@ jobs:
         Write-Host "Extracting OpenCV native library..."
         $mavenPath = "$env:USERPROFILE\.m2\repository\org\openpnp\opencv\4.7.0-0\opencv-4.7.0-0.jar"
         if (Test-Path $mavenPath) {
-            Expand-Archive -Path $mavenPath -DestinationPath temp_opencv -Force
-            copy "temp_opencv\org\opencv\windows\x86_64\libopencv_java470.dll" dist\
-            Remove-Item -Recurse -Force temp_opencv, org
+            Write-Host "Found OpenCV JAR at $mavenPath"
+            # 使用 unzip 命令提取（比 Expand-Archive 更可靠）
+            unzip -o -j $mavenPath "org/opencv/windows/x86_64/libopencv_java470.dll" -d dist
+            if (Test-Path "dist\libopencv_java470.dll") {
+                Write-Host "OpenCV library extracted successfully"
+            } else {
+                Write-Host "Warning: Failed to extract OpenCV library"
+            }
         } else {
             Write-Host "Warning: OpenCV JAR not found at $mavenPath"
         }
@@ -120,19 +125,27 @@ jobs:
 
     - name: Create AppImage
       run: |
-        set +e  # 不在错误时立即退出
+        set +e
         mkdir -p dist
         mkdir -p dist/models
         cp target/edge-vision dist/
         cp src/main/resources/application.yml dist/
-        # 安全地复制模型文件（如果存在）
         if compgen -G "models/*.onnx" > /dev/null; then cp models/*.onnx dist/models/; fi
 
         # 提取 OpenCV 本地库
         echo "Extracting OpenCV native library..."
-        unzip -q ~/.m2/repository/org/openpnp/opencv/4.7.0-0/opencv-4.7.0-0.jar "org/opencv/linux/x86_64/libopencv_java470.so" -d temp_opencv
-        mv temp_opencv/org/opencv/linux/x86_64/libopencv_java470.so dist/
-        rm -rf temp_opencv
+        OPENCV_JAR="$HOME/.m2/repository/org/openpnp/opencv/4.7.0-0/opencv-4.7.0-0.jar"
+        if [ -f "$OPENCV_JAR" ]; then
+            echo "Found OpenCV JAR"
+            unzip -o -j "$OPENCV_JAR" "org/opencv/linux/x86_64/libopencv_java470.so" -d dist
+            if [ -f "dist/libopencv_java470.so" ]; then
+                echo "OpenCV library extracted successfully"
+            else
+                echo "Warning: Failed to extract OpenCV library"
+            fi
+        else
+            echo "Warning: OpenCV JAR not found at $OPENCV_JAR"
+        fi
 
         # Create AppImage structure
         mkdir -p dist/AppDir/usr/bin
@@ -220,30 +233,42 @@ jobs:
 
     - name: Create DMG
       run: |
-        set +e  # 不在错误时立即退出
+        set +e
         mkdir -p dist
         mkdir -p dist/models
         cp target/edge-vision dist/
         cp src/main/resources/application.yml dist/
-        # 安全地复制模型文件（如果存在）
         if compgen -G "models/*.onnx" > /dev/null; then cp models/*.onnx dist/models/; fi
 
         # 提取 OpenCV 本地库
         echo "Extracting OpenCV native library..."
-        mkdir -p temp_opencv
-        cd temp_opencv
-        jar -xf ~/.m2/repository/org/openpnp/opencv/4.7.0-0/opencv-4.7.0-0.jar org/opencv/macosx/arm64/libopencv_java470.dylib 2>/dev/null || \
-        jar -xf ~/.m2/repository/org/openpnp/opencv/4.7.0-0/opencv-4.7.0-0.jar org/opencv/macosx/x86_64/libopencv_java470.dylib
-        cd ..
-        mv temp_opencv/org/opencv/macosx/*/libopencv_java470.dylib dist/ 2>/dev/null || \
-        mv temp_opencv/org/opencv/macosx/arm64/libopencv_java470.dylib dist/ 2>/dev/null
-        rm -rf temp_opencv
+        OPENCV_JAR="$HOME/.m2/repository/org/openpnp/opencv/4.7.0-0/opencv-4.7.0-0.jar"
+        if [ -f "$OPENCV_JAR" ]; then
+            echo "Found OpenCV JAR"
+            # 尝试 ARM64，回退到 x86_64
+            unzip -o -j "$OPENCV_JAR" "org/opencv/macosx/arm64/libopencv_java470.dylib" -d dist 2>/dev/null || \
+            unzip -o -j "$OPENCV_JAR" "org/opencv/macosx/x86_64/libopencv_java470.dylib" -d dist
+
+            if [ -f "dist/libopencv_java470.dylib" ]; then
+                echo "OpenCV library extracted successfully"
+            else
+                echo "Warning: Failed to extract OpenCV library"
+            fi
+        else
+            echo "Warning: OpenCV JAR not found at $OPENCV_JAR"
+        fi
 
         # Create app bundle
         mkdir -p "dist/Edge Vision.app/Contents/MacOS"
         mkdir -p "dist/Edge Vision.app/Contents/Resources"
 
         cp target/edge-vision "dist/Edge Vision.app/Contents/MacOS/edge-vision"
+
+        # 复制 OpenCV 库到 .app 包内（与可执行文件同目录）
+        if [ -f "dist/libopencv_java470.dylib" ]; then
+            cp dist/libopencv_java470.dylib "dist/Edge Vision.app/Contents/MacOS/"
+            echo "OpenCV library copied to .app bundle"
+        fi
 
         # Create Info.plist
         cat > "dist/Edge Vision.app/Contents/Info.plist" << 'EOF'
@@ -274,8 +299,8 @@ jobs:
         echo "./edge-vision --spring.config.additional-location=application.yml" >> dist/run.sh
         chmod +x dist/run.sh
 
-        # Skip DMG creation due to disk space limitations
-        # Users can manually create DMG from the .app bundle if needed
+        # 验证
+        ls -la "dist/Edge Vision.app/Contents/MacOS/"
         echo "DMG creation skipped to save disk space"
         
     - name: Upload macOS Artifact
