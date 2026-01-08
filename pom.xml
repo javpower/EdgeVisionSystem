@@ -120,10 +120,8 @@
                         <buildArg>-H:+ReportExceptionStackTraces</buildArg>
                         <!-- Increase memory for compilation -->
                         <buildArg>-J-Xmx8g</buildArg>
-                        <!-- Enable runtime proxy generation -->
-                        <buildArg>-H:+AddAllCharsets</buildArg>
                         <!-- Include all resources for OpenCV native libraries -->
-                        <buildArg>-H:+IncludeAllCharsets</buildArg>
+                        <buildArg>-H:+AddAllCharsets</buildArg>
                         <buildArg>-H:ResourceConfigurationFiles=src/main/resources/META-INF/native-image/resource-config.json</buildArg>
                         <buildArg>-H:ReflectionConfigurationFiles=src/main/resources/META-INF/native-image/reflect-config.json</buildArg>
                         <buildArg>-H:JNIConfigurationFiles=src/main/resources/META-INF/native-image/jni-config.json</buildArg>
