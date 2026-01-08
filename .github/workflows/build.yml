@@ -13,9 +13,9 @@ env:
   JAVA_VERSION: "17"
 
 jobs:
-  build-windows:
+  build-windows-cpu:
     runs-on: windows-latest
-    name: Build Windows Native Executable
+    name: Build Windows (CPU)
 
     steps:
     - name: Checkout code
@@ -28,11 +28,6 @@ jobs:
         distribution: 'graalvm-community'
         github-token: ${{ secrets.GITHUB_TOKEN }}
         native-image: true
-
-    - name: Verify GraalVM
-      shell: pwsh
-      run: |
-        native-image --version
 
     - name: Cache Maven packages
       uses: actions/cache@v4
@@ -41,71 +36,46 @@ jobs:
         key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
         restore-keys: ${{ runner.os }}-m2
 
-    - name: Build Native Image with GPU support
+    - name: Build Native Image (CPU)
       shell: cmd
       run: |
-        mvn clean package "-Pnative,gpu" -DskipTests
+        mvn clean package "-Pnative" -DskipTests
 
     - name: Package Application
       shell: pwsh
       run: |
-        mkdir dist
-        mkdir dist\models
+        mkdir dist-cpu
+        mkdir dist-cpu\models
 
-        # 复制可执行文件
-        copy target\edge-vision.exe dist\
+        copy target\edge-vision.exe dist-cpu\
+        copy src\main\resources\application.yml dist-cpu\
+        if (Test-Path "models\*.onnx") { copy models\*.onnx dist-cpu\models\ }
 
-        # 复制配置文件
-        copy src\main\resources\application.yml dist\
-
-        # 复制模型文件
-        if (Test-Path "models\*.onnx") {
-          copy models\*.onnx dist\models\
-        }
-
-        # 复制 Windows x64 Native 库（OpenCV + ONNX Runtime GPU）
-        Write-Host "Copying Windows x64 native libraries to dist/..."
-
-        # OpenCV: nu\pattern\opencv\windows\x86_64\
+        # OpenCV (x64)
         Get-ChildItem -Path target\native -Recurse -File -Filter "*.dll" |
           Where-Object { $_.Directory -like "*windows\x86_64*" -and $_.Name -like "opencv*.dll" } |
-          ForEach-Object {
-            copy $_.FullName dist\
-            Write-Host "Copied: $($_.Name)"
-          }
+          ForEach-Object { copy $_.FullName dist-cpu\ }
 
-        # ONNX Runtime: ai\onnxruntime\native\win-x64\
+        # ONNX Runtime CPU
         Get-ChildItem -Path target\native -Recurse -File -Filter "*.dll" |
-          Where-Object { $_.Directory -like "*win-x64*" } |
-          ForEach-Object {
-            copy $_.FullName dist\
-            Write-Host "Copied: $($_.Name)"
-          }
+          Where-Object { $_.Name -like "onnxruntime.dll" -and $_.Name -notlike "*gpu*" } |
+          ForEach-Object { copy $_.FullName dist-cpu\ }
 
-        # 创建启动脚本
-        @"
-        @echo off
-        echo Starting Edge Vision System...
+        # Run script
+        "@echo off
         edge-vision.exe --spring.config.additional-location=application.yml
-        pause
-        "@ | Out-File -FilePath dist\run.bat -Encoding ASCII
+        pause" | Out-File -FilePath dist-cpu\run.bat -Encoding ASCII
 
-    - name: Show file sizes
-      shell: pwsh
-      run: |
-        Write-Host "File sizes:"
-        Get-ChildItem -Path dist -Recurse -File | Format-Table Name, Length -AutoSize
-
-    - name: Upload Windows Artifact
+    - name: Upload Windows CPU Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: edge-vision-windows
-        path: dist/
+        name: edge-vision-windows-cpu
+        path: dist-cpu/
         compression-level: 9
 
-  build-linux:
-    runs-on: ubuntu-latest
-    name: Build Linux Native Executable
+  build-windows-gpu:
+    runs-on: windows-latest
+    name: Build Windows (GPU)
 
     steps:
     - name: Checkout code
@@ -119,9 +89,66 @@ jobs:
         github-token: ${{ secrets.GITHUB_TOKEN }}
         native-image: true
 
-    - name: Verify GraalVM
+    - name: Cache Maven packages
+      uses: actions/cache@v4
+      with:
+        path: ~/.m2
+        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+        restore-keys: ${{ runner.os }}-m2
+
+    - name: Build Native Image (GPU)
+      shell: cmd
       run: |
-        native-image --version
+        mvn clean package "-Pnative,gpu" -DskipTests
+
+    - name: Package Application
+      shell: pwsh
+      run: |
+        mkdir dist-gpu
+        mkdir dist-gpu\models
+
+        copy target\edge-vision.exe dist-gpu\
+        copy src\main\resources\application.yml dist-gpu\
+        if (Test-Path "models\*.onnx") { copy models\*.onnx dist-gpu\models\ }
+
+        # OpenCV (x64)
+        Get-ChildItem -Path target\native -Recurse -File -Filter "*.dll" |
+          Where-Object { $_.Directory -like "*windows\x86_64*" -and $_.Name -like "opencv*.dll" } |
+          ForEach-Object { copy $_.FullName dist-gpu\ }
+
+        # ONNX Runtime GPU
+        Get-ChildItem -Path target\native -Recurse -File -Filter "*.dll" |
+          Where-Object { $_.Directory -like "*win-x64*" } |
+          ForEach-Object { copy $_.FullName dist-gpu\ }
+
+        # Run script
+        "@echo off
+        echo This version requires NVIDIA GPU with CUDA
+        edge-vision.exe --spring.config.additional-location=application.yml
+        pause" | Out-File -FilePath dist-gpu\run.bat -Encoding ASCII
+
+    - name: Upload Windows GPU Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: edge-vision-windows-gpu
+        path: dist-gpu/
+        compression-level: 9
+
+  build-linux-cpu:
+    runs-on: ubuntu-latest
+    name: Build Linux (CPU)
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up GraalVM
+      uses: graalvm/setup-graalvm@v1
+      with:
+        java-version: ${{ env.JAVA_VERSION }}
+        distribution: 'graalvm-community'
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        native-image: true
 
     - name: Install build dependencies
       run: |
@@ -135,71 +162,136 @@ jobs:
         key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
         restore-keys: ${{ runner.os }}-m2
 
-    - name: Build Native Image with GPU support
+    - name: Build Native Image (CPU)
+      run: |
+        mvn clean package -Pnative -DskipTests
+
+    - name: Package Application
+      run: |
+        mkdir -p dist-cpu/models
+
+        cp target/edge-vision dist-cpu/
+        cp src/main/resources/application.yml dist-cpu/
+        if compgen -G "models/*.onnx" > /dev/null; then
+          cp models/*.onnx dist-cpu/models/
+        fi
+
+        # OpenCV + ONNX Runtime CPU
+        find target/native -path "*/linux/x86_64/*.so" -name "libopencv*.so" -exec cp {} dist-cpu/ \;
+        find target/native -name "libonnxruntime.so" -exec cp {} dist-cpu/ \;
+        find target/native -name "libonnxruntime4j_jni.so" -exec cp {} dist-cpu/ \;
+
+        # 创建符号链接
+        cd dist-cpu
+        ln -sf libonnxruntime.so libonnxruntime.so.1.17.3
+
+        # Run script
+        cat > dist-cpu/run.sh << 'EOF'
+        #!/bin/bash
+        DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+        cd "$DIR"
+        ./edge-vision --spring.config.additional-location=application.yml
+        EOF
+        chmod +x dist-cpu/run.sh
+
+    - name: Show file sizes
+      run: |
+        echo "CPU Build File sizes:"
+        du -h dist-cpu/*
+
+    - name: Upload Linux CPU Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: edge-vision-linux-cpu
+        path: dist-cpu/
+        compression-level: 9
+
+  build-linux-gpu:
+    runs-on: ubuntu-latest
+    name: Build Linux (GPU)
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up GraalVM
+      uses: graalvm/setup-graalvm@v1
+      with:
+        java-version: ${{ env.JAVA_VERSION }}
+        distribution: 'graalvm-community'
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        native-image: true
+
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential libstdc++-12-dev
+
+    - name: Cache Maven packages
+      uses: actions/cache@v4
+      with:
+        path: ~/.m2
+        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+        restore-keys: ${{ runner.os }}-m2
+
+    - name: Build Native Image (GPU)
       run: |
         mvn clean package -Pnative,gpu -DskipTests
 
     - name: Package Application
       run: |
-        mkdir -p dist/models
+        mkdir -p dist-gpu/models
 
-        # 复制可执行文件
-        cp target/edge-vision dist/
-
-        # 复制配置文件
-        cp src/main/resources/application.yml dist/
-
-        # 复制模型文件
+        cp target/edge-vision dist-gpu/
+        cp src/main/resources/application.yml dist-gpu/
         if compgen -G "models/*.onnx" > /dev/null; then
-          cp models/*.onnx dist/models/
+          cp models/*.onnx dist-gpu/models/
         fi
 
-        # 复制 Linux x86_64 Native 库（OpenCV + ONNX Runtime GPU）
-        echo "Copying Linux x86_64 native libraries to dist/..."
+        # OpenCV + ONNX Runtime GPU
+        find target/native -path "*/linux/x86_64/*.so" -name "libopencv*.so" -exec cp {} dist-gpu/ \;
+        find target/native -path "*/linux-x64/*.so" -exec cp {} dist-gpu/ \;
 
-        # OpenCV: nu/pattern/opencv/linux/x86_64/
-        find target/native -path "*/linux/x86_64/*.so" -name "libopencv*.so" -exec cp {} dist/ \;
+        # 创建符号链接
+        cd dist-gpu
+        ln -sf libonnxruntime.so libonnxruntime.so.1.17.3
 
-        # ONNX Runtime: ai/onnxruntime/native/linux-x64/
-        find target/native -path "*/linux-x64/*.so" -exec cp {} dist/ \;
-
-        # 创建启动脚本
-        cat > dist/run.sh << 'EOF'
+        # Run script
+        cat > dist-gpu/run.sh << 'EOF'
         #!/bin/bash
-        # 获取脚本所在目录
         DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-        # 添加 CUDA 库路径（如果存在）
+        # 检查 GPU
+        if ! command -v nvidia-smi &> /dev/null; then
+            echo "ERROR: nvidia-smi not found. This version requires NVIDIA GPU."
+            echo "Please use the CPU version instead."
+            exit 1
+        fi
+
+        # CUDA 库路径
         if [ -d "/usr/local/cuda/lib64" ]; then
             export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
         fi
 
-        # 检查 NVIDIA 驱动
-        if ! command -v nvidia-smi &> /dev/null; then
-            echo "Warning: nvidia-smi not found. GPU acceleration will not be available."
-            echo "To use GPU, ensure NVIDIA drivers are installed."
-        fi
-
-        # 运行应用
         cd "$DIR"
         ./edge-vision --spring.config.additional-location=application.yml
         EOF
-        chmod +x dist/run.sh
+        chmod +x dist-gpu/run.sh
 
     - name: Show file sizes
       run: |
-        echo "File sizes:"
-        du -h dist/*
+        echo "GPU Build File sizes:"
+        du -h dist-gpu/*
 
-    - name: Upload Linux Artifact
+    - name: Upload Linux GPU Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: edge-vision-linux
-        path: dist/
+        name: edge-vision-linux-gpu
+        path: dist-gpu/
         compression-level: 9
 
   create-release:
-    needs: [build-windows, build-linux]
+    needs: [build-windows-cpu, build-windows-gpu, build-linux-cpu, build-linux-gpu]
     runs-on: ubuntu-latest
     if: github.event_name == 'release'
 
@@ -209,12 +301,18 @@ jobs:
 
     - name: Create release archives
       run: |
-        cd edge-vision-windows
-        zip -r ../edge-vision-windows.zip .
+        # Windows
+        cd edge-vision-windows-cpu
+        zip -r ../edge-vision-windows-cpu.zip .
+        cd ../edge-vision-windows-gpu
+        zip -r ../edge-vision-windows-gpu.zip .
         cd ..
 
-        cd edge-vision-linux
-        tar -czf ../edge-vision-linux.tar.gz .
+        # Linux
+        cd edge-vision-linux-cpu
+        tar -czf ../edge-vision-linux-cpu.tar.gz .
+        cd ../edge-vision-linux-gpu
+        tar -czf ../edge-vision-linux-gpu.tar.gz .
         cd ..
 
     - name: Show archive sizes
@@ -226,7 +324,9 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          edge-vision-windows.zip
-          edge-vision-linux.tar.gz
+          edge-vision-windows-cpu.zip
+          edge-vision-windows-gpu.zip
+          edge-vision-linux-cpu.tar.gz
+          edge-vision-linux-gpu.tar.gz
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

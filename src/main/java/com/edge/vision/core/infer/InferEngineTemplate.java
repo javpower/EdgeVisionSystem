@@ -45,29 +45,10 @@ public abstract class InferEngineTemplate {
      */
     private OrtSession.SessionOptions createSessionOptions(String device) throws OrtException {
         OrtSession.SessionOptions opts = new OrtSession.SessionOptions();
-        if ("GPU".equalsIgnoreCase(device)) {
-            // 检查是否在native-image环境中运行
-            boolean isNativeImage = System.getProperty("org.graalvm.nativeimage.imagecode") != null;
 
-            if (isNativeImage) {
-                // native-image环境下，先检查CUDA库是否可用
-                if (isCudaAvailable()) {
-                    try {
-                        opts.addCUDA(0);
-                        System.out.println("GPU (CUDA) provider enabled successfully in native-image mode");
-                    } catch (Exception e) {
-                        System.err.println("Warning: CUDA initialization failed in native-image: " + e.getMessage());
-                        System.err.println("This usually means CUDA runtime libraries are not installed or not in LD_LIBRARY_PATH");
-                        System.err.println("Falling back to CPU execution");
-                        opts = new OrtSession.SessionOptions();
-                    }
-                } else {
-                    System.err.println("Warning: CUDA runtime not detected. Falling back to CPU execution.");
-                    System.err.println("To use GPU, ensure NVIDIA driver and CUDA runtime are installed.");
-                    opts = new OrtSession.SessionOptions();
-                }
-            } else {
-                // JAR模式下的处理
+        // GPU 模式：支持 GPU（JAR 和 Native Image 都支持，只要有 CUDA）
+        if ("GPU".equalsIgnoreCase(device)) {
+            if (isCudaAvailable()) {
                 try {
                     opts.addCUDA(0);
                     System.out.println("GPU (CUDA) provider enabled successfully");
@@ -76,6 +57,9 @@ public abstract class InferEngineTemplate {
                     System.err.println("Falling back to CPU execution");
                     opts = new OrtSession.SessionOptions();
                 }
+            } else {
+                System.err.println("Warning: CUDA runtime not detected. Falling back to CPU execution.");
+                System.err.println("To use GPU, ensure NVIDIA driver and CUDA runtime are installed.");
             }
         } else {
             System.out.println("Using CPU execution");
