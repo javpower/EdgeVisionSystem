@@ -11,31 +11,24 @@
         "pattern": "logback\\.xml"
       },
       {
-        "pattern": "models/.*\\.onnx"
+        "pattern": "META-INF/.*"
       },
       {
-        "pattern": "org/opencv/.*\\.dll"
+        "pattern": "org/springframework/.*"
+      }
+    ],
+    "excludes": [
+      {
+        "pattern": ".*\\.onnx$"
       },
       {
-        "pattern": "org/opencv/.*\\.so"
+        "pattern": ".*\\.dll$"
       },
       {
-        "pattern": "org/opencv/.*\\.dylib"
+        "pattern": ".*\\.so$"
       },
       {
-        "pattern": "org/opencv/.*"
-      },
-      {
-        "pattern": "ai/onnxruntime/native/.*\\.dll"
-      },
-      {
-        "pattern": "ai/onnxruntime/native/.*\\.so"
-      },
-      {
-        "pattern": "ai/onnxruntime/native/.*\\.dylib"
-      },
-      {
-        "pattern": "libonnxruntime.*"
+        "pattern": ".*\\.dylib$"
       }
     ]
   },
