@@ -59,18 +59,55 @@ jobs:
           copy models\*.onnx dist\models\
         }
 
-        Write-Host "Copying OpenCV native library from Maven-extracted files..."
-        if (Test-Path "target\native\nu\pattern\opencv\windows\x86_64\libopencv_java470.dll") {
-          copy target\native\nu\pattern\opencv\windows\x86_64\libopencv_java470.dll dist\
-          if (Test-Path "dist\libopencv_java470.dll") {
-            Write-Host "OpenCV library copied successfully"
-          } else {
-            Write-Host "Warning: Failed to copy OpenCV library"
-          }
+        Write-Host "Copying native libraries from Maven-extracted files..."
+
+        # 复制 OpenCV 库 (openpnp 路径)
+        $opencvPath = "target\native\nu\pattern\opencv\windows\x86_64\opencv_java470.dll"
+        if (Test-Path $opencvPath) {
+          copy $opencvPath dist\
+          Write-Host "OpenCV library copied successfully"
         } else {
-          Write-Host "Warning: OpenCV library not found at target\native\nu\pattern\opencv\windows\x86_64\libopencv_java470.dll"
+          Write-Host "Warning: OpenCV library not found at $opencvPath"
+        }
+
+        # 复制 ONNX Runtime GPU 库（使用 -Pgpu 时）
+        # GPU 版本的库可能在不同的路径
+        $onnxPaths = @(
+          "target\native\com\microsoft\onnxruntime\native\onnxruntime.dll",
+          "target\native\ai\onnxruntime\native\onnxruntime.dll"
+        )
+
+        $onnxCopied = $false
+        foreach ($path in $onnxPaths) {
+          if (Test-Path $path) {
+            copy $path dist\
+            Write-Host "ONNX Runtime library copied from: $path"
+            $onnxCopied = $true
+            break
+          }
+        }
+
+        if (-not $onnxCopied) {
+          # 尝试查找任何 .dll 文件作为后备
+          $dllFiles = Get-ChildItem -Path target\native -Filter "*.dll" -Recurse -ErrorAction SilentlyContinue
+          foreach ($dll in $dllFiles) {
+            if ($dll.Name -like "*onnx*") {
+              copy $dll.FullName dist\
+              Write-Host "ONNX Runtime library copied from: $($dll.FullName)"
+              $onnxCopied = $true
+              break
+            }
+          }
+        }
+
+        if (-not $onnxCopied) {
+          Write-Host "Warning: ONNX Runtime library not found"
+        }
+
+        # 如果还是没有找到，列出可用文件
+        if (-not (Test-Path "dist\opencv_java470.dll") -or -not (Test-Path "dist\onnxruntime.dll")) {
           Write-Host "Available files in target\native:"
-          Get-ChildItem -Path target\native -Recurse -File | Select-Object -First 10 FullName
+          Get-ChildItem -Path target\native -Recurse -File | Select-Object -First 20 FullName
         }
 
         "@echo off" | Out-File -FilePath dist\run.bat -Encoding ASCII
@@ -133,19 +170,49 @@ jobs:
         cp src/main/resources/application.yml dist/
         if compgen -G "models/*.onnx" > /dev/null; then cp models/*.onnx dist/models/; fi
 
-        # 复制 Maven 已提取的 OpenCV 本地库
-        echo "Copying OpenCV native library from Maven-extracted files..."
+        # 复制 Maven 已提取的 native 库
+        echo "Copying native libraries from Maven-extracted files..."
+
+        # 复制 OpenCV 库 (openpnp 路径)
         if [ -f "target/native/nu/pattern/opencv/linux/x86_64/libopencv_java470.so" ]; then
             cp target/native/nu/pattern/opencv/linux/x86_64/libopencv_java470.so dist/
-            if [ -f "dist/libopencv_java470.so" ]; then
-                echo "OpenCV library copied successfully"
-            else
-                echo "Warning: Failed to copy OpenCV library"
-            fi
+            echo "OpenCV library copied successfully"
         else
-            echo "Warning: OpenCV library not found at target/native/nu/pattern/opencv/linux/x86_64/libopencv_java470.so"
+            echo "Warning: OpenCV library not found"
+        fi
+
+        # 复制 ONNX Runtime GPU 库（使用 -Pgpu 时）
+        # 尝试多个可能的路径
+        onnx_copied=false
+        for onnx_path in \
+            "target/native/com/microsoft/onnxruntime/native/libonnxruntime.so" \
+            "target/native/ai/onnxruntime/native/libonnxruntime.so" \
+            "target/native/libonnxruntime.so" \
+            "target/native/com/microsoft/onnxruntime/native/libonnxruntime_gpu.so"
+        do
+            if [ -f "$onnx_path" ]; then
+                cp "$onnx_path" dist/
+                echo "ONNX Runtime library copied from: $onnx_path"
+                onnx_copied=true
+                break
+            fi
+        done
+
+        if [ "$onnx_copied" = false ]; then
+            # 后备方案：查找任何 onnx 相关的 .so 文件
+            onnx_file=$(find target/native -name "*onnx*.so" 2>/dev/null | head -1)
+            if [ -n "$onnx_file" ]; then
+                cp "$onnx_file" dist/
+                echo "ONNX Runtime library copied from: $onnx_file"
+            else
+                echo "Warning: ONNX Runtime library not found"
+            fi
+        fi
+
+        # 列出可用文件（用于调试）
+        if [ ! -f "dist/libopencv_java470.so" ] || [ ! -f "dist/libonnxruntime.so" ] && [ ! -f "dist/libonnxruntime_gpu.so" ]; then
             echo "Available files in target/native:"
-            find target/native -type f 2>/dev/null | head -10 || echo "target/native directory not found"
+            find target/native -type f 2>/dev/null | head -20 || echo "target/native directory not found"
         fi
 
         # Create AppImage structure
@@ -241,8 +308,10 @@ jobs:
         cp src/main/resources/application.yml dist/
         if compgen -G "models/*.onnx" > /dev/null; then cp models/*.onnx dist/models/; fi
 
-        # 复制 Maven 已提取的 OpenCV 本地库
-        echo "Copying OpenCV native library from Maven-extracted files..."
+        # 复制 Maven 已提取的 native 库
+        echo "Copying native libraries from Maven-extracted files..."
+
+        # 复制 OpenCV 库 (openpnp 路径，使用 osx 而不是 macosx)
         # 尝试 ARM64 (ARMv8)，回退到 x86_64
         if [ -f "target/native/nu/pattern/opencv/osx/ARMv8/libopencv_java470.dylib" ]; then
             cp target/native/nu/pattern/opencv/osx/ARMv8/libopencv_java470.dylib dist/libopencv_java470.dylib
@@ -251,9 +320,21 @@ jobs:
             cp target/native/nu/pattern/opencv/osx/x86_64/libopencv_java470.dylib dist/libopencv_java470.dylib
             echo "OpenCV library (x86_64) copied successfully"
         else
-            echo "Warning: OpenCV library not found at target/native/nu/pattern/opencv/osx/*/libopencv_java470.dylib"
+            echo "Warning: OpenCV library not found"
+        fi
+
+        # 复制 ONNX Runtime 库
+        if [ -f "target/native/com/microsoft/onnxruntime/native/libonnxruntime.dylib" ]; then
+            cp target/native/com/microsoft/onnxruntime/native/libonnxruntime.dylib dist/libonnxruntime.dylib
+            echo "ONNX Runtime library copied successfully"
+        else
+            echo "Warning: ONNX Runtime library not found"
+        fi
+
+        # 列出可用文件（用于调试）
+        if [ ! -f "dist/libopencv_java470.dylib" ] || [ ! -f "dist/libonnxruntime.dylib" ]; then
             echo "Available files in target/native:"
-            find target/native -type f 2>/dev/null | head -10 || echo "target/native directory not found"
+            find target/native -type f 2>/dev/null | head -20 || echo "target/native directory not found"
         fi
 
         # Create app bundle
@@ -262,13 +343,20 @@ jobs:
 
         cp target/edge-vision "dist/Edge Vision.app/Contents/MacOS/edge-vision"
 
-        # 复制 OpenCV 库到 .app 包内（与可执行文件同目录）
+        # 复制 native 库到 .app 包内（与可执行文件同目录）
         # 从 dist/ 复制（之前已经从 target/native 复制到 dist）
         if [ -f "dist/libopencv_java470.dylib" ]; then
             cp dist/libopencv_java470.dylib "dist/Edge Vision.app/Contents/MacOS/"
             echo "OpenCV library copied to .app bundle"
         else
-            echo "Warning: OpenCV library not found in dist/, skipping .app bundle copy"
+            echo "Warning: OpenCV library not found in dist/"
+        fi
+
+        if [ -f "dist/libonnxruntime.dylib" ]; then
+            cp dist/libonnxruntime.dylib "dist/Edge Vision.app/Contents/MacOS/"
+            echo "ONNX Runtime library copied to .app bundle"
+        else
+            echo "Warning: ONNX Runtime library not found in dist/"
         fi
 
         # Create Info.plist
@@ -294,6 +382,10 @@ jobs:
         EOF
 
         chmod +x "dist/Edge Vision.app/Contents/MacOS/edge-vision"
+
+        # 验证 .app 包内的文件
+        echo "Verifying .app bundle contents:"
+        ls -la "dist/Edge Vision.app/Contents/MacOS/"
 
         # Create run script
         echo "#!/bin/bash" > dist/run.sh

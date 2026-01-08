@@ -49,7 +49,7 @@
         <dependency>
             <groupId>org.openpnp</groupId>
             <artifactId>opencv</artifactId>
-            <version>${opencv.version}</version>
+            <version>4.7.0-0</version>
         </dependency>
 
         <!-- ONNX Runtime (默认 CPU 版本，使用 -Pgpu 切换到 GPU 版本) -->
@@ -103,12 +103,13 @@
                 </configuration>
             </plugin>
 
-            <!-- Extract OpenCV native libraries during build -->
+            <!-- Extract native libraries during build -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-dependency-plugin</artifactId>
                 <version>3.6.1</version>
                 <executions>
+                    <!-- Extract OpenCV native libraries (bytedeco) -->
                     <execution>
                         <id>unpack-opencv-native</id>
                         <phase>process-resources</phase>
@@ -124,7 +125,29 @@
                                     <type>jar</type>
                                     <overWrite>true</overWrite>
                                     <outputDirectory>${project.build.directory}/native</outputDirectory>
-                                    <includes>**/libopencv_java470.*</includes>
+                                    <includes>**/*opencv_java470.*</includes>
+                                </artifactItem>
+                            </artifactItems>
+                        </configuration>
+                    </execution>
+
+                    <!-- Extract ONNX Runtime native libraries -->
+                    <execution>
+                        <id>unpack-onnxruntime-native</id>
+                        <phase>process-resources</phase>
+                        <goals>
+                            <goal>unpack</goal>
+                        </goals>
+                        <configuration>
+                            <artifactItems>
+                                <artifactItem>
+                                    <groupId>com.microsoft.onnxruntime</groupId>
+                                    <artifactId>onnxruntime</artifactId>
+                                    <version>${onnxruntime.version}</version>
+                                    <type>jar</type>
+                                    <overWrite>true</overWrite>
+                                    <outputDirectory>${project.build.directory}/native</outputDirectory>
+                                    <includes>**/libonnxruntime.*</includes>
                                 </artifactItem>
                             </artifactItems>
                         </configuration>
@@ -180,6 +203,38 @@
                     <version>${onnxruntime.version}</version>
                 </dependency>
             </dependencies>
+            <build>
+                <plugins>
+                    <!-- Extract ONNX Runtime GPU native libraries -->
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-dependency-plugin</artifactId>
+                        <version>3.6.1</version>
+                        <executions>
+                            <execution>
+                                <id>unpack-onnxruntime-gpu-native</id>
+                                <phase>process-resources</phase>
+                                <goals>
+                                    <goal>unpack</goal>
+                                </goals>
+                                <configuration>
+                                    <artifactItems>
+                                        <artifactItem>
+                                            <groupId>com.microsoft.onnxruntime</groupId>
+                                            <artifactId>onnxruntime_gpu</artifactId>
+                                            <version>${onnxruntime.version}</version>
+                                            <type>jar</type>
+                                            <overWrite>true</overWrite>
+                                            <outputDirectory>${project.build.directory}/native</outputDirectory>
+                                            <includes>**/*.dll,**/*.so,**/*.dylib</includes>
+                                        </artifactItem>
+                                    </artifactItems>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
         </profile>
 
         <!-- Native Profile -->

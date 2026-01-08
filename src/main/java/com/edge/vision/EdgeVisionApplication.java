@@ -1,5 +1,6 @@
 package com.edge.vision;
 
+import com.edge.vision.config.NativeLibraryLoader;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
@@ -12,6 +13,9 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 public class EdgeVisionApplication {
 
     public static void main(String[] args) {
+        // 预加载 native 库（必须在 Spring 启动之前完成）
+        NativeLibraryLoader.loadNativeLibraries();
+
         SpringApplication.run(EdgeVisionApplication.class, args);
     }
     
