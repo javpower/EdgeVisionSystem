@@ -225,7 +225,7 @@ public class NativeLibraryLoader {
         } else {
             libFileName = "libonnxruntime.so";
             jniLibFileName = "libonnxruntime4j_jni.so";
-            altLibFileName = "libonnxruntime-gpu.so";
+            altLibFileName = "libonnxruntime_gpu.so";
         }
 
         // 1. 首先加载 JNI 库

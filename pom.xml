@@ -228,8 +228,9 @@
             <dependencies>
                 <dependency>
                     <groupId>com.microsoft.onnxruntime</groupId>
-                    <artifactId>onnxruntime-gpu</artifactId>
+                    <artifactId>onnxruntime_gpu</artifactId>
                     <version>${onnxruntime.version}</version>
+                    <optional>true</optional>
                 </dependency>
             </dependencies>
             <build>
@@ -241,7 +242,7 @@
                         <version>3.6.1</version>
                         <executions>
                             <execution>
-                                <id>unpack-onnxruntime-gpu-native</id>
+                                <id>unpack-onnxruntime_gpu-native</id>
                                 <phase>process-resources</phase>
                                 <goals>
                                     <goal>unpack</goal>
@@ -250,7 +251,7 @@
                                     <artifactItems>
                                         <artifactItem>
                                             <groupId>com.microsoft.onnxruntime</groupId>
-                                            <artifactId>onnxruntime-gpu</artifactId>
+                                            <artifactId>onnxruntime_gpu</artifactId>
                                             <version>${onnxruntime.version}</version>
                                             <type>jar</type>
                                             <overWrite>true</overWrite>
