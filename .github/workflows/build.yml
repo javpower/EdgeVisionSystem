@@ -60,15 +60,15 @@ jobs:
         }
 
         Write-Host "Copying OpenCV native library from Maven-extracted files..."
-        if (Test-Path "target\native\org\opencv\windows\x86_64\libopencv_java470.dll") {
-          copy target\native\org\opencv\windows\x86_64\libopencv_java470.dll dist\
+        if (Test-Path "target\native\nu\pattern\opencv\windows\x86_64\libopencv_java470.dll") {
+          copy target\native\nu\pattern\opencv\windows\x86_64\libopencv_java470.dll dist\
           if (Test-Path "dist\libopencv_java470.dll") {
             Write-Host "OpenCV library copied successfully"
           } else {
             Write-Host "Warning: Failed to copy OpenCV library"
           }
         } else {
-          Write-Host "Warning: OpenCV library not found at target\native\org\opencv\windows\x86_64\libopencv_java470.dll"
+          Write-Host "Warning: OpenCV library not found at target\native\nu\pattern\opencv\windows\x86_64\libopencv_java470.dll"
           Write-Host "Available files in target\native:"
           Get-ChildItem -Path target\native -Recurse -File | Select-Object -First 10 FullName
         }
@@ -135,15 +135,15 @@ jobs:
 
         # 复制 Maven 已提取的 OpenCV 本地库
         echo "Copying OpenCV native library from Maven-extracted files..."
-        if [ -f "target/native/org/opencv/linux/x86_64/libopencv_java470.so" ]; then
-            cp target/native/org/opencv/linux/x86_64/libopencv_java470.so dist/
+        if [ -f "target/native/nu/pattern/opencv/linux/x86_64/libopencv_java470.so" ]; then
+            cp target/native/nu/pattern/opencv/linux/x86_64/libopencv_java470.so dist/
             if [ -f "dist/libopencv_java470.so" ]; then
                 echo "OpenCV library copied successfully"
             else
                 echo "Warning: Failed to copy OpenCV library"
             fi
         else
-            echo "Warning: OpenCV library not found at target/native/org/opencv/linux/x86_64/libopencv_java470.so"
+            echo "Warning: OpenCV library not found at target/native/nu/pattern/opencv/linux/x86_64/libopencv_java470.so"
             echo "Available files in target/native:"
             find target/native -type f 2>/dev/null | head -10 || echo "target/native directory not found"
         fi
@@ -243,15 +243,15 @@ jobs:
 
         # 复制 Maven 已提取的 OpenCV 本地库
         echo "Copying OpenCV native library from Maven-extracted files..."
-        # 尝试 ARM64，回退到 x86_64
-        if [ -f "target/native/org/opencv/macosx/arm64/libopencv_java470.dylib" ]; then
-            cp target/native/org/opencv/macosx/arm64/libopencv_java470.dylib dist/
+        # 尝试 ARM64 (ARMv8)，回退到 x86_64
+        if [ -f "target/native/nu/pattern/opencv/osx/ARMv8/libopencv_java470.dylib" ]; then
+            cp target/native/nu/pattern/opencv/osx/ARMv8/libopencv_java470.dylib dist/libopencv_java470.dylib
             echo "OpenCV library (ARM64) copied successfully"
-        elif [ -f "target/native/org/opencv/macosx/x86_64/libopencv_java470.dylib" ]; then
-            cp target/native/org/opencv/macosx/x86_64/libopencv_java470.dylib dist/
+        elif [ -f "target/native/nu/pattern/opencv/osx/x86_64/libopencv_java470.dylib" ]; then
+            cp target/native/nu/pattern/opencv/osx/x86_64/libopencv_java470.dylib dist/libopencv_java470.dylib
             echo "OpenCV library (x86_64) copied successfully"
         else
-            echo "Warning: OpenCV library not found at target/native/org/opencv/macosx/*/libopencv_java470.dylib"
+            echo "Warning: OpenCV library not found at target/native/nu/pattern/opencv/osx/*/libopencv_java470.dylib"
             echo "Available files in target/native:"
             find target/native -type f 2>/dev/null | head -10 || echo "target/native directory not found"
         fi
