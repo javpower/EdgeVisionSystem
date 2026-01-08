@@ -1,0 +1,47 @@
+# 开发环境配置
+edge-vision:
+  system:
+    device-id: "EDGE_DEV_001"
+    port: 8000
+    save-local: true
+  
+  cameras:
+    sources: [0]  # 开发环境只使用一个摄像头
+  
+  models:
+    type-model: ""  # 开发环境不启用类型识别
+    detail-model: "models/yolov8n.onnx"  # 使用轻量级模型
+    conf-thres: 0.3
+    iou-thres: 0.45
+    device: "CPU"
+  
+  class-names:
+    detail-model:
+      0: "缺陷1"
+      1: "缺陷2"
+      2: "缺陷3"
+  
+  remote:
+    upload-url: ""
+    timeout: 5
+
+# Spring Boot 开发配置
+spring:
+  profiles:
+    active: dev
+  devtools:
+    restart:
+      enabled: true
+    livereload:
+      enabled: true
+
+# 日志配置
+logging:
+  level:
+    com.edge.vision: DEBUG
+    org.springframework.web: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: logs/edge-vision-dev.log

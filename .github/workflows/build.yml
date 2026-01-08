@@ -1,0 +1,282 @@
+name: Build Native Applications
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  release:
+    types: [ created ]
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    name: Build Windows Native Executable
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        
+    - name: Set up GraalVM
+      uses: graalvm/setup-graalvm@v1
+      with:
+        java-version: '17'
+        distribution: 'graalvm-community'
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        native-image: true
+        
+    - name: Cache Maven packages
+      uses: actions/cache@v4
+      with:
+        path: ~/.m2
+        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+        restore-keys: ${{ runner.os }}-m2
+        
+    - name: Build with Maven
+      run: |
+        mvn clean compile
+        
+    - name: Build Native Image
+      run: |
+        mvn -Pnative package -DskipTests
+        
+    - name: Package Application
+      run: |
+        mkdir -p dist
+        mkdir -p dist\models
+        copy target\edge-vision.exe dist\edge-vision.exe
+        copy src\main\resources\application.yml dist\
+        if exist "models\*.onnx" copy models\*.onnx dist\models\
+        echo "@echo off" > dist\run.bat
+        echo "edge-vision.exe --spring.config.additional-location=application.yml" >> dist\run.bat
+        
+    - name: Upload Windows Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: edge-vision-windows
+        path: dist/
+        
+  build-linux:
+    runs-on: ubuntu-latest
+    name: Build Linux Native Executable
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        
+    - name: Set up GraalVM
+      uses: graalvm/setup-graalvm@v1
+      with:
+        java-version: '17'
+        distribution: 'graalvm-community'
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        native-image: true
+        
+    - name: Install OpenCV dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libopencv-dev libopencv-contrib-dev
+        
+    - name: Cache Maven packages
+      uses: actions/cache@v4
+      with:
+        path: ~/.m2
+        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+        restore-keys: ${{ runner.os }}-m2
+        
+    - name: Build with Maven
+      run: |
+        mvn clean compile
+        
+    - name: Build Native Image
+      run: |
+        mvn -Pnative package -DskipTests
+        
+    - name: Create AppImage
+      run: |
+        mkdir -p dist
+        mkdir -p dist/models
+        cp target/edge-vision dist/
+        cp src/main/resources/application.yml dist/
+        if [ -n "$(ls models/*.onnx 2>/dev/null)" ]; then cp models/*.onnx dist/models/; fi
+
+        # Create AppImage structure
+        mkdir -p dist/AppDir/usr/bin
+        mkdir -p dist/AppDir/usr/share/applications
+        mkdir -p dist/AppDir/usr/share/icons
+
+        cp target/edge-vision dist/AppDir/usr/bin/
+
+        # Create desktop file
+        cat > dist/AppDir/edge-vision.desktop << EOF
+        [Desktop Entry]
+        Name=Edge Vision System
+        Exec=edge-vision
+        Icon=edge-vision
+        Type=Application
+        Categories=Development;
+        EOF
+
+        # Download AppImage tool (固定版本)
+        wget -q https://github.com/AppImage/AppImageKit/releases/download/13/appimagetool-x86_64.AppImage
+        chmod +x appimagetool-x86_64.AppImage
+
+        # Create AppImage
+        ./appimagetool-x86_64.AppImage dist/AppDir dist/edge-vision-x86_64.AppImage
+
+        # Create run script
+        echo "#!/bin/bash" > dist/run.sh
+        echo "./edge-vision --spring.config.additional-location=application.yml" >> dist/run.sh
+        chmod +x dist/run.sh
+        
+    - name: Upload Linux Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: edge-vision-linux
+        path: dist/
+        
+  build-macos:
+    runs-on: macos-latest
+    name: Build macOS Native Executable
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        
+    - name: Set up GraalVM
+      uses: graalvm/setup-graalvm@v1
+      with:
+        java-version: '17'
+        distribution: 'graalvm-community'
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        native-image: true
+        
+    - name: Install OpenCV
+      run: |
+        brew install opencv
+        
+    - name: Cache Maven packages
+      uses: actions/cache@v4
+      with:
+        path: ~/.m2
+        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+        restore-keys: ${{ runner.os }}-m2
+        
+    - name: Build with Maven
+      run: |
+        mvn clean compile
+        
+    - name: Build Native Image
+      run: |
+        mvn -Pnative package -DskipTests
+        
+    - name: Create DMG
+      run: |
+        mkdir -p dist
+        mkdir -p dist/models
+        cp target/edge-vision dist/
+        cp src/main/resources/application.yml dist/
+        if [ -n "$(ls models/*.onnx 2>/dev/null)" ]; then cp models/*.onnx dist/models/; fi
+
+        # Create app bundle
+        mkdir -p "dist/Edge Vision.app/Contents/MacOS"
+        mkdir -p "dist/Edge Vision.app/Contents/Resources"
+
+        cp target/edge-vision "dist/Edge Vision.app/Contents/MacOS/edge-vision"
+
+        # Create Info.plist
+        cat > "dist/Edge Vision.app/Contents/Info.plist" << 'EOF'
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>CFBundleExecutable</key>
+            <string>edge-vision</string>
+            <key>CFBundleIdentifier</key>
+            <string>com.edge.vision</string>
+            <key>CFBundleName</key>
+            <string>Edge Vision System</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>CFBundleShortVersionString</key>
+            <string>1.0.0</string>
+            <key>LSMinimumSystemVersion</key>
+            <string>10.15</string>
+        </dict>
+        </plist>
+        EOF
+
+        chmod +x "dist/Edge Vision.app/Contents/MacOS/edge-vision"
+
+        # Create run script
+        echo "#!/bin/bash" > dist/run.sh
+        echo "./edge-vision --spring.config.additional-location=application.yml" >> dist/run.sh
+        chmod +x dist/run.sh
+
+        # Create DMG (使用 hdiutil 创建简单的磁盘映像)
+        mkdir -p dmg_temp
+        cp -R "dist/Edge Vision.app" dmg_temp/
+        cp dist/edge-vision dmg_temp/
+        cp dist/application.yml dmg_temp/
+        cp dist/run.sh dmg_temp/
+        if [ -d "dist/models" ]; then cp -R dist/models dmg_temp/; fi
+
+        hdiutil create -volname "Edge Vision" -srcfolder dmg_temp -ov -format UDZO dist/Edge-Vision.dmg
+        rm -rf dmg_temp
+        
+    - name: Upload macOS Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: edge-vision-macos
+        path: dist/
+        
+  create-release:
+    needs: [build-windows, build-linux, build-macos]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      
+    - name: Create release archives
+      run: |
+        cd edge-vision-windows
+        zip -r ../edge-vision-windows.zip .
+        cd ..
+        
+        cd edge-vision-linux
+        tar -czf ../edge-vision-linux.tar.gz .
+        cd ..
+        
+        cd edge-vision-macos
+        zip -r ../edge-vision-macos.zip .
+        cd ..
+        
+    - name: Upload release assets
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          edge-vision-windows.zip
+          edge-vision-linux.tar.gz
+          edge-vision-macos.zip
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
