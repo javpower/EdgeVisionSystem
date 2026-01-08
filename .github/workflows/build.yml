@@ -55,21 +55,22 @@ jobs:
         mkdir dist\models
         copy target\edge-vision.exe dist\edge-vision.exe
         copy src\main\resources\application.yml dist\
-        if (Test-Path "models\*.onnx")) { copy models\*.onnx dist\models\ }
+        if (Test-Path "models\*.onnx") {
+          copy models\*.onnx dist\models\
+        }
 
-        Write-Host "Extracting OpenCV native library..."
-        $mavenPath = "$env:USERPROFILE\.m2\repository\org\openpnp\opencv\4.7.0-0\opencv-4.7.0-0.jar"
-        if (Test-Path $mavenPath) {
-            Write-Host "Found OpenCV JAR at $mavenPath"
-            # 使用 unzip 命令提取（比 Expand-Archive 更可靠）
-            unzip -o -j $mavenPath "org/opencv/windows/x86_64/libopencv_java470.dll" -d dist
-            if (Test-Path "dist\libopencv_java470.dll") {
-                Write-Host "OpenCV library extracted successfully"
-            } else {
-                Write-Host "Warning: Failed to extract OpenCV library"
-            }
+        Write-Host "Copying OpenCV native library from Maven-extracted files..."
+        if (Test-Path "target\native\org\opencv\windows\x86_64\libopencv_java470.dll") {
+          copy target\native\org\opencv\windows\x86_64\libopencv_java470.dll dist\
+          if (Test-Path "dist\libopencv_java470.dll") {
+            Write-Host "OpenCV library copied successfully"
+          } else {
+            Write-Host "Warning: Failed to copy OpenCV library"
+          }
         } else {
-            Write-Host "Warning: OpenCV JAR not found at $mavenPath"
+          Write-Host "Warning: OpenCV library not found at target\native\org\opencv\windows\x86_64\libopencv_java470.dll"
+          Write-Host "Available files in target\native:"
+          Get-ChildItem -Path target\native -Recurse -File | Select-Object -First 10 FullName
         }
 
         "@echo off" | Out-File -FilePath dist\run.bat -Encoding ASCII
@@ -132,19 +133,19 @@ jobs:
         cp src/main/resources/application.yml dist/
         if compgen -G "models/*.onnx" > /dev/null; then cp models/*.onnx dist/models/; fi
 
-        # 提取 OpenCV 本地库
-        echo "Extracting OpenCV native library..."
-        OPENCV_JAR="$HOME/.m2/repository/org/openpnp/opencv/4.7.0-0/opencv-4.7.0-0.jar"
-        if [ -f "$OPENCV_JAR" ]; then
-            echo "Found OpenCV JAR"
-            unzip -o -j "$OPENCV_JAR" "org/opencv/linux/x86_64/libopencv_java470.so" -d dist
+        # 复制 Maven 已提取的 OpenCV 本地库
+        echo "Copying OpenCV native library from Maven-extracted files..."
+        if [ -f "target/native/org/opencv/linux/x86_64/libopencv_java470.so" ]; then
+            cp target/native/org/opencv/linux/x86_64/libopencv_java470.so dist/
             if [ -f "dist/libopencv_java470.so" ]; then
-                echo "OpenCV library extracted successfully"
+                echo "OpenCV library copied successfully"
             else
-                echo "Warning: Failed to extract OpenCV library"
+                echo "Warning: Failed to copy OpenCV library"
             fi
         else
-            echo "Warning: OpenCV JAR not found at $OPENCV_JAR"
+            echo "Warning: OpenCV library not found at target/native/org/opencv/linux/x86_64/libopencv_java470.so"
+            echo "Available files in target/native:"
+            find target/native -type f 2>/dev/null | head -10 || echo "target/native directory not found"
         fi
 
         # Create AppImage structure
@@ -240,22 +241,19 @@ jobs:
         cp src/main/resources/application.yml dist/
         if compgen -G "models/*.onnx" > /dev/null; then cp models/*.onnx dist/models/; fi
 
-        # 提取 OpenCV 本地库
-        echo "Extracting OpenCV native library..."
-        OPENCV_JAR="$HOME/.m2/repository/org/openpnp/opencv/4.7.0-0/opencv-4.7.0-0.jar"
-        if [ -f "$OPENCV_JAR" ]; then
-            echo "Found OpenCV JAR"
-            # 尝试 ARM64，回退到 x86_64
-            unzip -o -j "$OPENCV_JAR" "org/opencv/macosx/arm64/libopencv_java470.dylib" -d dist 2>/dev/null || \
-            unzip -o -j "$OPENCV_JAR" "org/opencv/macosx/x86_64/libopencv_java470.dylib" -d dist
-
-            if [ -f "dist/libopencv_java470.dylib" ]; then
-                echo "OpenCV library extracted successfully"
-            else
-                echo "Warning: Failed to extract OpenCV library"
-            fi
+        # 复制 Maven 已提取的 OpenCV 本地库
+        echo "Copying OpenCV native library from Maven-extracted files..."
+        # 尝试 ARM64，回退到 x86_64
+        if [ -f "target/native/org/opencv/macosx/arm64/libopencv_java470.dylib" ]; then
+            cp target/native/org/opencv/macosx/arm64/libopencv_java470.dylib dist/
+            echo "OpenCV library (ARM64) copied successfully"
+        elif [ -f "target/native/org/opencv/macosx/x86_64/libopencv_java470.dylib" ]; then
+            cp target/native/org/opencv/macosx/x86_64/libopencv_java470.dylib dist/
+            echo "OpenCV library (x86_64) copied successfully"
         else
-            echo "Warning: OpenCV JAR not found at $OPENCV_JAR"
+            echo "Warning: OpenCV library not found at target/native/org/opencv/macosx/*/libopencv_java470.dylib"
+            echo "Available files in target/native:"
+            find target/native -type f 2>/dev/null | head -10 || echo "target/native directory not found"
         fi
 
         # Create app bundle
@@ -265,9 +263,12 @@ jobs:
         cp target/edge-vision "dist/Edge Vision.app/Contents/MacOS/edge-vision"
 
         # 复制 OpenCV 库到 .app 包内（与可执行文件同目录）
+        # 从 dist/ 复制（之前已经从 target/native 复制到 dist）
         if [ -f "dist/libopencv_java470.dylib" ]; then
             cp dist/libopencv_java470.dylib "dist/Edge Vision.app/Contents/MacOS/"
             echo "OpenCV library copied to .app bundle"
+        else
+            echo "Warning: OpenCV library not found in dist/, skipping .app bundle copy"
         fi
 
         # Create Info.plist

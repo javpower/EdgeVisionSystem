@@ -102,6 +102,35 @@
                     </excludes>
                 </configuration>
             </plugin>
+
+            <!-- Extract OpenCV native libraries during build -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>3.6.1</version>
+                <executions>
+                    <execution>
+                        <id>unpack-opencv-native</id>
+                        <phase>process-resources</phase>
+                        <goals>
+                            <goal>unpack</goal>
+                        </goals>
+                        <configuration>
+                            <artifactItems>
+                                <artifactItem>
+                                    <groupId>org.openpnp</groupId>
+                                    <artifactId>opencv</artifactId>
+                                    <version>${opencv.version}</version>
+                                    <type>jar</type>
+                                    <overWrite>true</overWrite>
+                                    <outputDirectory>${project.build.directory}/native</outputDirectory>
+                                    <includes>**/libopencv_java470.*</includes>
+                                </artifactItem>
+                            </artifactItems>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             
             <!-- Native Image Plugin (for GraalVM) -->
             <plugin>
