@@ -56,6 +56,14 @@ jobs:
         copy target\edge-vision.exe dist\edge-vision.exe
         copy src\main\resources\application.yml dist\
         if exist models\*.onnx copy models\*.onnx dist\models\
+
+        # 提取 OpenCV 本地库
+        echo Extracting OpenCV native library...
+        powershell -Command "Expand-Archive -Path '$env:USERPROFILE\.m2\repository\org\openpnp\opencv\4.7.0-0\opencv-4.7.0-0.jar' -DestinationPath temp_opencv -Force"
+        jar -xf %USERPROFILE%\.m2\repository\org\openpnp\opencv\4.7.0-0\opencv-4.7.0-0.jar org/opencv/windows/x86_64/libopencv_java470.dll
+        move org\opencv\windows\x86_64\libopencv_java470.dll dist\
+        rmdir /s /q org temp_opencv
+
         echo @echo off > dist\run.bat
         echo edge-vision.exe --spring.config.additional-location=application.yml >> dist\run.bat
 
@@ -116,6 +124,12 @@ jobs:
         cp src/main/resources/application.yml dist/
         # 安全地复制模型文件（如果存在）
         if compgen -G "models/*.onnx" > /dev/null; then cp models/*.onnx dist/models/; fi
+
+        # 提取 OpenCV 本地库
+        echo "Extracting OpenCV native library..."
+        unzip -q ~/.m2/repository/org/openpnp/opencv/4.7.0-0/opencv-4.7.0-0.jar "org/opencv/linux/x86_64/libopencv_java470.so" -d temp_opencv
+        mv temp_opencv/org/opencv/linux/x86_64/libopencv_java470.so dist/
+        rm -rf temp_opencv
 
         # Create AppImage structure
         mkdir -p dist/AppDir/usr/bin
@@ -210,6 +224,17 @@ jobs:
         cp src/main/resources/application.yml dist/
         # 安全地复制模型文件（如果存在）
         if compgen -G "models/*.onnx" > /dev/null; then cp models/*.onnx dist/models/; fi
+
+        # 提取 OpenCV 本地库
+        echo "Extracting OpenCV native library..."
+        mkdir -p temp_opencv
+        cd temp_opencv
+        jar -xf ~/.m2/repository/org/openpnp/opencv/4.7.0-0/opencv-4.7.0-0.jar org/opencv/macosx/arm64/libopencv_java470.dylib 2>/dev/null || \
+        jar -xf ~/.m2/repository/org/openpnp/opencv/4.7.0-0/opencv-4.7.0-0.jar org/opencv/macosx/x86_64/libopencv_java470.dylib
+        cd ..
+        mv temp_opencv/org/opencv/macosx/*/libopencv_java470.dylib dist/ 2>/dev/null || \
+        mv temp_opencv/org/opencv/macosx/arm64/libopencv_java470.dylib dist/ 2>/dev/null
+        rm -rf temp_opencv
 
         # Create app bundle
         mkdir -p "dist/Edge Vision.app/Contents/MacOS"
