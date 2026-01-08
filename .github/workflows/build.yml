@@ -186,13 +186,14 @@ jobs:
         ln -sf libonnxruntime.so libonnxruntime.so.1.17.3
 
         # Run script
-        cat > dist-cpu/run.sh << 'EOF'
+        cat > run.sh << 'EOF'
         #!/bin/bash
         DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
         cd "$DIR"
         ./edge-vision --spring.config.additional-location=application.yml
         EOF
-        chmod +x dist-cpu/run.sh
+        chmod +x run.sh
+        cd ..
 
     - name: Show file sizes
       run: |
@@ -257,7 +258,7 @@ jobs:
         ln -sf libonnxruntime.so libonnxruntime.so.1.17.3
 
         # Run script
-        cat > dist-gpu/run.sh << 'EOF'
+        cat > run.sh << 'EOF'
         #!/bin/bash
         DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
@@ -276,7 +277,8 @@ jobs:
         cd "$DIR"
         ./edge-vision --spring.config.additional-location=application.yml
         EOF
-        chmod +x dist-gpu/run.sh
+        chmod +x run.sh
+        cd ..
 
     - name: Show file sizes
       run: |
