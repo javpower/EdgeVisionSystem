@@ -38,7 +38,7 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
-        
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-configuration-processor</artifactId>
@@ -52,7 +52,7 @@
             <version>${opencv.version}</version>
         </dependency>
 
-        <!-- ONNX Runtime -->
+        <!-- ONNX Runtime (默认 CPU 版本，使用 -Pgpu 切换到 GPU 版本) -->
         <dependency>
             <groupId>com.microsoft.onnxruntime</groupId>
             <artifactId>onnxruntime</artifactId>
@@ -115,6 +115,11 @@
                         <buildArg>--no-fallback</buildArg>
                         <buildArg>--install-exit-handlers</buildArg>
                         <buildArg>--report-unsupported-elements-at-runtime</buildArg>
+                        <!-- Handle JNI libraries (OpenCV, ONNX Runtime) -->
+                        <buildArg>--allow-incomplete-classpath</buildArg>
+                        <buildArg>-H:+ReportExceptionStackTraces</buildArg>
+                        <!-- Increase memory for compilation -->
+                        <buildArg>-J-Xmx4g</buildArg>
                     </buildArgs>
                 </configuration>
                 <executions>
@@ -131,6 +136,18 @@
     </build>
 
     <profiles>
+        <!-- GPU Profile: 使用 ONNX Runtime GPU 版本 (Windows/Linux) -->
+        <profile>
+            <id>gpu</id>
+            <dependencies>
+                <dependency>
+                    <groupId>com.microsoft.onnxruntime</groupId>
+                    <artifactId>onnxruntime-gpu</artifactId>
+                    <version>${onnxruntime.version}</version>
+                </dependency>
+            </dependencies>
+        </profile>
+
         <!-- Native Profile -->
         <profile>
             <id>native</id>

@@ -41,11 +41,11 @@ jobs:
     - name: Build with Maven
       run: |
         mvn clean compile
-        
+
     - name: Build Native Image
       run: |
-        mvn -Pnative package -DskipTests
-        
+        mvn -Pnative,gpu package -DskipTests
+
     - name: Package Application
       run: |
         mkdir -p dist
@@ -99,11 +99,11 @@ jobs:
     - name: Build with Maven
       run: |
         mvn clean compile
-        
+
     - name: Build Native Image
       run: |
-        mvn -Pnative package -DskipTests
-        
+        mvn -Pnative,gpu package -DskipTests
+
     - name: Create AppImage
       run: |
         mkdir -p dist
