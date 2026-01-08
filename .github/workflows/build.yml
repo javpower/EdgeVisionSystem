@@ -49,23 +49,26 @@ jobs:
         mvn '-Pnative,gpu' package -DskipTests
 
     - name: Package Application
-      shell: cmd
+      shell: pwsh
       run: |
         mkdir dist
         mkdir dist\models
         copy target\edge-vision.exe dist\edge-vision.exe
         copy src\main\resources\application.yml dist\
-        if exist models\*.onnx copy models\*.onnx dist\models\
+        if (Test-Path "models\*.onnx")) { copy models\*.onnx dist\models\ }
 
-        # 提取 OpenCV 本地库
-        echo Extracting OpenCV native library...
-        powershell -Command "Expand-Archive -Path '$env:USERPROFILE\.m2\repository\org\openpnp\opencv\4.7.0-0\opencv-4.7.0-0.jar' -DestinationPath temp_opencv -Force"
-        jar -xf %USERPROFILE%\.m2\repository\org\openpnp\opencv\4.7.0-0\opencv-4.7.0-0.jar org/opencv/windows/x86_64/libopencv_java470.dll
-        move org\opencv\windows\x86_64\libopencv_java470.dll dist\
-        rmdir /s /q org temp_opencv
+        Write-Host "Extracting OpenCV native library..."
+        $mavenPath = "$env:USERPROFILE\.m2\repository\org\openpnp\opencv\4.7.0-0\opencv-4.7.0-0.jar"
+        if (Test-Path $mavenPath) {
+            Expand-Archive -Path $mavenPath -DestinationPath temp_opencv -Force
+            copy "temp_opencv\org\opencv\windows\x86_64\libopencv_java470.dll" dist\
+            Remove-Item -Recurse -Force temp_opencv, org
+        } else {
+            Write-Host "Warning: OpenCV JAR not found at $mavenPath"
+        }
 
-        echo @echo off > dist\run.bat
-        echo edge-vision.exe --spring.config.additional-location=application.yml >> dist\run.bat
+        "@echo off" | Out-File -FilePath dist\run.bat -Encoding ASCII
+        "edge-vision.exe --spring.config.additional-location=application.yml" | Out-File -FilePath dist\run.bat -Append -Encoding ASCII
 
     - name: Upload Windows Artifact
       uses: actions/upload-artifact@v4
