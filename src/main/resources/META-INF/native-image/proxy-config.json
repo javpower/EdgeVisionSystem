@@ -1,0 +1,5 @@
+[
+  ["java.lang.Runnable"],
+  ["java.util.concurrent.Callable"],
+  ["org.springframework.http.converter.HttpMessageConverter"]
+]
