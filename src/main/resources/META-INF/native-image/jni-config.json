@@ -1,0 +1,26 @@
+[
+  {
+    "name": "org.opencv",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "org.opencv.core",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "org.opencv.imgproc",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "org.opencv.imgcodecs",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "org.opencv.videoio",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "org.opencv.calib3d",
+    "allDeclaredMethods": true
+  }
+]

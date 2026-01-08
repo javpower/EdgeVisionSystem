@@ -1,0 +1,31 @@
+{
+  "resources": {
+    "includes": [
+      {
+        "pattern": "application\\.yml"
+      },
+      {
+        "pattern": "application-.*\\.yml"
+      },
+      {
+        "pattern": "logback\\.xml"
+      },
+      {
+        "pattern": "models/.*\\.onnx"
+      },
+      {
+        "pattern": "org/opencv/.*\\.dll"
+      },
+      {
+        "pattern": "org/opencv/.*\\.so"
+      },
+      {
+        "pattern": "org/opencv/.*\\.dylib"
+      },
+      {
+        "pattern": "org/opencv/.*"
+      }
+    ]
+  },
+  "bundles": []
+}
