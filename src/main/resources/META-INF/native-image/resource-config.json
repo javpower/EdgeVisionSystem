@@ -24,6 +24,18 @@
       },
       {
         "pattern": "org/opencv/.*"
+      },
+      {
+        "pattern": "ai/onnxruntime/native/.*\\.dll"
+      },
+      {
+        "pattern": "ai/onnxruntime/native/.*\\.so"
+      },
+      {
+        "pattern": "ai/onnxruntime/native/.*\\.dylib"
+      },
+      {
+        "pattern": "libonnxruntime.*"
       }
     ]
   },

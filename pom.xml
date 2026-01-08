@@ -183,9 +183,38 @@
                     <execution>
                         <id>build-native</id>
                         <goals>
-                            <goal>build</goal>
+                            <goal>compile-no-fork</goal>
                         </goals>
                         <phase>package</phase>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Copy native libraries to target directory after build -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-resources-plugin</artifactId>
+                <version>3.3.1</version>
+                <executions>
+                    <execution>
+                        <id>copy-native-libs</id>
+                        <phase>process-resources</phase>
+                        <goals>
+                            <goal>copy-resources</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}/native-libs</outputDirectory>
+                            <resources>
+                                <resource>
+                                    <directory>${project.build.directory}/native</directory>
+                                    <includes>
+                                        <include>**/*.so</include>
+                                        <include>**/*.dll</include>
+                                        <include>**/*.dylib</include>
+                                    </includes>
+                                </resource>
+                            </resources>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>
@@ -199,7 +228,7 @@
             <dependencies>
                 <dependency>
                     <groupId>com.microsoft.onnxruntime</groupId>
-                    <artifactId>onnxruntime_gpu</artifactId>
+                    <artifactId>onnxruntime-gpu</artifactId>
                     <version>${onnxruntime.version}</version>
                 </dependency>
             </dependencies>
@@ -221,7 +250,7 @@
                                     <artifactItems>
                                         <artifactItem>
                                             <groupId>com.microsoft.onnxruntime</groupId>
-                                            <artifactId>onnxruntime_gpu</artifactId>
+                                            <artifactId>onnxruntime-gpu</artifactId>
                                             <version>${onnxruntime.version}</version>
                                             <type>jar</type>
                                             <overWrite>true</overWrite>

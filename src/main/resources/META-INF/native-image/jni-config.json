@@ -22,5 +22,52 @@
   {
     "name": "org.opencv.calib3d",
     "allDeclaredMethods": true
+  },
+  {
+    "name": "ai.onnxruntime",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "ai.onnxruntime.OrtEnvironment",
+    "allDeclaredMethods": true,
+    "allDeclaredFields": true
+  },
+  {
+    "name": "ai.onnxruntime.OrtSession",
+    "allDeclaredMethods": true,
+    "allDeclaredFields": true
+  },
+  {
+    "name": "ai.onnxruntime.OrtSession$SessionOptions",
+    "allDeclaredMethods": true,
+    "allDeclaredFields": true
+  },
+  {
+    "name": "ai.onnxruntime.OrtSession$Result",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "ai.onnxruntime.OnnxTensor",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "ai.onnxruntime.OnnxModelMetadata",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "ai.onnxruntime.NodeInfo",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "ai.onnxruntime.TensorInfo",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "ai.onnxruntime.OrtException",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "ai.onnxruntime.OrtUtil",
+    "allDeclaredMethods": true
   }
 ]
