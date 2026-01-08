@@ -40,10 +40,26 @@ public class CameraService {
 
     @PostConstruct
     public void init() {
-        // 初始化OpenCV - 使用 openpnp 的方式加载原生库
+        // 初始化 OpenCV - 兼容 native-image 和普通 JAR 运行
         try {
-            nu.pattern.OpenCV.loadShared();
-            logger.info("OpenCV loaded successfully, version: {}", org.opencv.core.Core.VERSION);
+            // 检测是否在 native-image 环境中运行
+            boolean isNativeImage = System.getProperty("org.graalvm.nativeimage.imagecode") != null;
+
+            if (isNativeImage) {
+                // Native-image 环境: 尝试直接加载系统 OpenCV 库
+                logger.info("Running in native-image mode, attempting to load OpenCV from system paths");
+
+                // 尝试加载 OpenCV 库
+                System.loadLibrary("opencv_java470");
+                logger.info("OpenCV loaded successfully from system library (native-image mode)");
+            } else {
+                // 普通 JAR 环境: 使用 openpnp 的方式加载
+                nu.pattern.OpenCV.loadShared();
+                logger.info("OpenCV loaded successfully, version: {}", org.opencv.core.Core.VERSION);
+            }
+        } catch (UnsatisfiedLinkError e) {
+            logger.error("Failed to load OpenCV native library. In native-image mode, OpenCV must be installed on the system.");
+            throw new RuntimeException("OpenCV native library not found. In native-image mode, please install OpenCV or place libopencv_java470.{dylib|so|dll} next to the executable.", e);
         } catch (Exception e) {
             logger.error("Failed to load OpenCV", e);
             throw new RuntimeException("Failed to load OpenCV", e);
