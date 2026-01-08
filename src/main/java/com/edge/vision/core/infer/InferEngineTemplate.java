@@ -4,6 +4,7 @@ import ai.onnxruntime.*;
 import com.edge.vision.model.Detection;
 import org.opencv.core.Mat;
 
+import java.io.IOException;
 import java.nio.FloatBuffer;
 import java.util.*;
 import java.util.regex.Matcher;
@@ -20,16 +21,9 @@ public abstract class InferEngineTemplate {
     public InferEngineTemplate(String modelPath, String device) throws OrtException {
         // 1. 初始化环境
         this.env = OrtEnvironment.getEnvironment();
-        OrtSession.SessionOptions opts = new OrtSession.SessionOptions();
 
         // 2. 配置设备 (GPU/CPU)
-        if ("GPU".equalsIgnoreCase(device)) {
-            try {
-                opts.addCUDA(0);
-            } catch (Exception e) {
-                System.err.println("CUDA 初始化失败，切换回 CPU");
-            }
-        }
+        OrtSession.SessionOptions opts = createSessionOptions(device);
 
         // 3. 创建 Session
         this.session = env.createSession(modelPath, opts);
@@ -44,6 +38,91 @@ public abstract class InferEngineTemplate {
 
         // 5. 动态加载 Metadata 中的类别名称 (参考你的 regex 逻辑)
         loadMetadata();
+    }
+
+    /**
+     * 创建 SessionOptions，根据设备配置 GPU/CPU
+     */
+    private OrtSession.SessionOptions createSessionOptions(String device) throws OrtException {
+        OrtSession.SessionOptions opts = new OrtSession.SessionOptions();
+
+        if ("GPU".equalsIgnoreCase(device)) {
+            // 检查是否在native-image环境中运行
+            boolean isNativeImage = System.getProperty("org.graalvm.nativeimage.imagecode") != null;
+
+            if (isNativeImage) {
+                // native-image环境下，先检查CUDA库是否可用
+                if (isCudaAvailable()) {
+                    try {
+                        opts.addCUDA(0);
+                        System.out.println("GPU (CUDA) provider enabled successfully in native-image mode");
+                    } catch (Exception e) {
+                        System.err.println("Warning: CUDA initialization failed in native-image: " + e.getMessage());
+                        System.err.println("This usually means CUDA runtime libraries are not installed or not in LD_LIBRARY_PATH");
+                        System.err.println("Falling back to CPU execution");
+                        opts = new OrtSession.SessionOptions();
+                    }
+                } else {
+                    System.err.println("Warning: CUDA runtime not detected. Falling back to CPU execution.");
+                    System.err.println("To use GPU, ensure NVIDIA driver and CUDA runtime are installed.");
+                    opts = new OrtSession.SessionOptions();
+                }
+            } else {
+                // JAR模式下的处理
+                try {
+                    opts.addCUDA(0);
+                    System.out.println("GPU (CUDA) provider enabled successfully");
+                } catch (Exception e) {
+                    System.err.println("Warning: CUDA initialization failed: " + e.getMessage());
+                    System.err.println("Falling back to CPU execution");
+                    opts = new OrtSession.SessionOptions();
+                }
+            }
+        } else {
+            System.out.println("Using CPU execution");
+        }
+
+        return opts;
+    }
+
+    /**
+     * 检测CUDA运行时是否可用
+     */
+    private boolean isCudaAvailable() {
+        try {
+            // 尝试加载CUDA运行时库
+            String osName = System.getProperty("os.name").toLowerCase();
+            String cudaLib;
+
+            if (osName.contains("linux")) {
+                cudaLib = "libcudart.so";
+            } else if (osName.contains("win")) {
+                cudaLib = "cudart64_*.dll";
+            } else {
+                // macOS不支持CUDA
+                return false;
+            }
+
+            // 尝试检查nvidia-smi是否可用（Linux）
+            if (osName.contains("linux")) {
+                try {
+                    Process proc = Runtime.getRuntime().exec("nvidia-smi");
+                    int exitCode = proc.waitFor();
+                    if (exitCode == 0) {
+                        System.out.println("Detected NVIDIA GPU via nvidia-smi");
+                        return true;
+                    }
+                } catch (IOException e) {
+                    // nvidia-smi不可用，继续尝试其他方法
+                }
+            }
+
+            // 最后尝试加载库
+            System.loadLibrary(cudaLib.replaceAll("\\.", "").replaceAll("\\*", ""));
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     /**

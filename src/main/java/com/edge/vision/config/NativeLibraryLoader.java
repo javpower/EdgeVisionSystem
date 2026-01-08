@@ -109,24 +109,41 @@ public class NativeLibraryLoader {
     private static void loadOnnxRuntime(String appDir) {
         String osName = System.getProperty("os.name").toLowerCase();
         String libFileName;
+        String jniLibFileName; // JNI 绑定库
         String altLibFileName; // GPU版本的备用文件名
 
         if (osName.contains("win")) {
             libFileName = "onnxruntime.dll";
+            jniLibFileName = "onnxruntime4j_jni.dll";
             altLibFileName = null;
         } else if (osName.contains("mac")) {
             libFileName = "libonnxruntime.dylib";
+            jniLibFileName = "libonnxruntime4j_jni.dylib";
             altLibFileName = null;
         } else {
             libFileName = "libonnxruntime.so";
+            jniLibFileName = "libonnxruntime4j_jni.so";
             altLibFileName = "libonnxruntime_gpu.so"; // Linux GPU版本可能有不同的文件名
         }
 
-        logger.info("Attempting to load ONNX Runtime library: {} from directory: {}", libFileName, appDir);
+        // 1. 首先加载 JNI 库 (Java绑定需要)
+        File jniLibFile = new File(appDir, jniLibFileName);
+        logger.info("Looking for ONNX Runtime JNI library at: {}", jniLibFile.getAbsolutePath());
+        if (jniLibFile.exists()) {
+            try {
+                System.load(jniLibFile.getAbsolutePath());
+                logger.info("ONNX Runtime JNI library loaded successfully from: {}", jniLibFile.getAbsolutePath());
+            } catch (UnsatisfiedLinkError e) {
+                logger.warn("Failed to load ONNX Runtime JNI library: {}", e.getMessage());
+            }
+        } else {
+            logger.info("JNI library not found at: {}", jniLibFile.getAbsolutePath());
+        }
 
-        // 首先尝试从应用目录加载
+        // 2. 然后加载主 ONNX Runtime 库
+        logger.info("Looking for ONNX Runtime library: {} from directory: {}", libFileName, appDir);
         File libFile = new File(appDir, libFileName);
-        logger.info("Looking for library at: {}", libFile.getAbsolutePath());
+        logger.info("Library path: {}", libFile.getAbsolutePath());
         logger.info("Library exists: {}", libFile.exists());
 
         if (libFile.exists()) {

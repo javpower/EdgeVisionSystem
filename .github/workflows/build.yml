@@ -91,7 +91,13 @@ jobs:
         }
 
         "@echo off" | Out-File -FilePath dist\run.bat -Encoding ASCII
+        "" | Out-File -FilePath dist\run.bat -Append -Encoding ASCII
+        "echo Starting Edge Vision System..." | Out-File -FilePath dist\run.bat -Append -Encoding ASCII
+        "echo." | Out-File -FilePath dist\run.bat -Append -Encoding ASCII
+        "echo Note: To use GPU acceleration, ensure NVIDIA drivers and CUDA are installed." | Out-File -FilePath dist\run.bat -Append -Encoding ASCII
+        "echo." | Out-File -FilePath dist\run.bat -Append -Encoding ASCII
         "edge-vision.exe --spring.config.additional-location=application.yml" | Out-File -FilePath dist\run.bat -Append -Encoding ASCII
+        "pause" | Out-File -FilePath dist\run.bat -Append -Encoding ASCII
 
     - name: Upload Windows Artifact
       uses: actions/upload-artifact@v4
@@ -204,11 +210,26 @@ jobs:
         # Create AppImage (可能失败，继续执行)
         ./appimagetool-x86_64.AppImage dist/AppDir dist/edge-vision-x86_64.AppImage || true
 
-        # Create run script
-        echo "#!/bin/bash" > dist/run.sh
-        echo "./edge-vision --spring.config.additional-location=application.yml" >> dist/run.sh
+        # Create run script with CUDA support
+        cat > dist/run.sh << 'EOF'
+#!/bin/bash
+
+# 添加 CUDA 库路径（如果存在）
+if [ -d "/usr/local/cuda/lib64" ]; then
+    export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
+fi
+
+# 检查 NVIDIA 驱动
+if ! command -v nvidia-smi &> /dev/null; then
+    echo "Warning: nvidia-smi not found. GPU acceleration will not be available."
+    echo "To use GPU, ensure NVIDIA drivers are installed."
+fi
+
+# 运行应用
+./edge-vision --spring.config.additional-location=application.yml
+EOF
         chmod +x dist/run.sh
-        
+
     - name: Upload Linux Artifact
       uses: actions/upload-artifact@v4
       with:
@@ -291,11 +312,21 @@ jobs:
         # 复制 ONNX Runtime 库 (CPU版本)
         # 复制所有 ONNX Runtime 相关的 .dylib 文件
         onnx_copied=false
-        for onnx_file in $(find target/native -name "*onnx*.dylib" 2>/dev/null); do
+        for onnx_file in $(find target/native -name "*onnx*.dylib" -o -name "*onnxruntime*.dylib" 2>/dev/null); do
             cp "$onnx_file" dist/
             echo "ONNX Runtime library copied: $(basename $onnx_file)"
             onnx_copied=true
         done
+
+        # 特别查找 JNI 库 (可能不符合上面的命名模式)
+        if [ ! -f "dist/libonnxruntime4j_jni.dylib" ]; then
+            jni_file=$(find target/native -name "libonnxruntime4j_jni.dylib" 2>/dev/null | head -1)
+            if [ -n "$jni_file" ]; then
+                cp "$jni_file" dist/
+                echo "ONNX Runtime JNI library copied: $(basename $jni_file)"
+                onnx_copied=true
+            fi
+        fi
 
         if [ "$onnx_copied" = false ]; then
             echo "Warning: No ONNX Runtime libraries found"
@@ -323,7 +354,7 @@ jobs:
         fi
 
         # 复制所有 ONNX Runtime 库到 .app 包
-        for onnx_lib in dist/libonnxruntime*.dylib; do
+        for onnx_lib in dist/*onnx*.dylib; do
             if [ -f "$onnx_lib" ]; then
                 cp "$onnx_lib" "dist/Edge Vision.app/Contents/MacOS/"
                 echo "ONNX Runtime library copied to .app bundle: $(basename $onnx_lib)"
