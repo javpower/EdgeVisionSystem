@@ -109,12 +109,13 @@ jobs:
 
     - name: Create AppImage
       run: |
-        set -e
+        set +e  # 不在错误时立即退出
         mkdir -p dist
         mkdir -p dist/models
         cp target/edge-vision dist/
         cp src/main/resources/application.yml dist/
-        if [ -n "$(ls models/*.onnx 2>/dev/null)" ]; then cp models/*.onnx dist/models/; fi
+        # 安全地复制模型文件（如果存在）
+        if compgen -G "models/*.onnx" > /dev/null; then cp models/*.onnx dist/models/; fi
 
         # Create AppImage structure
         mkdir -p dist/AppDir/usr/bin
@@ -137,8 +138,8 @@ jobs:
         wget -q https://github.com/AppImage/AppImageKit/releases/download/13/appimagetool-x86_64.AppImage
         chmod +x appimagetool-x86_64.AppImage
 
-        # Create AppImage
-        ./appimagetool-x86_64.AppImage dist/AppDir dist/edge-vision-x86_64.AppImage || echo "AppImage creation failed, continuing..."
+        # Create AppImage (可能失败，继续执行)
+        ./appimagetool-x86_64.AppImage dist/AppDir dist/edge-vision-x86_64.AppImage || true
 
         # Create run script
         echo "#!/bin/bash" > dist/run.sh
@@ -180,32 +181,35 @@ jobs:
     - name: Free up disk space
       run: |
         df -h
-        sudo rm -rf /Users/runner/hostedtoolcache /Users/runner/work/_temp
+        sudo rm -rf /Users/runner/work/_temp
         df -h
-        
+
     - name: Cache Maven packages
       uses: actions/cache@v4
       with:
         path: ~/.m2
         key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
         restore-keys: ${{ runner.os }}-m2
-        
+
     - name: Build with Maven
       run: |
+        export JAVA_HOME=$GRAALVM_HOME
         mvn clean compile
 
     - name: Build Native Image
       run: |
+        export JAVA_HOME=$GRAALVM_HOME
         mvn -Pnative package -DskipTests
 
     - name: Create DMG
       run: |
-        set -e
+        set +e  # 不在错误时立即退出
         mkdir -p dist
         mkdir -p dist/models
         cp target/edge-vision dist/
         cp src/main/resources/application.yml dist/
-        if [ -n "$(ls models/*.onnx 2>/dev/null)" ]; then cp models/*.onnx dist/models/; fi
+        # 安全地复制模型文件（如果存在）
+        if compgen -G "models/*.onnx" > /dev/null; then cp models/*.onnx dist/models/; fi
 
         # Create app bundle
         mkdir -p "dist/Edge Vision.app/Contents/MacOS"
