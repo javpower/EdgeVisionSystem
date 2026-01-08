@@ -37,14 +37,16 @@ jobs:
         path: ~/.m2
         key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
         restore-keys: ${{ runner.os }}-m2
-        
+
     - name: Build with Maven
+      shell: pwsh
       run: |
         mvn clean compile
 
     - name: Build Native Image
+      shell: pwsh
       run: |
-        mvn -Pnative,gpu package -DskipTests
+        mvn '-Pnative,gpu' package -DskipTests
 
     - name: Package Application
       run: |
@@ -55,7 +57,7 @@ jobs:
         if exist "models\*.onnx" copy models\*.onnx dist\models\
         echo "@echo off" > dist\run.bat
         echo "edge-vision.exe --spring.config.additional-location=application.yml" >> dist\run.bat
-        
+
     - name: Upload Windows Artifact
       uses: actions/upload-artifact@v4
       with:
@@ -95,7 +97,7 @@ jobs:
         path: ~/.m2
         key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
         restore-keys: ${{ runner.os }}-m2
-        
+
     - name: Build with Maven
       run: |
         mvn clean compile
@@ -183,11 +185,11 @@ jobs:
     - name: Build with Maven
       run: |
         mvn clean compile
-        
+
     - name: Build Native Image
       run: |
-        mvn -Pnative package -DskipTests
-        
+        mvn -Pnative package -DskipTests -e
+
     - name: Create DMG
       run: |
         mkdir -p dist

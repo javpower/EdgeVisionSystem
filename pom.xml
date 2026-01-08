@@ -142,7 +142,7 @@
             <dependencies>
                 <dependency>
                     <groupId>com.microsoft.onnxruntime</groupId>
-                    <artifactId>onnxruntime-gpu</artifactId>
+                    <artifactId>onnxruntime_gpu</artifactId>
                     <version>${onnxruntime.version}</version>
                 </dependency>
             </dependencies>
