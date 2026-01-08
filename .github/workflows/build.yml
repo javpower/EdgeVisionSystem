@@ -71,37 +71,17 @@ jobs:
         }
 
         # 复制 ONNX Runtime GPU 库（使用 -Pgpu 时）
-        # GPU 版本的库可能在不同的路径
-        $onnxPaths = @(
-          "target\native\com\microsoft\onnxruntime\native\onnxruntime.dll",
-          "target\native\ai\onnxruntime\native\onnxruntime.dll"
-        )
-
+        # 复制所有 ONNX Runtime 相关的 DLL 文件
         $onnxCopied = $false
-        foreach ($path in $onnxPaths) {
-          if (Test-Path $path) {
-            copy $path dist\
-            Write-Host "ONNX Runtime library copied from: $path"
-            $onnxCopied = $true
-            break
-          }
+        $dllFiles = Get-ChildItem -Path target\native -Filter "*onnx*.dll" -Recurse -ErrorAction SilentlyContinue
+        foreach ($dll in $dllFiles) {
+          copy $dll.FullName dist\
+          Write-Host "ONNX Runtime library copied: $($dll.Name)"
+          $onnxCopied = $true
         }
 
         if (-not $onnxCopied) {
-          # 尝试查找任何 .dll 文件作为后备
-          $dllFiles = Get-ChildItem -Path target\native -Filter "*.dll" -Recurse -ErrorAction SilentlyContinue
-          foreach ($dll in $dllFiles) {
-            if ($dll.Name -like "*onnx*") {
-              copy $dll.FullName dist\
-              Write-Host "ONNX Runtime library copied from: $($dll.FullName)"
-              $onnxCopied = $true
-              break
-            }
-          }
-        }
-
-        if (-not $onnxCopied) {
-          Write-Host "Warning: ONNX Runtime library not found"
+          Write-Host "Warning: No ONNX Runtime libraries found"
         }
 
         # 如果还是没有找到，列出可用文件
@@ -182,31 +162,16 @@ jobs:
         fi
 
         # 复制 ONNX Runtime GPU 库（使用 -Pgpu 时）
-        # 尝试多个可能的路径
+        # 复制所有 ONNX Runtime 相关的 .so 文件
         onnx_copied=false
-        for onnx_path in \
-            "target/native/com/microsoft/onnxruntime/native/libonnxruntime.so" \
-            "target/native/ai/onnxruntime/native/libonnxruntime.so" \
-            "target/native/libonnxruntime.so" \
-            "target/native/com/microsoft/onnxruntime/native/libonnxruntime_gpu.so"
-        do
-            if [ -f "$onnx_path" ]; then
-                cp "$onnx_path" dist/
-                echo "ONNX Runtime library copied from: $onnx_path"
-                onnx_copied=true
-                break
-            fi
+        for onnx_file in $(find target/native -name "*onnx*.so" 2>/dev/null); do
+            cp "$onnx_file" dist/
+            echo "ONNX Runtime library copied: $(basename $onnx_file)"
+            onnx_copied=true
         done
 
         if [ "$onnx_copied" = false ]; then
-            # 后备方案：查找任何 onnx 相关的 .so 文件
-            onnx_file=$(find target/native -name "*onnx*.so" 2>/dev/null | head -1)
-            if [ -n "$onnx_file" ]; then
-                cp "$onnx_file" dist/
-                echo "ONNX Runtime library copied from: $onnx_file"
-            else
-                echo "Warning: ONNX Runtime library not found"
-            fi
+            echo "Warning: No ONNX Runtime libraries found"
         fi
 
         # 列出可用文件（用于调试）
@@ -323,12 +288,17 @@ jobs:
             echo "Warning: OpenCV library not found"
         fi
 
-        # 复制 ONNX Runtime 库
-        if [ -f "target/native/com/microsoft/onnxruntime/native/libonnxruntime.dylib" ]; then
-            cp target/native/com/microsoft/onnxruntime/native/libonnxruntime.dylib dist/libonnxruntime.dylib
-            echo "ONNX Runtime library copied successfully"
-        else
-            echo "Warning: ONNX Runtime library not found"
+        # 复制 ONNX Runtime 库 (CPU版本)
+        # 复制所有 ONNX Runtime 相关的 .dylib 文件
+        onnx_copied=false
+        for onnx_file in $(find target/native -name "*onnx*.dylib" 2>/dev/null); do
+            cp "$onnx_file" dist/
+            echo "ONNX Runtime library copied: $(basename $onnx_file)"
+            onnx_copied=true
+        done
+
+        if [ "$onnx_copied" = false ]; then
+            echo "Warning: No ONNX Runtime libraries found"
         fi
 
         # 列出可用文件（用于调试）
@@ -352,12 +322,13 @@ jobs:
             echo "Warning: OpenCV library not found in dist/"
         fi
 
-        if [ -f "dist/libonnxruntime.dylib" ]; then
-            cp dist/libonnxruntime.dylib "dist/Edge Vision.app/Contents/MacOS/"
-            echo "ONNX Runtime library copied to .app bundle"
-        else
-            echo "Warning: ONNX Runtime library not found in dist/"
-        fi
+        # 复制所有 ONNX Runtime 库到 .app 包
+        for onnx_lib in dist/libonnxruntime*.dylib; do
+            if [ -f "$onnx_lib" ]; then
+                cp "$onnx_lib" "dist/Edge Vision.app/Contents/MacOS/"
+                echo "ONNX Runtime library copied to .app bundle: $(basename $onnx_lib)"
+            fi
+        done
 
         # Create Info.plist
         cat > "dist/Edge Vision.app/Contents/Info.plist" << 'EOF'

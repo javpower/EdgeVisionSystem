@@ -66,22 +66,40 @@ public class NativeLibraryLoader {
         // 尝试多种方式获取应用目录
         String path = System.getProperty("user.dir");
 
-        // 在 macOS .app 包中运行时，路径可能是 Contents/MacOS
+        String osName = System.getProperty("os.name").toLowerCase();
+        String onnxLibName;
+        String opencvLibName;
+
+        if (osName.contains("win")) {
+            onnxLibName = "onnxruntime.dll";
+            opencvLibName = "opencv_java470.dll";
+        } else if (osName.contains("mac")) {
+            onnxLibName = "libonnxruntime.dylib";
+            opencvLibName = "libopencv_java470.dylib";
+        } else {
+            onnxLibName = "libonnxruntime.so";
+            opencvLibName = "libopencv_java470.so";
+        }
+
+        // 检查当前目录
         File appDir = new File(path);
-        if (new File(appDir, "libonnxruntime.dylib").exists() ||
-            new File(appDir, "libopencv_java470.dylib").exists()) {
+        if (new File(appDir, onnxLibName).exists() ||
+            new File(appDir, opencvLibName).exists()) {
+            logger.debug("Found libraries in current directory: {}", path);
             return path;
         }
 
-        // 检查父目录
+        // 检查父目录（用于 macOS .app 包或其他情况）
         File parentDir = appDir.getParentFile();
         if (parentDir != null) {
-            if (new File(parentDir, "libonnxruntime.dylib").exists() ||
-                new File(parentDir, "libopencv_java470.dylib").exists()) {
+            if (new File(parentDir, onnxLibName).exists() ||
+                new File(parentDir, opencvLibName).exists()) {
+                logger.debug("Found libraries in parent directory: {}", parentDir.getAbsolutePath());
                 return parentDir.getAbsolutePath();
             }
         }
 
+        logger.debug("Library detection: using current directory: {}", path);
         return path;
     }
 
@@ -104,8 +122,13 @@ public class NativeLibraryLoader {
             altLibFileName = "libonnxruntime_gpu.so"; // Linux GPU版本可能有不同的文件名
         }
 
+        logger.info("Attempting to load ONNX Runtime library: {} from directory: {}", libFileName, appDir);
+
         // 首先尝试从应用目录加载
         File libFile = new File(appDir, libFileName);
+        logger.info("Looking for library at: {}", libFile.getAbsolutePath());
+        logger.info("Library exists: {}", libFile.exists());
+
         if (libFile.exists()) {
             try {
                 System.load(libFile.getAbsolutePath());
@@ -113,12 +136,14 @@ public class NativeLibraryLoader {
                 return;
             } catch (UnsatisfiedLinkError e) {
                 logger.warn("Failed to load ONNX Runtime from {}: {}", libFile, e.getMessage());
+                logger.warn("Error details: {}", e.toString());
             }
         }
 
         // 尝试备用文件名（Linux GPU版本）
         if (altLibFileName != null) {
             File altLibFile = new File(appDir, altLibFileName);
+            logger.info("Looking for alternative library at: {}", altLibFile.getAbsolutePath());
             if (altLibFile.exists()) {
                 try {
                     System.load(altLibFile.getAbsolutePath());
@@ -127,10 +152,13 @@ public class NativeLibraryLoader {
                 } catch (UnsatisfiedLinkError e) {
                     logger.warn("Failed to load ONNX Runtime from {}: {}", altLibFile, e.getMessage());
                 }
+            } else {
+                logger.info("Alternative library not found at: {}", altLibFile.getAbsolutePath());
             }
         }
 
         // 回退到从系统库路径加载
+        logger.info("Attempting to load from system library path...");
         try {
             System.loadLibrary("onnxruntime");
             logger.info("ONNX Runtime loaded successfully from system library path");
@@ -147,6 +175,17 @@ public class NativeLibraryLoader {
                 }
             }
             logger.error("Failed to load ONNX Runtime library. Please ensure {} is in the application directory or system library path", libFileName);
+            logger.error("Application directory was: {}", appDir);
+            logger.error("Files in application directory:");
+            File dir = new File(appDir);
+            if (dir.exists() && dir.isDirectory()) {
+                File[] files = dir.listFiles();
+                if (files != null) {
+                    for (File f : files) {
+                        logger.error("  - {}", f.getName());
+                    }
+                }
+            }
             throw new RuntimeException("ONNX Runtime native library not found: " + libFileName, e);
         }
     }
