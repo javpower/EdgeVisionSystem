@@ -23,7 +23,6 @@
     <properties>
         <java.version>17</java.version>
         <opencv.version>4.7.0-0</opencv.version>
-        <onnxruntime.version>1.16.0</onnxruntime.version>
         <graalvm.version>0.10.0</graalvm.version>
     </properties>
 
@@ -52,12 +51,13 @@
             <version>4.7.0-0</version>
         </dependency>
 
-        <!-- ONNX Runtime (默认 CPU 版本，使用 -Pgpu 切换到 GPU 版本) -->
+        <!-- ONNX Runtime CPU 版本 (Mac 开发使用，更稳定) -->
         <dependency>
             <groupId>com.microsoft.onnxruntime</groupId>
             <artifactId>onnxruntime</artifactId>
-            <version>${onnxruntime.version}</version>
+            <version>1.17.3</version>
         </dependency>
+
 
         <!-- HTTP Client -->
         <dependency>
@@ -143,11 +143,11 @@
                                 <artifactItem>
                                     <groupId>com.microsoft.onnxruntime</groupId>
                                     <artifactId>onnxruntime</artifactId>
-                                    <version>${onnxruntime.version}</version>
+                                    <version>1.17.3</version>
                                     <type>jar</type>
                                     <overWrite>true</overWrite>
                                     <outputDirectory>${project.build.directory}/native</outputDirectory>
-                                    <includes>**/libonnxruntime.*</includes>
+                                    <includes>**/*.dll,**/*.so,**/*.dylib</includes>
                                 </artifactItem>
                             </artifactItems>
                         </configuration>
@@ -164,19 +164,31 @@
                     <mainClass>com.edge.vision.EdgeVisionApplication</mainClass>
                     <imageName>edge-vision</imageName>
                     <buildArgs>
-                        <!-- Spring Boot 3.x native image settings -->
+                        <!-- 基础配置 -->
                         <buildArg>--no-fallback</buildArg>
                         <buildArg>--report-unsupported-elements-at-runtime</buildArg>
-                        <!-- Handle JNI libraries (OpenCV, ONNX Runtime) -->
-                        <buildArg>--allow-incomplete-classpath</buildArg>
+
+                        <!-- 文件大小优化 -->
+                        <buildArg>-H:-RemoveSaturatedTypeFlows</buildArg>
                         <buildArg>-H:+ReportExceptionStackTraces</buildArg>
-                        <!-- Increase memory for compilation -->
-                        <buildArg>-J-Xmx8g</buildArg>
-                        <!-- Include all resources for OpenCV native libraries -->
+                        <buildArg>-H:+PrintAnalysisCallTree</buildArg>
+
+                        <!-- 移除调试信息 (减小 20-30%) -->
+                        <buildArg>-H:-DebugInfo</buildArg>
+                        <buildArg>-H:-IncludeAllLocales</buildArg>
                         <buildArg>-H:+AddAllCharsets</buildArg>
+
+                        <!-- 优化级别 -->
+                        <buildArg>-O2</buildArg>
+
+                        <!-- JNI 支持 -->
+                        <buildArg>--allow-incomplete-classpath</buildArg>
                         <buildArg>-H:ResourceConfigurationFiles=src/main/resources/META-INF/native-image/resource-config.json</buildArg>
                         <buildArg>-H:ReflectionConfigurationFiles=src/main/resources/META-INF/native-image/reflect-config.json</buildArg>
                         <buildArg>-H:JNIConfigurationFiles=src/main/resources/META-INF/native-image/jni-config.json</buildArg>
+
+                        <!-- 编译内存 -->
+                        <buildArg>-J-Xmx8g</buildArg>
                     </buildArgs>
                 </configuration>
                 <executions>
@@ -222,79 +234,30 @@
     </build>
 
     <profiles>
-        <!-- GPU Profile: 使用 ONNX Runtime GPU 版本 (Windows/Linux) -->
-        <profile>
-            <id>gpu</id>
-            <dependencies>
-                <dependency>
-                    <groupId>com.microsoft.onnxruntime</groupId>
-                    <artifactId>onnxruntime_gpu</artifactId>
-                    <version>${onnxruntime.version}</version>
-                    <optional>true</optional>
-                </dependency>
-            </dependencies>
-            <build>
-                <plugins>
-                    <!-- Extract ONNX Runtime GPU native libraries -->
-                    <plugin>
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-dependency-plugin</artifactId>
-                        <version>3.6.1</version>
-                        <executions>
-                            <execution>
-                                <id>unpack-onnxruntime_gpu-native</id>
-                                <phase>process-resources</phase>
-                                <goals>
-                                    <goal>unpack</goal>
-                                </goals>
-                                <configuration>
-                                    <artifactItems>
-                                        <artifactItem>
-                                            <groupId>com.microsoft.onnxruntime</groupId>
-                                            <artifactId>onnxruntime_gpu</artifactId>
-                                            <version>${onnxruntime.version}</version>
-                                            <type>jar</type>
-                                            <overWrite>true</overWrite>
-                                            <outputDirectory>${project.build.directory}/native</outputDirectory>
-                                            <includes>**/*.dll,**/*.so,**/*.dylib</includes>
-                                        </artifactItem>
-                                    </artifactItems>
-                                </configuration>
-                            </execution>
-                        </executions>
-                    </plugin>
-                </plugins>
-            </build>
-        </profile>
-
-        <!-- Native Profile -->
+        <!-- Native Profile: 用于构建 Native Image -->
         <profile>
             <id>native</id>
-            <dependencies>
-                <dependency>
-                    <groupId>org.graalvm.buildtools</groupId>
-                    <artifactId>junit-platform-native</artifactId>
-                    <version>${graalvm.version}</version>
-                    <scope>test</scope>
-                </dependency>
-            </dependencies>
             <build>
                 <plugins>
                     <plugin>
                         <groupId>org.graalvm.buildtools</groupId>
                         <artifactId>native-maven-plugin</artifactId>
-                        <executions>
-                            <execution>
-                                <id>test-native</id>
-                                <phase>test</phase>
-                                <goals>
-                                    <goal>test</goal>
-                                </goals>
-                            </execution>
-                        </executions>
                     </plugin>
                 </plugins>
             </build>
+        </profile>
+
+        <!-- GPU Profile: CI 构建时使用 GPU 版本 (Windows/Linux) -->
+        <profile>
+            <id>gpu</id>
+            <dependencies>
+                <!-- GPU 版本覆盖 CPU 版本 -->
+                <dependency>
+                    <groupId>com.microsoft.onnxruntime</groupId>
+                    <artifactId>onnxruntime_gpu</artifactId>
+                    <version>1.17.3</version>
+                </dependency>
+            </dependencies>
         </profile>
     </profiles>
 </project>

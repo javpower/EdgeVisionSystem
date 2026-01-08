@@ -45,7 +45,6 @@ public abstract class InferEngineTemplate {
      */
     private OrtSession.SessionOptions createSessionOptions(String device) throws OrtException {
         OrtSession.SessionOptions opts = new OrtSession.SessionOptions();
-
         if ("GPU".equalsIgnoreCase(device)) {
             // 检查是否在native-image环境中运行
             boolean isNativeImage = System.getProperty("org.graalvm.nativeimage.imagecode") != null;
