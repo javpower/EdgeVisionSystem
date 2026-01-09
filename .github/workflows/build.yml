@@ -83,8 +83,21 @@ jobs:
           exit /b 1
         )
 
+        # Check JAR exists
+        if not exist target\edge-vision-system-*.jar (
+          echo ERROR: JAR file not found in target directory!
+          dir target
+          exit /b 1
+        )
+
         # Copy JAR
         copy target\edge-vision-system-*.jar dist\edge-vision.jar
+
+        # Verify JAR was copied
+        if not exist dist\edge-vision.jar (
+          echo ERROR: dist\edge-vision.jar not found after copy!
+          exit /b 1
+        )
 
         # Copy config
         copy src\main\resources\application.yml dist\
@@ -193,20 +206,20 @@ jobs:
           exit /b 1
         )
         echo Files verified, starting application...
-        start /B jre\bin\java.exe -jar edge-vision.jar --server.port=8888 > app.log 2>&1
+        start "" /B jre\bin\java.exe -jar edge-vision.jar --server.port=8888
         echo Waiting for application to start...
         timeout /t 45 /nobreak
-        echo.
-        echo Application log:
-        type app.log
-        echo.
         echo Testing health endpoint...
-        curl http://localhost:8888/actuator/health
-        echo.
-        echo Stopping application...
+        curl -s http://localhost:8888/actuator/health
+        if %ERRORLEVEL% NEQ 0 (
+          echo Health check failed
+          for /f "tokens=2" %%a in ('tasklist /FI "IMAGENAME eq java.exe" ^| find "java.exe"') do taskkill /F /PID %%a 2>nul
+          exit /b 1
+        )
+        echo Health check passed
         for /f "tokens=2" %%a in ('tasklist /FI "IMAGENAME eq java.exe" ^| find "java.exe"') do taskkill /F /PID %%a 2>nul
         timeout /t 2 /nobreak
-        echo Verification complete
+        echo Verification completed successfully
 
     - name: Verify package (Unix)
       if: runner.os != 'Windows'
@@ -300,8 +313,21 @@ jobs:
           exit /b 1
         )
 
+        # Check JAR exists
+        if not exist target\edge-vision-system-*.jar (
+          echo ERROR: JAR file not found in target directory!
+          dir target
+          exit /b 1
+        )
+
         # Copy JAR
         copy target\edge-vision-system-*.jar dist\edge-vision.jar
+
+        # Verify JAR was copied
+        if not exist dist\edge-vision.jar (
+          echo ERROR: dist\edge-vision.jar not found after copy!
+          exit /b 1
+        )
 
         # Copy config
         copy src\main\resources\application.yml dist\
@@ -419,20 +445,20 @@ jobs:
           exit /b 1
         )
         echo Files verified, starting application...
-        start /B jre\bin\java.exe -jar edge-vision.jar --server.port=8888 > app.log 2>&1
+        start "" /B jre\bin\java.exe -jar edge-vision.jar --server.port=8888
         echo Waiting for application to start...
         timeout /t 45 /nobreak
-        echo.
-        echo Application log:
-        type app.log
-        echo.
         echo Testing health endpoint...
-        curl http://localhost:8888/actuator/health
-        echo.
-        echo Stopping application...
+        curl -s http://localhost:8888/actuator/health
+        if %ERRORLEVEL% NEQ 0 (
+          echo Health check failed
+          for /f "tokens=2" %%a in ('tasklist /FI "IMAGENAME eq java.exe" ^| find "java.exe"') do taskkill /F /PID %%a 2>nul
+          exit /b 1
+        )
+        echo Health check passed
         for /f "tokens=2" %%a in ('tasklist /FI "IMAGENAME eq java.exe" ^| find "java.exe"') do taskkill /F /PID %%a 2>nul
         timeout /t 2 /nobreak
-        echo Verification complete
+        echo Verification completed successfully
 
     - name: Verify package (Unix)
       if: runner.os != 'Windows'
