@@ -181,28 +181,29 @@ jobs:
       if: runner.os == 'Windows'
       shell: cmd
       run: |
+        cd dist
         echo "Starting application..."
-        start /B jre\bin\java.exe -jar edge-vision.jar --spring.config.additional-location=application.yml --server.port=8888
+        start /B .\jre\bin\java.exe -jar .\edge-vision.jar --spring.config.additional-location=.\application.yml --server.port=8888
         echo "Waiting for application to start..."
         timeout /t 30 /nobreak
         echo "Testing health endpoint..."
-        curl -s http://localhost:8888/actuator/health || echo "Health check failed"
+        curl -s http://localhost:8888/actuator/health
         echo "Stopping application..."
-        taskkill /F /IM java.exe
+        taskkill /F /IM java.exe 2>nul || echo "Java process already stopped"
 
     - name: Verify package (Unix)
       if: runner.os != 'Windows'
       run: |
         echo "Starting application..."
         cd dist
-        jre/bin/java -jar edge-vision.jar --spring.config.additional-location=application.yml --server.port=8888 &
+        ./jre/bin/java -jar edge-vision.jar --spring.config.additional-location=application.yml --server.port=8888 &
         JAVA_PID=$!
         echo "Waiting for application to start (PID: $JAVA_PID)..."
         sleep 30
         echo "Testing health endpoint..."
-        curl -s http://localhost:8888/actuator/health || echo "Health check failed"
+        curl -s http://localhost:8888/actuator/health
         echo "Stopping application..."
-        kill $JAVA_PID || true
+        kill $JAVA_PID 2>/dev/null || true
         wait $JAVA_PID 2>/dev/null || true
 
     - name: Upload Artifact
@@ -389,28 +390,29 @@ jobs:
       if: runner.os == 'Windows'
       shell: cmd
       run: |
+        cd dist
         echo "Starting application..."
-        start /B jre\bin\java.exe -jar edge-vision.jar --spring.config.additional-location=application.yml --server.port=8888
+        start /B .\jre\bin\java.exe -jar .\edge-vision.jar --spring.config.additional-location=.\application.yml --server.port=8888
         echo "Waiting for application to start..."
         timeout /t 30 /nobreak
         echo "Testing health endpoint..."
-        curl -s http://localhost:8888/actuator/health || echo "Health check failed"
+        curl -s http://localhost:8888/actuator/health
         echo "Stopping application..."
-        taskkill /F /IM java.exe
+        taskkill /F /IM java.exe 2>nul || echo "Java process already stopped"
 
     - name: Verify package (Unix)
       if: runner.os != 'Windows'
       run: |
         echo "Starting application..."
         cd dist
-        jre/bin/java -jar edge-vision.jar --spring.config.additional-location=application.yml --server.port=8888 &
+        ./jre/bin/java -jar edge-vision.jar --spring.config.additional-location=application.yml --server.port=8888 &
         JAVA_PID=$!
         echo "Waiting for application to start (PID: $JAVA_PID)..."
         sleep 30
         echo "Testing health endpoint..."
-        curl -s http://localhost:8888/actuator/health || echo "Health check failed"
+        curl -s http://localhost:8888/actuator/health
         echo "Stopping application..."
-        kill $JAVA_PID || true
+        kill $JAVA_PID 2>/dev/null || true
         wait $JAVA_PID 2>/dev/null || true
 
     - name: Upload Artifact
