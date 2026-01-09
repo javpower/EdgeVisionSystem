@@ -15,11 +15,12 @@ edge-vision:
     iou-thres: 0.45
     device: "CPU"
   
-  class-names:
-    detail-model:
-      0: "缺陷1"
-      1: "缺陷2"
-      2: "缺陷3"
+  # 质量检测标准（开发环境示例）
+  quality-standards:
+    测试工件:
+      缺陷1: 0
+      缺陷2: 2
+      缺陷3: 1
   
   remote:
     upload-url: ""

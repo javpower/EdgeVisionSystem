@@ -5,7 +5,7 @@ edge-vision:
     save-local: true
 
   cameras:
-    sources: [0, 1]  # 可以是摄像头索引或RTSP URL，如 [0, 1] 或 ["rtsp://...", "rtsp://..."]
+    sources: [0,1]  # 可以是摄像头索引或RTSP URL，如 [0, 1] 或 ["rtsp://...", "rtsp://..."]
 
   models:
     # 类型识别模型（可选，不配置则跳过类型识别阶段）
@@ -16,17 +16,12 @@ edge-vision:
     iou-thres: 0.45
     device: "CPU"  # CPU 或 GPU
 
-  # 类别名称映射
-  class-names:
-    type-model:
-      0: "工件A"
-      1: "工件B"
-      2: "工件C"
-    detail-model:
-      0: "孔缺陷"
-      1: "螺丝缺陷"
-      2: "划痕"
-      3: "凹陷"
+  # 质量检测标准 - 每种工件类型的缺陷数量阈值
+  # threshold: 缺陷最大允许数量，0 表示不允许出现该缺陷
+  quality-standards:
+    EKS:
+      hole: 1
+      nut: 0
 
   remote:
     upload-url: ""  # 上传地址，空字符串表示不上传

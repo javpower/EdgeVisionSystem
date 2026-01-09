@@ -15,7 +15,7 @@ public class YamlConfig {
     private CameraConfig cameras;
     private ModelConfig models;
     private RemoteConfig remote;
-    private Map<String, Map<Integer, String>> classNames;
+    private Map<String, Map<String, Integer>> qualityStandards;
 
     @Data
     public static class SystemConfig {

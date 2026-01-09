@@ -58,7 +58,6 @@ public class InspectController {
                         config.getModels().getConfThres(),
                         config.getModels().getIouThres(),
                         config.getModels().getDevice()
-                        // 移除了 classNames 参数
                 );
                 logger.info("Type inference engine initialized successfully");
             } catch (Exception e) {
@@ -73,8 +72,8 @@ public class InspectController {
                         config.getModels().getDetailModel(),
                         config.getModels().getConfThres(),
                         config.getModels().getIouThres(),
-                        config.getModels().getDevice()
-                        // 移除了 classNames 参数
+                        config.getModels().getDevice(),
+                        1280,1280
                 );
                 logger.info("Detail inference engine initialized successfully");
             } catch (Exception e) {
@@ -207,7 +206,13 @@ public class InspectController {
             ConfirmResponse.AnalysisResult analysis = new ConfirmResponse.AnalysisResult();
             analysis.setDefectCount(detailDetections.size());
             analysis.setDetails(detailDetections);
-            analysis.setQualityStatus(detailDetections.isEmpty() ? "PASS" : "FAIL");
+
+            // 根据质量检测标准判断 PASS/FAIL
+            String qualityStatus = evaluateQualityStatus(
+                    request.getConfirmedPartName(),
+                    detailDetections
+            );
+            analysis.setQualityStatus(qualityStatus);
             data.setAnalysis(analysis);
 
             data.setDeviceId(config.getSystem().getDeviceId());
@@ -317,6 +322,56 @@ public class InspectController {
         MatOfByte mob = new MatOfByte();
         Imgcodecs.imencode(".jpg", mat, mob);
         return Base64.getEncoder().encodeToString(mob.toArray());
+    }
+
+    /**
+     * 根据质量检测标准评估检测结果
+     * @param partName 工件类型名称
+     * @param detections 检测到的缺陷列表
+     * @return "PASS" 或 "FAIL"
+     */
+    private String evaluateQualityStatus(String partName, List<Detection> detections) {
+        // 获取该工件类型的质量标准
+        Map<String, Map<String, Integer>> standards = config.getQualityStandards();
+        if (standards == null || !standards.containsKey(partName)) {
+            // 如果没有配置该工件的标准，使用默认规则：有任何缺陷即失败
+            logger.warn("No quality standards configured for part: {}, using default rule", partName);
+            return detections.isEmpty() ? "PASS" : "FAIL";
+        }
+
+        Map<String, Integer> partStandards = standards.get(partName);
+
+        // 统计每种缺陷的数量
+        Map<String, Long> defectCounts = new HashMap<>();
+        for (Detection det : detections) {
+            String label = det.getLabel();
+            defectCounts.put(label, defectCounts.getOrDefault(label, 0L) + 1);
+        }
+
+        // 检查每种缺陷数量是否与配置精确匹配
+        for (Map.Entry<String, Integer> entry : partStandards.entrySet()) {
+            String defectType = entry.getKey();
+            int expectedCount = entry.getValue();
+            long actualCount = defectCounts.getOrDefault(defectType, 0L);
+
+            if (actualCount != expectedCount) {
+                logger.info("Quality check FAILED: {} detected {} times, expected {}",
+                        defectType, actualCount, expectedCount);
+                return "FAIL";
+            }
+        }
+
+        // 检查是否有未配置的缺陷类型
+        for (Map.Entry<String, Long> entry : defectCounts.entrySet()) {
+            if (!partStandards.containsKey(entry.getKey())) {
+                logger.warn("Unknown defect type detected: {}, treating as failure",
+                        entry.getKey());
+                return "FAIL";
+            }
+        }
+
+        logger.info("Quality check PASSED for part: {}", partName);
+        return "PASS";
     }
 
     // === 修改点 4: 重写绘制方法，适配 float[] bbox 和 xyxy 坐标 ===

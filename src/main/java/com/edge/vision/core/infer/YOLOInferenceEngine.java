@@ -19,6 +19,13 @@ public class YOLOInferenceEngine extends InferEngineTemplate {
         this.confThreshold = conf;
         this.nmsThreshold = nms;
     }
+    public YOLOInferenceEngine(String modelPath, float conf, float nms, String device,int inputH,int inputW) throws OrtException {
+        super(modelPath, device);
+        this.confThreshold = conf;
+        this.nmsThreshold = nms;
+        super.inputH=inputH;
+        super.inputW=inputW;
+    }
 
     @Override
     protected PreProcessResult preprocess(Mat img) {
