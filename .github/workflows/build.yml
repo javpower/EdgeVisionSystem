@@ -18,6 +18,7 @@ jobs:
     name: Build CPU (${{ matrix.os }})
 
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
 
@@ -192,34 +193,50 @@ jobs:
 
     - name: Verify package (Windows)
       if: runner.os == 'Windows'
-      shell: cmd
+      shell: pwsh
+      timeout-minutes: 5
       run: |
         cd dist
-        if not exist edge-vision.jar (
-          echo ERROR: edge-vision.jar not found!
-          dir
-          exit /b 1
-        )
-        if not exist jre\bin\java.exe (
-          echo ERROR: jre\bin\java.exe not found!
-          dir jre\bin
-          exit /b 1
-        )
-        echo Files verified, starting application...
-        start "" /B jre\bin\java.exe -jar edge-vision.jar --server.port=8888
-        echo Waiting for application to start...
-        timeout /t 45 /nobreak
-        echo Testing health endpoint...
-        curl -s http://localhost:8888/actuator/health
-        if %ERRORLEVEL% NEQ 0 (
-          echo Health check failed
-          for /f "tokens=2" %%a in ('tasklist /FI "IMAGENAME eq java.exe" ^| find "java.exe"') do taskkill /F /PID %%a 2>nul
-          exit /b 1
-        )
-        echo Health check passed
-        for /f "tokens=2" %%a in ('tasklist /FI "IMAGENAME eq java.exe" ^| find "java.exe"') do taskkill /F /PID %%a 2>nul
-        timeout /t 2 /nobreak
-        echo Verification completed successfully
+        Write-Host "=== Verifying package ==="
+
+        if (-not (Test-Path "edge-vision.jar")) {
+          Write-Host "ERROR: edge-vision.jar not found!"
+          Get-ChildItem -Force
+          exit 1
+        }
+
+        if (-not (Test-Path "jre\bin\java.exe")) {
+          Write-Host "ERROR: jre\bin\java.exe not found!"
+          exit 1
+        }
+
+        $jarSize = (Get-Item "edge-vision.jar").Length
+        Write-Host "JAR size: $jarSize bytes"
+
+        if ($jarSize -lt 1MB) {
+          Write-Host "ERROR: JAR file too small, might be corrupted"
+          exit 1
+        }
+
+        Write-Host "Starting application..."
+        $process = Start-Process -FilePath "jre\bin\java.exe" -ArgumentList "-jar","edge-vision.jar","--server.port=8888" -PassThru -NoNewWindow
+
+        Write-Host "Waiting for startup..."
+        Start-Sleep -Seconds 45
+
+        Write-Host "Testing health endpoint..."
+        try {
+          $response = Invoke-WebRequest -Uri "http://localhost:8888/actuator/health" -TimeoutSec 10
+          Write-Host "Health check passed: $($response.StatusCode)"
+        } catch {
+          Write-Host "Health check failed: $_"
+          $process.Kill()
+          exit 1
+        }
+
+        Write-Host "Stopping application..."
+        $process.Kill()
+        Write-Host "Verification completed successfully"
 
     - name: Verify package (Unix)
       if: runner.os != 'Windows'
@@ -241,13 +258,15 @@ jobs:
       with:
         name: edge-vision-cpu-${{ runner.os }}
         path: dist/
-        compression-level: 9
+        compression-level: 6
+        if-no-files-found: error
 
   build-gpu:
     runs-on: ${{ matrix.os }}
     name: Build GPU (${{ matrix.os }})
 
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
 
@@ -431,34 +450,50 @@ jobs:
 
     - name: Verify package (Windows)
       if: runner.os == 'Windows'
-      shell: cmd
+      shell: pwsh
+      timeout-minutes: 5
       run: |
         cd dist
-        if not exist edge-vision.jar (
-          echo ERROR: edge-vision.jar not found!
-          dir
-          exit /b 1
-        )
-        if not exist jre\bin\java.exe (
-          echo ERROR: jre\bin\java.exe not found!
-          dir jre\bin
-          exit /b 1
-        )
-        echo Files verified, starting application...
-        start "" /B jre\bin\java.exe -jar edge-vision.jar --server.port=8888
-        echo Waiting for application to start...
-        timeout /t 45 /nobreak
-        echo Testing health endpoint...
-        curl -s http://localhost:8888/actuator/health
-        if %ERRORLEVEL% NEQ 0 (
-          echo Health check failed
-          for /f "tokens=2" %%a in ('tasklist /FI "IMAGENAME eq java.exe" ^| find "java.exe"') do taskkill /F /PID %%a 2>nul
-          exit /b 1
-        )
-        echo Health check passed
-        for /f "tokens=2" %%a in ('tasklist /FI "IMAGENAME eq java.exe" ^| find "java.exe"') do taskkill /F /PID %%a 2>nul
-        timeout /t 2 /nobreak
-        echo Verification completed successfully
+        Write-Host "=== Verifying package ==="
+
+        if (-not (Test-Path "edge-vision.jar")) {
+          Write-Host "ERROR: edge-vision.jar not found!"
+          Get-ChildItem -Force
+          exit 1
+        }
+
+        if (-not (Test-Path "jre\bin\java.exe")) {
+          Write-Host "ERROR: jre\bin\java.exe not found!"
+          exit 1
+        }
+
+        $jarSize = (Get-Item "edge-vision.jar").Length
+        Write-Host "JAR size: $jarSize bytes"
+
+        if ($jarSize -lt 1MB) {
+          Write-Host "ERROR: JAR file too small, might be corrupted"
+          exit 1
+        }
+
+        Write-Host "Starting application..."
+        $process = Start-Process -FilePath "jre\bin\java.exe" -ArgumentList "-jar","edge-vision.jar","--server.port=8888" -PassThru -NoNewWindow
+
+        Write-Host "Waiting for startup..."
+        Start-Sleep -Seconds 45
+
+        Write-Host "Testing health endpoint..."
+        try {
+          $response = Invoke-WebRequest -Uri "http://localhost:8888/actuator/health" -TimeoutSec 10
+          Write-Host "Health check passed: $($response.StatusCode)"
+        } catch {
+          Write-Host "Health check failed: $_"
+          $process.Kill()
+          exit 1
+        }
+
+        Write-Host "Stopping application..."
+        $process.Kill()
+        Write-Host "Verification completed successfully"
 
     - name: Verify package (Unix)
       if: runner.os != 'Windows'
@@ -480,7 +515,8 @@ jobs:
       with:
         name: edge-vision-gpu-${{ runner.os }}
         path: dist/
-        compression-level: 9
+        compression-level: 6
+        if-no-files-found: error
 
   create-release:
     needs: [build-cpu, build-gpu]
