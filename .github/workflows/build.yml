@@ -45,7 +45,7 @@ jobs:
       if: runner.os == 'Windows'
       shell: cmd
       run: |
-        jlink --add-modules java.base,java.sql,java.naming,java.desktop,java.management,java.net.http,java.xml,jdk.unsupported,jdk.security.jgss --output jre --compress 2 --no-header-files --no-man-pages
+        jlink --add-modules java.base,java.sql,java.naming,java.desktop,java.management,java.net.http,java.xml,jdk.unsupported,jdk.security.jgss,java.instrument,jdk.crypto.cryptoki,jdk.charsets --output jre --compress 2 --no-header-files --no-man-pages
         if exist jre\bin\java.exe (echo JRE created successfully) else (echo JRE creation failed && exit /b 1)
         dir jre\bin
 
@@ -53,7 +53,7 @@ jobs:
       if: runner.os != 'Windows'
       run: |
         echo "Creating JRE with jlink..."
-        jlink --add-modules java.base,java.sql,java.naming,java.desktop,java.management,java.net.http,java.xml,jdk.unsupported,jdk.security.jgss \
+        jlink --add-modules java.base,java.sql,java.naming,java.desktop,java.management,java.net.http,java.xml,jdk.unsupported,jdk.security.jgss,java.instrument,jdk.crypto.cryptoki,jdk.charsets \
               --output jre \
               --compress 2 \
               --no-header-files \
@@ -182,15 +182,31 @@ jobs:
       shell: cmd
       run: |
         cd dist
-        echo "Starting application..."
-        start /B jre\bin\java.exe -jar edge-vision.jar --spring.config.additional-location=application.yml --server.port=8888
-        echo "Waiting for application to start..."
+        if not exist edge-vision.jar (
+          echo ERROR: edge-vision.jar not found!
+          dir
+          exit /b 1
+        )
+        if not exist jre\bin\java.exe (
+          echo ERROR: jre\bin\java.exe not found!
+          dir jre\bin
+          exit /b 1
+        )
+        echo Files verified, starting application...
+        start /B jre\bin\java.exe -jar edge-vision.jar --server.port=8888 > app.log 2>&1
+        echo Waiting for application to start...
         timeout /t 45 /nobreak
-        echo "Testing health endpoint..."
+        echo.
+        echo Application log:
+        type app.log
+        echo.
+        echo Testing health endpoint...
         curl http://localhost:8888/actuator/health
-        echo "Stopping application..."
+        echo.
+        echo Stopping application...
         for /f "tokens=2" %%a in ('tasklist /FI "IMAGENAME eq java.exe" ^| find "java.exe"') do taskkill /F /PID %%a 2>nul
-        echo "Verification complete"
+        timeout /t 2 /nobreak
+        echo Verification complete
 
     - name: Verify package (Unix)
       if: runner.os != 'Windows'
@@ -246,7 +262,7 @@ jobs:
       if: runner.os == 'Windows'
       shell: cmd
       run: |
-        jlink --add-modules java.base,java.sql,java.naming,java.desktop,java.management,java.net.http,java.xml,jdk.unsupported,jdk.security.jgss --output jre --compress 2 --no-header-files --no-man-pages
+        jlink --add-modules java.base,java.sql,java.naming,java.desktop,java.management,java.net.http,java.xml,jdk.unsupported,jdk.security.jgss,java.instrument,jdk.crypto.cryptoki,jdk.charsets --output jre --compress 2 --no-header-files --no-man-pages
         if exist jre\bin\java.exe (echo JRE created successfully) else (echo JRE creation failed && exit /b 1)
         dir jre\bin
 
@@ -254,7 +270,7 @@ jobs:
       if: runner.os != 'Windows'
       run: |
         echo "Creating JRE with jlink..."
-        jlink --add-modules java.base,java.sql,java.naming,java.desktop,java.management,java.net.http,java.xml,jdk.unsupported,jdk.security.jgss \
+        jlink --add-modules java.base,java.sql,java.naming,java.desktop,java.management,java.net.http,java.xml,jdk.unsupported,jdk.security.jgss,java.instrument,jdk.crypto.cryptoki,jdk.charsets \
               --output jre \
               --compress 2 \
               --no-header-files \
@@ -392,15 +408,31 @@ jobs:
       shell: cmd
       run: |
         cd dist
-        echo "Starting application..."
-        start /B jre\bin\java.exe -jar edge-vision.jar --spring.config.additional-location=application.yml --server.port=8888
-        echo "Waiting for application to start..."
+        if not exist edge-vision.jar (
+          echo ERROR: edge-vision.jar not found!
+          dir
+          exit /b 1
+        )
+        if not exist jre\bin\java.exe (
+          echo ERROR: jre\bin\java.exe not found!
+          dir jre\bin
+          exit /b 1
+        )
+        echo Files verified, starting application...
+        start /B jre\bin\java.exe -jar edge-vision.jar --server.port=8888 > app.log 2>&1
+        echo Waiting for application to start...
         timeout /t 45 /nobreak
-        echo "Testing health endpoint..."
+        echo.
+        echo Application log:
+        type app.log
+        echo.
+        echo Testing health endpoint...
         curl http://localhost:8888/actuator/health
-        echo "Stopping application..."
+        echo.
+        echo Stopping application...
         for /f "tokens=2" %%a in ('tasklist /FI "IMAGENAME eq java.exe" ^| find "java.exe"') do taskkill /F /PID %%a 2>nul
-        echo "Verification complete"
+        timeout /t 2 /nobreak
+        echo Verification complete
 
     - name: Verify package (Unix)
       if: runner.os != 'Windows'
