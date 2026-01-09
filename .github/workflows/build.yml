@@ -43,13 +43,16 @@ jobs:
 
     - name: Create custom JRE with jlink (Windows)
       if: runner.os == 'Windows'
-      shell: pwsh
+      shell: cmd
       run: |
         jlink --add-modules java.base,java.sql,java.naming,java.desktop,java.management,java.net.http,java.xml,jdk.unsupported --output jre --compress 2 --no-header-files --no-man-pages --strip-native-commands
+        if exist jre\bin\java.exe (echo JRE created successfully) else (echo JRE creation failed && exit /b 1)
+        dir jre\bin
 
     - name: Create custom JRE with jlink (Unix)
       if: runner.os != 'Windows'
       run: |
+        echo "Creating JRE with jlink..."
         jlink --add-modules java.base,java.sql,java.naming,java.desktop,java.management,java.net.http,java.xml,jdk.unsupported \
               --output jre \
               --compress 2 \
@@ -57,11 +60,29 @@ jobs:
               --no-man-pages \
               --strip-native-commands
 
+        # Verify JRE was created
+        if [ ! -f "jre/bin/java" ]; then
+          echo "ERROR: jre/bin/java not found after jlink!"
+          ls -la
+          if [ -d "jre" ]; then
+            echo "JRE directory exists but bin/java not found:"
+            ls -la jre/
+          fi
+          exit 1
+        fi
+        echo "JRE created successfully"
+        ls -la jre/bin/
+
     - name: Prepare distribution (Windows)
       if: runner.os == 'Windows'
-      shell: pwsh
+      shell: cmd
       run: |
         mkdir dist
+        if not exist jre\bin\java.exe (
+          echo ERROR: jre\bin\java.exe not found!
+          dir jre
+          exit /b 1
+        )
 
         # Copy JAR
         copy target\edge-vision-system-*.jar dist\edge-vision.jar
@@ -72,16 +93,45 @@ jobs:
         # Copy custom JRE
         xcopy jre dist\jre\ /E /I /Y
 
+        # Verify JRE was copied
+        if not exist dist\jre\bin\java.exe (
+          echo ERROR: dist\jre\bin\java.exe not found after copy!
+          exit /b 1
+        )
+
         # Copy models if exist
-        if (Test-Path "models\*.onnx") {
-            mkdir dist\models
-            copy models\*.onnx dist\models\
-        }
+        if exist models\*.onnx (
+          mkdir dist\models
+          copy models\*.onnx dist\models\
+        )
+
+        # Show final structure
+        echo.
+        echo Final dist structure:
+        dir /s /b dist
 
     - name: Prepare distribution (Unix)
       if: runner.os != 'Windows'
       run: |
         mkdir -p dist
+
+        # Verify JRE exists before copying
+        if [ ! -f "jre/bin/java" ]; then
+          echo "ERROR: jre/bin/java not found!"
+          echo "Current directory contents:"
+          ls -la
+          if [ -d "jre" ]; then
+            echo "JRE directory contents:"
+            ls -la jre/
+            if [ -d "jre/bin" ]; then
+              echo "JRE bin contents:"
+              ls -la jre/bin/
+            fi
+          fi
+          exit 1
+        fi
+
+        echo "JRE verified, copying to dist..."
 
         # Copy JAR
         cp target/edge-vision-system-*.jar dist/edge-vision.jar
@@ -92,11 +142,22 @@ jobs:
         # Copy custom JRE
         cp -r jre dist/
 
+        # Verify JRE was copied
+        if [ ! -f "dist/jre/bin/java" ]; then
+          echo "ERROR: dist/jre/bin/java not found after copy!"
+          exit 1
+        fi
+
         # Copy models if exist
         if compgen -G "models/*.onnx" > /dev/null; then
-            mkdir -p dist/models
-            cp models/*.onnx dist/models/
+          mkdir -p dist/models
+          cp models/*.onnx dist/models/
         fi
+
+        # Show final structure
+        echo.
+        echo "Final dist structure:"
+        find dist -type f | head -20
 
     - name: Create run script (Windows)
       if: runner.os == 'Windows'
@@ -116,6 +177,34 @@ jobs:
         exec "$DIR/jre/bin/java" -jar edge-vision.jar --spring.config.additional-location=application.yml
         EOF
         chmod +x dist/run.sh
+
+    - name: Verify package (Windows)
+      if: runner.os == 'Windows'
+      shell: cmd
+      run: |
+        echo "Starting application..."
+        start /B jre\bin\java.exe -jar edge-vision.jar --spring.config.additional-location=application.yml --server.port=8888
+        echo "Waiting for application to start..."
+        timeout /t 30 /nobreak
+        echo "Testing health endpoint..."
+        curl -s http://localhost:8888/actuator/health || echo "Health check failed"
+        echo "Stopping application..."
+        taskkill /F /IM java.exe
+
+    - name: Verify package (Unix)
+      if: runner.os != 'Windows'
+      run: |
+        echo "Starting application..."
+        cd dist
+        jre/bin/java -jar edge-vision.jar --spring.config.additional-location=application.yml --server.port=8888 &
+        JAVA_PID=$!
+        echo "Waiting for application to start (PID: $JAVA_PID)..."
+        sleep 30
+        echo "Testing health endpoint..."
+        curl -s http://localhost:8888/actuator/health || echo "Health check failed"
+        echo "Stopping application..."
+        kill $JAVA_PID || true
+        wait $JAVA_PID 2>/dev/null || true
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
@@ -154,13 +243,16 @@ jobs:
 
     - name: Create custom JRE with jlink (Windows)
       if: runner.os == 'Windows'
-      shell: pwsh
+      shell: cmd
       run: |
         jlink --add-modules java.base,java.sql,java.naming,java.desktop,java.management,java.net.http,java.xml,jdk.unsupported --output jre --compress 2 --no-header-files --no-man-pages --strip-native-commands
+        if exist jre\bin\java.exe (echo JRE created successfully) else (echo JRE creation failed && exit /b 1)
+        dir jre\bin
 
     - name: Create custom JRE with jlink (Unix)
       if: runner.os != 'Windows'
       run: |
+        echo "Creating JRE with jlink..."
         jlink --add-modules java.base,java.sql,java.naming,java.desktop,java.management,java.net.http,java.xml,jdk.unsupported \
               --output jre \
               --compress 2 \
@@ -168,11 +260,29 @@ jobs:
               --no-man-pages \
               --strip-native-commands
 
+        # Verify JRE was created
+        if [ ! -f "jre/bin/java" ]; then
+          echo "ERROR: jre/bin/java not found after jlink!"
+          ls -la
+          if [ -d "jre" ]; then
+            echo "JRE directory exists but bin/java not found:"
+            ls -la jre/
+          fi
+          exit 1
+        fi
+        echo "JRE created successfully"
+        ls -la jre/bin/
+
     - name: Prepare distribution (Windows)
       if: runner.os == 'Windows'
-      shell: pwsh
+      shell: cmd
       run: |
         mkdir dist
+        if not exist jre\bin\java.exe (
+          echo ERROR: jre\bin\java.exe not found!
+          dir jre
+          exit /b 1
+        )
 
         # Copy JAR
         copy target\edge-vision-system-*.jar dist\edge-vision.jar
@@ -183,16 +293,45 @@ jobs:
         # Copy custom JRE
         xcopy jre dist\jre\ /E /I /Y
 
+        # Verify JRE was copied
+        if not exist dist\jre\bin\java.exe (
+          echo ERROR: dist\jre\bin\java.exe not found after copy!
+          exit /b 1
+        )
+
         # Copy models if exist
-        if (Test-Path "models\*.onnx") {
-            mkdir dist\models
-            copy models\*.onnx dist\models\
-        }
+        if exist models\*.onnx (
+          mkdir dist\models
+          copy models\*.onnx dist\models\
+        )
+
+        # Show final structure
+        echo.
+        echo Final dist structure:
+        dir /s /b dist
 
     - name: Prepare distribution (Unix)
       if: runner.os != 'Windows'
       run: |
         mkdir -p dist
+
+        # Verify JRE exists before copying
+        if [ ! -f "jre/bin/java" ]; then
+          echo "ERROR: jre/bin/java not found!"
+          echo "Current directory contents:"
+          ls -la
+          if [ -d "jre" ]; then
+            echo "JRE directory contents:"
+            ls -la jre/
+            if [ -d "jre/bin" ]; then
+              echo "JRE bin contents:"
+              ls -la jre/bin/
+            fi
+          fi
+          exit 1
+        fi
+
+        echo "JRE verified, copying to dist..."
 
         # Copy JAR
         cp target/edge-vision-system-*.jar dist/edge-vision.jar
@@ -203,11 +342,22 @@ jobs:
         # Copy custom JRE
         cp -r jre dist/
 
+        # Verify JRE was copied
+        if [ ! -f "dist/jre/bin/java" ]; then
+          echo "ERROR: dist/jre/bin/java not found after copy!"
+          exit 1
+        fi
+
         # Copy models if exist
         if compgen -G "models/*.onnx" > /dev/null; then
-            mkdir -p dist/models
-            cp models/*.onnx dist/models/
+          mkdir -p dist/models
+          cp models/*.onnx dist/models/
         fi
+
+        # Show final structure
+        echo.
+        echo "Final dist structure:"
+        find dist -type f | head -20
 
     - name: Create run script (Windows)
       if: runner.os == 'Windows'
@@ -236,6 +386,34 @@ jobs:
         exec "$DIR/jre/bin/java" -jar edge-vision.jar --spring.config.additional-location=application.yml
         EOF
         chmod +x dist/run.sh
+
+    - name: Verify package (Windows)
+      if: runner.os == 'Windows'
+      shell: cmd
+      run: |
+        echo "Starting application..."
+        start /B jre\bin\java.exe -jar edge-vision.jar --spring.config.additional-location=application.yml --server.port=8888
+        echo "Waiting for application to start..."
+        timeout /t 30 /nobreak
+        echo "Testing health endpoint..."
+        curl -s http://localhost:8888/actuator/health || echo "Health check failed"
+        echo "Stopping application..."
+        taskkill /F /IM java.exe
+
+    - name: Verify package (Unix)
+      if: runner.os != 'Windows'
+      run: |
+        echo "Starting application..."
+        cd dist
+        jre/bin/java -jar edge-vision.jar --spring.config.additional-location=application.yml --server.port=8888 &
+        JAVA_PID=$!
+        echo "Waiting for application to start (PID: $JAVA_PID)..."
+        sleep 30
+        echo "Testing health endpoint..."
+        curl -s http://localhost:8888/actuator/health || echo "Health check failed"
+        echo "Stopping application..."
+        kill $JAVA_PID || true
+        wait $JAVA_PID 2>/dev/null || true
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
