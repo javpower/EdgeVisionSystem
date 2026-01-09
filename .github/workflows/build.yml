@@ -75,53 +75,66 @@ jobs:
 
     - name: Prepare distribution (Windows)
       if: runner.os == 'Windows'
-      shell: cmd
+      shell: pwsh
       run: |
-        mkdir dist
-        if not exist jre\bin\java.exe (
-          echo ERROR: jre\bin\java.exe not found!
-          dir jre
-          exit /b 1
-        )
+        Write-Host "Preparing distribution..."
+        New-Item -ItemType Directory -Force -Path "dist" | Out-Null
 
-        # Check JAR exists
-        if not exist target\edge-vision-system-*.jar (
-          echo ERROR: JAR file not found in target directory!
-          dir target
-          exit /b 1
-        )
+        # Check JRE exists
+        if (-not (Test-Path "jre\bin\java.exe")) {
+          Write-Host "ERROR: jre\bin\java.exe not found!"
+          Get-ChildItem -Path "jre" -Recurse | Select-Object FullName
+          exit 1
+        }
 
-        # Copy JAR
-        copy target\edge-vision-system-*.jar dist\edge-vision.jar
+        # Check and copy JAR
+        $jarFiles = Get-ChildItem -Path "target" -Filter "edge-vision-system-*.jar"
+        if ($jarFiles.Count -eq 0) {
+          Write-Host "ERROR: No JAR file found in target directory!"
+          Get-ChildItem -Path "target" | Select-Object Name, Length
+          exit 1
+        }
+
+        $jarFile = $jarFiles[0].FullName
+        $jarSize = $jarFiles[0].Length
+        Write-Host "Found JAR: $($jarFiles[0].Name) with size $jarSize bytes"
+
+        if ($jarSize -lt 1MB) {
+          Write-Host "ERROR: JAR file is too small ($jarSize bytes), build may have failed!"
+          exit 1
+        }
+
+        Copy-Item -Path $jarFile -Destination "dist\edge-vision.jar" -Force
+        Write-Host "Copied JAR to dist\edge-vision.jar"
 
         # Verify JAR was copied
-        if not exist dist\edge-vision.jar (
-          echo ERROR: dist\edge-vision.jar not found after copy!
-          exit /b 1
-        )
+        $copiedJar = Get-Item "dist\edge-vision.jar"
+        Write-Host "Verified JAR size: $($copiedJar.Length) bytes"
 
         # Copy config
-        copy src\main\resources\application.yml dist\
+        if (Test-Path "src\main\resources\application.yml") {
+          Copy-Item -Path "src\main\resources\application.yml" -Destination "dist\" -Force
+        }
 
         # Copy custom JRE
-        xcopy jre dist\jre\ /E /I /Y
+        Copy-Item -Path "jre" -Destination "dist\jre" -Recurse -Force
 
         # Verify JRE was copied
-        if not exist dist\jre\bin\java.exe (
-          echo ERROR: dist\jre\bin\java.exe not found after copy!
-          exit /b 1
-        )
+        if (-not (Test-Path "dist\jre\bin\java.exe")) {
+          Write-Host "ERROR: dist\jre\bin\java.exe not found after copy!"
+          exit 1
+        }
 
         # Copy models if exist
-        if exist models\*.onnx (
-          mkdir dist\models
-          copy models\*.onnx dist\models\
-        )
+        if (Test-Path "models\*.onnx") {
+          New-Item -ItemType Directory -Force -Path "dist\models" | Out-Null
+          Copy-Item -Path "models\*.onnx" -Destination "dist\models\" -Force
+        }
 
         # Show final structure
-        echo.
-        echo Final dist structure:
-        dir /s /b dist
+        Write-Host ""
+        Write-Host "Final dist structure:"
+        Get-ChildItem -Path "dist" -Recurse | Select-Object FullName, Length
 
     - name: Prepare distribution (Unix)
       if: runner.os != 'Windows'
@@ -323,53 +336,66 @@ jobs:
 
     - name: Prepare distribution (Windows)
       if: runner.os == 'Windows'
-      shell: cmd
+      shell: pwsh
       run: |
-        mkdir dist
-        if not exist jre\bin\java.exe (
-          echo ERROR: jre\bin\java.exe not found!
-          dir jre
-          exit /b 1
-        )
+        Write-Host "Preparing distribution..."
+        New-Item -ItemType Directory -Force -Path "dist" | Out-Null
 
-        # Check JAR exists
-        if not exist target\edge-vision-system-*.jar (
-          echo ERROR: JAR file not found in target directory!
-          dir target
-          exit /b 1
-        )
+        # Check JRE exists
+        if (-not (Test-Path "jre\bin\java.exe")) {
+          Write-Host "ERROR: jre\bin\java.exe not found!"
+          Get-ChildItem -Path "jre" -Recurse | Select-Object FullName
+          exit 1
+        }
 
-        # Copy JAR
-        copy target\edge-vision-system-*.jar dist\edge-vision.jar
+        # Check and copy JAR
+        $jarFiles = Get-ChildItem -Path "target" -Filter "edge-vision-system-*.jar"
+        if ($jarFiles.Count -eq 0) {
+          Write-Host "ERROR: No JAR file found in target directory!"
+          Get-ChildItem -Path "target" | Select-Object Name, Length
+          exit 1
+        }
+
+        $jarFile = $jarFiles[0].FullName
+        $jarSize = $jarFiles[0].Length
+        Write-Host "Found JAR: $($jarFiles[0].Name) with size $jarSize bytes"
+
+        if ($jarSize -lt 1MB) {
+          Write-Host "ERROR: JAR file is too small ($jarSize bytes), build may have failed!"
+          exit 1
+        }
+
+        Copy-Item -Path $jarFile -Destination "dist\edge-vision.jar" -Force
+        Write-Host "Copied JAR to dist\edge-vision.jar"
 
         # Verify JAR was copied
-        if not exist dist\edge-vision.jar (
-          echo ERROR: dist\edge-vision.jar not found after copy!
-          exit /b 1
-        )
+        $copiedJar = Get-Item "dist\edge-vision.jar"
+        Write-Host "Verified JAR size: $($copiedJar.Length) bytes"
 
         # Copy config
-        copy src\main\resources\application.yml dist\
+        if (Test-Path "src\main\resources\application.yml") {
+          Copy-Item -Path "src\main\resources\application.yml" -Destination "dist\" -Force
+        }
 
         # Copy custom JRE
-        xcopy jre dist\jre\ /E /I /Y
+        Copy-Item -Path "jre" -Destination "dist\jre" -Recurse -Force
 
         # Verify JRE was copied
-        if not exist dist\jre\bin\java.exe (
-          echo ERROR: dist\jre\bin\java.exe not found after copy!
-          exit /b 1
-        )
+        if (-not (Test-Path "dist\jre\bin\java.exe")) {
+          Write-Host "ERROR: dist\jre\bin\java.exe not found after copy!"
+          exit 1
+        }
 
         # Copy models if exist
-        if exist models\*.onnx (
-          mkdir dist\models
-          copy models\*.onnx dist\models\
-        )
+        if (Test-Path "models\*.onnx") {
+          New-Item -ItemType Directory -Force -Path "dist\models" | Out-Null
+          Copy-Item -Path "models\*.onnx" -Destination "dist\models\" -Force
+        }
 
         # Show final structure
-        echo.
-        echo Final dist structure:
-        dir /s /b dist
+        Write-Host ""
+        Write-Host "Final dist structure:"
+        Get-ChildItem -Path "dist" -Recurse | Select-Object FullName, Length
 
     - name: Prepare distribution (Unix)
       if: runner.os != 'Windows'
