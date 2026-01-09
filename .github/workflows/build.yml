@@ -41,7 +41,14 @@ jobs:
     - name: Build Spring Boot JAR (CPU)
       run: mvn clean package -DskipTests
 
-    - name: Create custom JRE with jlink
+    - name: Create custom JRE with jlink (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        jlink --add-modules java.base,java.sql,java.naming,java.desktop,java.management,java.net.http,java.xml,jdk.unsupported --output jre --compress 2 --no-header-files --no-man-pages --strip-native-commands
+
+    - name: Create custom JRE with jlink (Unix)
+      if: runner.os != 'Windows'
       run: |
         jlink --add-modules java.base,java.sql,java.naming,java.desktop,java.management,java.net.http,java.xml,jdk.unsupported \
               --output jre \
@@ -50,7 +57,8 @@ jobs:
               --no-man-pages \
               --strip-native-commands
 
-    - name: Prepare distribution
+    - name: Prepare distribution (Windows)
+      if: runner.os == 'Windows'
       shell: pwsh
       run: |
         mkdir dist
@@ -69,6 +77,26 @@ jobs:
             mkdir dist\models
             copy models\*.onnx dist\models\
         }
+
+    - name: Prepare distribution (Unix)
+      if: runner.os != 'Windows'
+      run: |
+        mkdir -p dist
+
+        # Copy JAR
+        cp target/edge-vision-system-*.jar dist/edge-vision.jar
+
+        # Copy config
+        cp src/main/resources/application.yml dist/
+
+        # Copy custom JRE
+        cp -r jre dist/
+
+        # Copy models if exist
+        if compgen -G "models/*.onnx" > /dev/null; then
+            mkdir -p dist/models
+            cp models/*.onnx dist/models/
+        fi
 
     - name: Create run script (Windows)
       if: runner.os == 'Windows'
@@ -124,7 +152,14 @@ jobs:
     - name: Build Spring Boot JAR (GPU)
       run: mvn clean package -Pgpu -DskipTests
 
-    - name: Create custom JRE with jlink
+    - name: Create custom JRE with jlink (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        jlink --add-modules java.base,java.sql,java.naming,java.desktop,java.management,java.net.http,java.xml,jdk.unsupported --output jre --compress 2 --no-header-files --no-man-pages --strip-native-commands
+
+    - name: Create custom JRE with jlink (Unix)
+      if: runner.os != 'Windows'
       run: |
         jlink --add-modules java.base,java.sql,java.naming,java.desktop,java.management,java.net.http,java.xml,jdk.unsupported \
               --output jre \
@@ -133,7 +168,8 @@ jobs:
               --no-man-pages \
               --strip-native-commands
 
-    - name: Prepare distribution
+    - name: Prepare distribution (Windows)
+      if: runner.os == 'Windows'
       shell: pwsh
       run: |
         mkdir dist
@@ -152,6 +188,26 @@ jobs:
             mkdir dist\models
             copy models\*.onnx dist\models\
         }
+
+    - name: Prepare distribution (Unix)
+      if: runner.os != 'Windows'
+      run: |
+        mkdir -p dist
+
+        # Copy JAR
+        cp target/edge-vision-system-*.jar dist/edge-vision.jar
+
+        # Copy config
+        cp src/main/resources/application.yml dist/
+
+        # Copy custom JRE
+        cp -r jre dist/
+
+        # Copy models if exist
+        if compgen -G "models/*.onnx" > /dev/null; then
+            mkdir -p dist/models
+            cp models/*.onnx dist/models/
+        fi
 
     - name: Create run script (Windows)
       if: runner.os == 'Windows'
