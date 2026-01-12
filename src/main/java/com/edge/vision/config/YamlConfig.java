@@ -15,6 +15,7 @@ public class YamlConfig {
     private CameraConfig cameras;
     private ModelConfig models;
     private RemoteConfig remote;
+    private StitchingConfig stitching;
     private Map<String, Map<String, Integer>> qualityStandards;
 
     @Data
@@ -42,5 +43,12 @@ public class YamlConfig {
     public static class RemoteConfig {
         private String uploadUrl;      // 可选的上传地址
         private int timeout = 5;
+    }
+
+    @Data
+    public static class StitchingConfig {
+        private String strategy = "simple";  // simple, auto, manual
+        private int blendWidth = 100;
+        private boolean enableBlend = true;
     }
 }

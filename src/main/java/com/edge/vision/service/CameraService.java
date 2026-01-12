@@ -3,7 +3,6 @@ package com.edge.vision.service;
 import com.edge.vision.config.YamlConfig;
 import com.edge.vision.core.camera.CameraSource;
 import com.edge.vision.core.camera.CameraSourceFactory;
-import com.edge.vision.core.stitcher.SimpleStitchStrategy;
 import com.edge.vision.core.stitcher.StitchStrategy;
 import org.opencv.core.Mat;
 import org.opencv.core.MatOfByte;
@@ -29,7 +28,10 @@ public class CameraService {
     @Autowired
     private YamlConfig config;
 
-    // StitchStrategy 将在需要时创建
+    @Autowired
+    private StitchConfigService stitchConfigService;
+
+    // StitchStrategy 通过 StitchConfigService 获取
 
     private final List<CameraSource> cameraSources = new ArrayList<>();
     private final List<Mat> currentFrames = new ArrayList<>();
@@ -282,9 +284,9 @@ public class CameraService {
         }
         try {
             Mat stitched;
-            // 简单拼接，不带融合（避免复杂处理）
+            // 使用配置的拼接策略
             if(frames.size()>=2){
-                StitchStrategy stitchStrategy = new SimpleStitchStrategy(true);
+                StitchStrategy stitchStrategy = (StitchStrategy) stitchConfigService.getStitchStrategy();
                 stitched = stitchStrategy.stitch(frames);
             }else {
                 stitched=frames.get(0);
@@ -323,9 +325,9 @@ public class CameraService {
         }
         try {
             Mat stitched;
-            // 简单拼接，不带融合（避免复杂处理）
+            // 使用配置的拼接策略
             if(frames.size()>=2){
-                StitchStrategy stitchStrategy = new SimpleStitchStrategy(true);
+                StitchStrategy stitchStrategy = (StitchStrategy) stitchConfigService.getStitchStrategy();
                 stitched = stitchStrategy.stitch(frames);
             }else {
                 stitched=frames.get(0);

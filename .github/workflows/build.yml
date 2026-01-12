@@ -1,13 +1,19 @@
 name: Build Application
 
 on:
-  push:
-    branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
+  workflow_dispatch:
+    inputs:
+      build_version:
+        description: 'Build version (optional)'
+        required: false
+        type: string
+      release:
+        description: 'Create release'
+        required: false
+        type: boolean
+        default: false
   release:
     types: [ created ]
-  workflow_dispatch:
 
 env:
   JAVA_VERSION: "17"
@@ -547,7 +553,7 @@ jobs:
   create-release:
     needs: [build-cpu, build-gpu]
     runs-on: ubuntu-latest
-    if: github.event_name == 'release'
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.release == true)
 
     steps:
     - name: Download all artifacts
