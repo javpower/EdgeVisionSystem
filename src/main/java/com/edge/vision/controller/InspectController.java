@@ -13,6 +13,8 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import org.opencv.core.Mat;
 import org.opencv.core.MatOfByte;
 import org.opencv.core.Point;
@@ -26,8 +28,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import jakarta.annotation.PostConstruct;
-import jakarta.annotation.PreDestroy;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -379,8 +379,8 @@ public class InspectController {
             List<Detection> detailDetections = detailInferenceEngine.predict(stitchedMat);
 
             // 绘制检测结果
-            Mat resultMat = drawDetections(stitchedMat.clone(), detailDetections);
-            String resultImageBase64 = matToBase64(resultMat);
+//            Mat resultMat = drawDetections(stitchedMat.clone(), detailDetections);
+            String resultImageBase64 = matToBase64(stitchedMat);
 
             // 构建结果
             ConfirmResponse.ConfirmData data = new ConfirmResponse.ConfirmData();
@@ -427,7 +427,7 @@ public class InspectController {
             response.put("data", data);
 
             stitchedMat.release();
-            resultMat.release();
+//            resultMat.release();
 
             return ResponseEntity.ok(response);
 
