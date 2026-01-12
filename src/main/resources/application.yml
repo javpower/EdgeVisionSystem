@@ -10,7 +10,7 @@ edge-vision:
   # 图像拼接配置
   stitching:
     # 拼接策略: simple（简单拼接）, auto（自动拼接）, manual（手动拼接）
-    strategy: simple
+    strategy: manual
     # 融合区域宽度（simple 模式下使用）
     blend-width: 100
     # 是否启用融合（simple 模式下使用）
@@ -29,8 +29,8 @@ edge-vision:
   # threshold: 缺陷最大允许数量，0 表示不允许出现该缺陷
   quality-standards:
     EKS:
-      hole: 1
-      nut: 0
+      hole: 20
+      nut: 7
 
   remote:
     upload-url: ""  # 上传地址，空字符串表示不上传

@@ -7,11 +7,14 @@
     <style>
         :root {
             --sidebar-bg: #001529;
-            --sidebar-width: 200px;
+            --sidebar-width: 220px;
             --primary-color: #1890ff;
             --bg-body: #f0f2f5;
             --header-height: 48px;
             --card-radius: 8px;
+            --success-color: #52c41a;
+            --warning-color: #faad14;
+            --danger-color: #ff4d4f;
         }
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -25,7 +28,6 @@
             color: #333;
         }
 
-        /* 左侧侧边栏 */
         aside {
             width: var(--sidebar-width);
             background: var(--sidebar-bg);
@@ -49,7 +51,7 @@
         }
         .brand span { color: var(--primary-color); }
 
-        .menu { flex: 1; padding: 20px 10px; display: flex; flex-direction: column; gap: 15px; }
+        .menu { flex: 1; padding: 20px 10px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
         .menu-label { font-size: 12px; margin-bottom: 5px; padding-left: 10px; text-transform: uppercase; opacity: 0.5; }
 
         .ctrl-btn {
@@ -70,7 +72,22 @@
         .ctrl-btn:disabled { opacity: 0.3; cursor: not-allowed; }
         .ctrl-btn.stop:hover:not(:disabled) { background: #ff4d4f; }
 
-        /* 主体区域 */
+        .stitch-status {
+            background: rgba(255,255,255,0.05);
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 10px;
+            font-size: 12px;
+        }
+        .stitch-status .status-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+        }
+        .stitch-status .status-label { opacity: 0.7; }
+        .stitch-status .status-value { color: var(--primary-color); font-weight: 600; }
+        .stitch-status.manual .status-value { color: var(--warning-color); }
+
         main {
             flex: 1;
             display: flex;
@@ -89,6 +106,7 @@
             padding: 0 24px;
             font-size: 13px;
             color: #666;
+            flex-shrink: 0;
         }
 
         .workspace {
@@ -97,54 +115,49 @@
             display: flex;
             flex-direction: column;
             gap: 20px;
-            overflow-y: auto;
+            overflow: hidden;
+            min-height: 0;
         }
 
-        /* 上半部分：监控区 */
-        .monitor-section {
-            height: 40vh;
-            min-height: 280px;
-            display: flex;
-            gap: 16px;
-        }
-
-        .camera-card {
-            flex: 1;
+        /* 全景 Canvas 监控区 (前端拼接) */
+        .panorama-section {
             background: black;
             border-radius: var(--card-radius);
             overflow: hidden;
             position: relative;
             box-shadow: 0 4px 12px rgba(0,0,0,0.1);
             border: 1px solid #333;
-            display: flex;
-            flex-direction: column;
-        }
-
-        .video-wrapper {
-            flex: 1;
+            flex: 0 0 calc((100vh - var(--header-height) - 40px - 40px) * 0.5);
             display: flex;
             align-items: center;
             justify-content: center;
-            background: #1f1f1f;
-            position: relative;
+            min-height: 300px;
         }
 
-        .video-wrapper img {
+        .panorama-canvas {
             max-width: 100%;
-            max-height: 100%;
-            width: auto;
-            height: auto;
+            max-height: 60vh;
+            object-fit: contain;
         }
 
-        .cam-overlay-info {
-            position: absolute; top: 10px; left: 10px;
-            background: rgba(0,0,0,0.6); color: #fff;
-            padding: 4px 8px; border-radius: 4px; font-size: 12px; font-family: monospace;
-            display: flex; align-items: center; gap: 6px;
+        .panorama-overlay {
+            position: absolute; top: 15px; left: 15px;
+            background: rgba(0,0,0,0.7); color: #fff;
+            padding: 8px 15px; border-radius: 6px; font-size: 13px;
+            display: flex; align-items: center; gap: 10px;
+            backdrop-filter: blur(5px);
+            z-index: 10;
         }
-        .rec-dot { width: 8px; height: 8px; background: #52c41a; border-radius: 50%; box-shadow: 0 0 4px #52c41a;}
+        .rec-dot { width: 10px; height: 10px; background: #52c41a; border-radius: 50%; box-shadow: 0 0 8px #52c41a; animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 
-        /* 下半部分：结果面板 */
+        .panorama-placeholder {
+            color: #666; display: flex; flex-direction: column; align-items: center; justify-content: center;
+        }
+        .panorama-placeholder span { font-size: 28px; opacity: 0.4; }
+        .panorama-placeholder p { font-size: 13px; margin-top: 10px; opacity: 0.3; }
+
+        /* 结果面板 */
         .result-section {
             flex: 1;
             background: white;
@@ -157,6 +170,13 @@
             min-height: 0;
         }
 
+        .panel-body {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            min-height: 0;
+        }
+
         .panel-header {
             padding: 15px 24px;
             border-bottom: 1px solid #f0f0f0;
@@ -166,192 +186,388 @@
             background: #fafafa;
         }
 
-        /* 需求2：标题要明显 */
         .panel-title {
-            font-size: 18px;
+            font-size: 16px;
             font-weight: 700;
             color: #333;
             border-left: 4px solid var(--primary-color);
             padding-left: 12px;
         }
 
-        .panel-body {
-            flex: 1;
-            display: flex;
-            overflow: hidden;
-            position: relative;
+        /* 质检状态标签 */
+        .status-tag {
+            font-size: 16px;
+            font-weight: 700;
+            padding: 8px 20px;
+            border-radius: 24px;
+            letter-spacing: 0.5px;
+        }
+        .status-tag.waiting {
+            background: #f5f5f5;
+            color: #999;
+        }
+        .status-tag.pass {
+            background: linear-gradient(135deg, #52c41a 0%, #73d13d 100%);
+            color: white;
+            box-shadow: 0 2px 8px rgba(82, 196, 26, 0.3);
+        }
+        .status-tag.fail {
+            background: linear-gradient(135deg, #ff4d4f 0%, #ff7875 100%);
+            color: white;
+            box-shadow: 0 2px 8px rgba(255, 77, 79, 0.3);
+            animation: pulse-fail 1.5s infinite;
+        }
+        @keyframes pulse-fail {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
         }
 
-        /* 左侧：检测图 */
         .result-view {
-            flex: 0 0 40%;
+            display: flex;
+            gap: 30px;
+            align-items: flex-start;
+        }
+
+        .result-image {
+            flex: 0 0 auto;
             background: #f7f9fa;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border-right: 1px solid #f0f0f0;
-            padding: 20px;
-            position: relative;
+            border-radius: 8px;
+            padding: 10px;
+            display: inline-block;
+            max-width: 240px;
         }
 
-        .canvas-box {
-            position: relative;
-            box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+        .result-image img {
             max-width: 100%;
-            max-height: 100%;
-            display: flex;
+            max-height: 200px;
             border-radius: 4px;
-            overflow: hidden;
-            cursor: zoom-in; /* 提示可放大 */
-            transition: transform 0.2s;
-        }
-        .canvas-box:hover {
-            transform: scale(1.02);
-            border: 2px solid var(--primary-color);
-        }
-
-        .res-img-display {
+            cursor: zoom-in;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.15);
             display: block;
-            max-height: 100%;
-            max-width: 100%;
-            object-fit: contain;
         }
 
-        /* 右侧：数据列表 */
-        .data-list-view {
+        .result-info {
             flex: 1;
-            display: flex;
-            flex-direction: column;
-            background: white;
             min-width: 0;
-            padding: 20px;
         }
 
-        /* 需求1：信息显示要明显 (卡片式布局) */
         .batch-info-bar {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
-            gap: 15px;
-            margin-bottom: 20px;
+            gap: 12px;
+            margin-bottom: 15px;
         }
         .info-card {
             background: #f8faff;
             border: 1px solid #d6e4ff;
-            padding: 12px 15px;
+            padding: 10px 12px;
             border-radius: 6px;
         }
         .info-card label {
             display: block;
-            font-size: 12px;
+            font-size: 11px;
             color: #85a5ff;
             font-weight: 600;
-            margin-bottom: 5px;
-            text-transform: uppercase;
+            margin-bottom: 4px;
         }
         .info-card .val {
-            font-size: 16px;
+            font-size: 14px;
             font-weight: 700;
             color: #003a8c;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
         }
 
-        /* 需求4：统计区域 */
-        .stats-bar {
-            margin-bottom: 15px;
-            padding: 12px;
-            background: #fff;
-            border-radius: 6px;
-            border: 1px dashed #e8e8e8;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            flex-wrap: wrap;
+        /* 统计信息样式 */
+        .summary-stats {
+            margin-bottom: 20px;
         }
-        .stats-label { font-weight: 600; font-size: 14px; color: #555; margin-right: 5px; }
-        .stat-pill {
-            background: #f5f5f5;
-            padding: 4px 12px;
-            border-radius: 15px;
+        .summary-title {
             font-size: 13px;
-            color: #333;
-            border: 1px solid #ddd;
+            color: #999;
+            font-weight: 500;
+            margin-bottom: 12px;
+        }
+        .summary-cards {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .summary-card {
+            display: flex;
+            align-items: baseline;
+            gap: 6px;
+            padding: 8px 14px;
+            background: #f5f5f5;
+            border-radius: 20px;
+            border: 1px solid #e8e8e8;
+        }
+        .summary-type {
+            font-size: 13px;
+            color: #666;
+        }
+        .summary-count {
+            font-size: 18px;
+            font-weight: 700;
+            color: #1890ff;
+        }
+        .no-defects {
+            color: #52c41a;
+            font-size: 14px;
+            padding: 8px 14px;
+            background: #f6ffed;
+            border-radius: 20px;
+            border: 1px solid #b7eb8f;
+            display: inline-block;
+        }
+
+        .table-container { border: 1px solid #f0f0f0; border-radius: 4px; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th { text-align: left; padding: 10px 12px; color: #999; font-weight: 500; font-size: 11px; background: #fafafa; border-bottom: 1px solid #eee; }
+        td { padding: 8px 12px; border-bottom: 1px solid #f5f5f5; }
+        tr:hover td { background: #e6f7ff; }
+
+        .empty-state {
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            padding: 40px; color: #999; font-size: 13px;
+        }
+
+        /* Modal - 底部滑入，更宽更低（拼接设置用） */
+        .modal { display: none; position: fixed; z-index: 100; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); }
+        .modal-card.bottom-panel {
+            background: white;
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            max-height: 40vh;
+            border-radius: 12px;
+            box-shadow: 0 -5px 40px rgba(0,0,0,0.2);
+            overflow: hidden;
+            animation: slideInUp 0.3s;
+            display: flex;
+            flex-direction: column;
+            width: 90%;
+            max-width: 900px;
+        }
+        @keyframes slideInUp { from { transform: translate(-50%, 100%); } to { transform: translate(-50%, 0); } }
+
+        /* 检测确认模态框 - 居中大尺寸 */
+        .modal-card.center-dialog {
+            position: fixed;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            width: 500px;
+            background: white;
+            max-height: 90vh;
+            border-radius: 8px;
+            box-shadow: 0 10px 50px rgba(0,0,0,0.3);
+            overflow: hidden;
+            animation: fadeIn 0.3s;
+            display: flex;
+            flex-direction: column;
+        }
+        @keyframes fadeIn { from { opacity: 0; transform: translate(-50%, -50%) scale(0.95); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
+
+        .modal-header {
+            padding: 16px 20px;
+            background: #fbfbfb;
+            border-bottom: 1px solid #eee;
+            font-weight: 600;
+            font-size: 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+        }
+        .modal-close {
+            background: none; border: none;
+            font-size: 24px; cursor: pointer;
+            color: #999; width: 30px; height: 30px;
+            display: flex; align-items: center; justify-content: center;
+            border-radius: 4px;
+        }
+        .modal-close:hover { background: #f0f0f0; }
+
+        .modal-body {
+            padding: 20px;
+            overflow-y: auto;
+            flex: 1;
+            max-height: calc(40vh - 100px);
+        }
+        .modal-card.center-dialog .modal-body {
+            max-height: none;
+            overflow-y: visible;
+        }
+        .modal-footer {
+            padding: 16px 20px;
+            border-top: 1px solid #eee;
+            background: #fbfbfb;
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            flex-shrink: 0;
+        }
+
+        /* 小屏幕适配 */
+        @media (max-width: 768px) {
+            .modal-card.bottom-panel {
+                width: 95%;
+                max-height: 60vh;
+                bottom: 10px;
+            }
+            .modal-card.bottom-panel .modal-body {
+                max-height: calc(60vh - 100px);
+            }
+            .modal-card.center-dialog {
+                width: 90%;
+            }
+        }
+
+        .form-item { margin-bottom: 15px; }
+        .form-item label { display: block; font-size: 12px; color: #666; margin-bottom: 5px; }
+        .form-item input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; }
+
+        /* 拼接配置样式 */
+        .strategy-selector {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 20px;
+        }
+        .strategy-option {
+            flex: 1;
+            padding: 10px 8px;
+            border: 2px solid #e8e8e8;
+            border-radius: 6px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .strategy-option:hover { border-color: var(--primary-color); background: #f0f9ff; }
+        .strategy-option.active {
+            border-color: var(--primary-color);
+            background: #e6f7ff;
+        }
+        .strategy-option .name { font-weight: 600; font-size: 13px; }
+        .strategy-option .desc { font-size: 10px; color: #999; }
+
+        .manual-config-section {
+            background: #fffbf0;
+            border: 1px solid #ffe58f;
+            border-radius: 6px;
+            padding: 14px;
+            margin-bottom: 16px;
+        }
+        .manual-config-section .section-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: #d46b08;
+            margin-bottom: 12px;
             display: flex;
             align-items: center;
             gap: 6px;
         }
-        .stat-pill b { color: var(--primary-color); }
-
-        .table-container { flex: 1; overflow-y: auto; border: 1px solid #f0f0f0; border-radius: 4px; }
-        table { width: 100%; border-collapse: collapse; font-size: 14px; }
-        th { text-align: left; padding: 12px 15px; color: #999; font-weight: 500; font-size: 12px; background: #fafafa; position: sticky; top: 0; border-bottom: 1px solid #eee; }
-        td { padding: 10px 15px; border-bottom: 1px solid #f5f5f5; cursor: pointer; transition: 0.2s; }
-        tr:hover td { background: #e6f7ff; }
-        tr.active td { background: #e6f7ff; font-weight: 600; color: var(--primary-color); border-left: 3px solid var(--primary-color); }
-
-        .empty-state {
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
-            height: 100%; width: 100%; color: #ccc;
+        .manual-config-section .section-title .live-indicator {
+            width: 8px; height: 8px;
+            background: #52c41a;
+            border-radius: 50%;
+            animation: pulse 1.5s infinite;
         }
 
-        /* 需求3：图片放大Lightbox */
-        .lightbox {
-            display: none;
-            position: fixed;
-            z-index: 2000;
-            left: 0; top: 0;
-            width: 100%; height: 100%;
-            background: rgba(0,0,0,0.9);
-            justify-content: center;
-            align-items: center;
-            flex-direction: column;
+        .camera-config-item {
+            background: white;
+            border: 1px solid #e8e8e8;
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 10px;
         }
-        .lightbox-content {
-            position: relative;
-            max-width: 90%;
-            max-height: 85%;
-            box-shadow: 0 0 50px rgba(0,0,0,0.5);
+        .camera-config-item .camera-title {
+            font-weight: 600;
+            font-size: 12px;
+            color: #333;
+            margin-bottom: 10px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #f0f0f0;
         }
-        .lightbox-img {
+
+        .param-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        .param-item label {
+            font-size: 11px;
+            color: #999;
+            margin-bottom: 4px;
             display: block;
-            max-width: 100%;
-            max-height: 85vh; /* 确保不超出一屏 */
-            object-fit: contain;
         }
-        .lightbox-canvas {
-            position: absolute;
-            top: 0; left: 0;
-            width: 100%; height: 100%;
-            pointer-events: none;
+        .param-item input[type="range"] {
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: #e8e8e8;
+            outline: none;
+            -webkit-appearance: none;
         }
-        .lightbox-close {
-            position: absolute;
-            top: 20px; right: 30px;
-            color: white;
-            font-size: 40px;
+        .param-item input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: var(--primary-color);
             cursor: pointer;
-            z-index: 2001;
         }
 
-        /* Modal (表单) */
-        .modal { display: none; position: fixed; z-index: 100; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); backdrop-filter: blur(2px); }
-        .modal-card {
-            background: white; margin: 10vh auto; width: 420px;
-            border-radius: 8px; padding: 0;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
-            overflow: hidden; animation: slideIn 0.3s;
+        .range-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
-        @keyframes slideIn { from { transform: translateY(-20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        .range-wrapper input[type="range"] { flex: 1; }
+        .range-wrapper .range-value {
+            min-width: 45px;
+            text-align: right;
+            font-size: 11px;
+            color: #666;
+            font-weight: 600;
+        }
 
-        .modal-header { padding: 20px; background: #fbfbfb; border-bottom: 1px solid #eee; font-weight: 600; }
-        .modal-body { padding: 24px; }
-        .form-item { margin-bottom: 16px; }
-        .form-item label { display: block; font-size: 13px; margin-bottom: 6px; color: #666; }
-        .form-item input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; outline: none; transition: 0.3s; }
-        .form-item input:focus { border-color: var(--primary-color); box-shadow: 0 0 0 2px rgba(24,144,255,0.1); }
-        .modal-footer { padding: 16px 24px; text-align: right; background: #fbfbfb; border-top: 1px solid #eee; }
+        .preview-note {
+            background: #e6f7ff;
+            border: 1px solid #91d5ff;
+            border-radius: 6px;
+            padding: 10px 12px;
+            font-size: 12px;
+            color: #0050b3;
+            margin-bottom: 15px;
+        }
 
+        .btn {
+            padding: 10px 18px; border: none; border-radius: 4px; cursor: pointer;
+            font-size: 14px; font-weight: 500; transition: all 0.3s;
+        }
+        .btn-primary { background: var(--primary-color); color: white; }
+        .btn-primary:hover { background: #40a9ff; }
+        .btn-secondary { background: #f5f5f5; color: #666; }
+        .btn-secondary:hover { background: #e8e8e8; }
+        .btn-success { background: var(--success-color); color: white; }
+        .btn-success:hover { background: #73d13d; }
+
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: white;
+            padding: 12px 20px;
+            border-radius: 6px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            z-index: 3000;
+            display: none;
+        }
+        .toast.success { border-left: 4px solid var(--success-color); }
+        .toast.error { border-left: 4px solid var(--danger-color); }
+        .toast.warning { border-left: 4px solid var(--warning-color); }
+
+        .hidden { display: none !important; }
     </style>
 </head>
 <body>
@@ -370,15 +586,23 @@
             ⏹ 停止监控
         </button>
 
+        <div class="stitch-status" id="stitchStatus">
+            <div class="status-row">
+                <span class="status-label">拼接策略:</span>
+                <span class="status-value" id="currentStrategy">-</span>
+            </div>
+        </div>
+
         <div class="menu-label" style="margin-top: 20px;">Inspection</div>
         <button class="ctrl-btn" onclick="startPreCheck()" id="inspectBtn" disabled>
             ◎ 开始检测
         </button>
     </div>
 
-    <div style="padding: 20px; font-size: 12px; opacity: 0.5; margin-top: auto;">
-        System Status: Normal<br>
-        Ver 3.1.0 (Enhanced)
+    <div style="padding: 20px; margin-top: auto;">
+        <button class="ctrl-btn" onclick="openStitchConfigModal()" id="stitchConfigBtn" style="width: 100%; opacity: 0.5;">
+            ⚙ 拼接设置
+        </button>
     </div>
 </aside>
 
@@ -389,119 +613,147 @@
     </header>
 
     <div class="workspace">
-        <div class="monitor-section" id="monitorSection">
-            <div class="camera-card">
-                <div class="video-wrapper">
-                    <div style="color: #666; display: flex; flex-direction: column; align-items: center;">
-                        <span style="font-size: 24px; opacity: 0.5;">OFFLINE</span>
-                        <span style="font-size: 12px; margin-top: 10px; opacity: 0.3;">等待设备连接</span>
-                    </div>
-                </div>
+        <!-- 全景 Canvas 监控区 (前端拼接) -->
+        <div class="panorama-section">
+            <div class="panorama-placeholder" id="panoramaPlaceholder">
+                <span>OFFLINE</span>
+                <p>点击左侧"启动监控"查看拼接画面</p>
+            </div>
+            <canvas id="panoramaCanvas" class="panorama-canvas" style="display: none;"></canvas>
+            <div class="panorama-overlay" id="panoramaOverlay" style="display: none;">
+                <div class="rec-dot"></div>
+                <span>前端实时拼接</span>
             </div>
         </div>
 
+        <!-- 检测结果区 -->
         <div class="result-section">
             <div class="panel-header">
-                <div class="panel-title">检测结果分析 (Analysis)</div>
-                <span id="status-tag" style="font-size: 14px; font-weight:bold; background: #f5f5f5; padding: 6px 16px; border-radius: 20px; color: #999;">Waiting</span>
+                <div class="panel-title">检测结果分析</div>
+                <div id="status-tag" class="status-tag waiting">等待检测</div>
             </div>
-
             <div class="panel-body" id="result-panel-body">
                 <div class="empty-state">
-                    <p>暂无检测数据，请点击左侧 "触发检测"</p>
+                    <p>暂无检测数据，请点击左侧 "开始检测"</p>
                 </div>
             </div>
-
-            <template id="result-content-template">
-                <div style="width: 100%; height: 100%; display: flex;">
-                    <div class="result-view">
-                        <div class="canvas-box" onclick="openLightbox()" title="点击放大查看">
-                            <img class="res-img-display" src="">
-                            <canvas class="res-canvas-display" style="position: absolute; top:0; left:0; width:100%; height:100%;"></canvas>
-                            <div style="position:absolute; bottom:10px; right:10px; background:rgba(0,0,0,0.6); color:white; padding:4px 8px; border-radius:4px; font-size:12px; pointer-events:none;">🔍 点击放大</div>
-                        </div>
-                    </div>
-                    <div class="data-list-view">
-                        <div class="batch-info-bar">
-                            <div class="info-card">
-                                <label>工件名称</label>
-                                <div class="val-part val">-</div>
-                            </div>
-                            <div class="info-card">
-                                <label>批次号</label>
-                                <div class="val-batch val">-</div>
-                            </div>
-                            <div class="info-card">
-                                <label>操作员</label>
-                                <div class="val-op val">-</div>
-                            </div>
-                        </div>
-
-                        <div class="stats-bar">
-                            <span class="stats-label">缺陷统计:</span>
-                            <div class="stats-container" style="display:flex; gap:10px;">
-                            </div>
-                        </div>
-
-                        <div class="table-container">
-                            <table>
-                                <thead>
-                                <tr><th>ID</th><th>检测类型 (Class)</th><th>置信度 (Conf)</th></tr>
-                                </thead>
-                                <tbody class="defect-tbody">
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </template>
         </div>
     </div>
 </main>
 
-<div id="lightbox" class="lightbox">
-    <span class="lightbox-close" onclick="closeLightbox()">&times;</span>
-    <div class="lightbox-content">
-        <img id="lightbox-img" class="lightbox-img" src="">
-        <canvas id="lightbox-canvas" class="lightbox-canvas"></canvas>
-    </div>
-    <div style="color:white; margin-top:10px; font-size:14px;">按 ESC 退出全屏</div>
-</div>
-
+<!-- 检测确认模态框 -->
 <div id="confirmModal" class="modal">
-    <div class="modal-card">
-        <div class="modal-header">检测参数确认</div>
+    <div class="modal-card center-dialog">
+        <div class="modal-header">
+            <span>检测参数确认</span>
+            <button class="modal-close" onclick="closeModal()">&times;</button>
+        </div>
         <div class="modal-body">
-            <img id="preview-image" style="width: 100%; height: 150px; object-fit: contain; background: #333; border-radius: 4px; margin-bottom: 20px;" src="">
+            <img id="preview-image" style="width: 100%; height: 180px; object-fit: contain; background: #333; border-radius: 4px; margin-bottom: 20px;" src="">
             <div class="form-item">
-                <label>工件名称 (Part Name)</label>
-                <input type="text" id="part-name">
+                <label>工件名称</label>
+                <input type="text" id="part-name" style="padding: 12px; font-size: 14px;">
             </div>
             <div class="form-item">
-                <label>生产批次 (Batch ID)</label>
-                <input type="text" id="batch-id">
+                <label>生产批次</label>
+                <input type="text" id="batch-id" style="padding: 12px; font-size: 14px;">
             </div>
             <div class="form-item">
-                <label>操作员 (Operator)</label>
-                <input type="text" id="operator" value="Admin">
+                <label>操作员</label>
+                <input type="text" id="operator" value="Admin" style="padding: 12px; font-size: 14px;">
             </div>
         </div>
         <div class="modal-footer">
-            <button class="ctrl-btn" style="display:inline-block; width:auto; background:#ccc; color:#333; margin-right:10px;" onclick="closeModal()">取消</button>
-            <button class="ctrl-btn" style="display:inline-block; width:auto; background:var(--primary-color); color:white;" onclick="confirmInspection()">开始分析</button>
+            <button class="btn btn-secondary" onclick="closeModal()">取消</button>
+            <button class="btn btn-primary" onclick="confirmInspection()">开始分析</button>
         </div>
     </div>
 </div>
+
+<!-- 拼接配置模态框 -->
+<div id="stitchConfigModal" class="modal">
+    <div class="modal-card bottom-panel">
+        <div class="modal-header">
+            <span>拼接配置设置</span>
+            <button class="modal-close" onclick="closeStitchConfigModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div style="margin-bottom: 15px;">
+                <label style="font-size: 12px; color: #666; display: block; margin-bottom: 8px;">拼接策略</label>
+                <div class="strategy-selector">
+                    <div class="strategy-option" data-strategy="simple" onclick="selectStrategy('simple')">
+                        <div class="name">Simple</div>
+                        <div class="desc">简单拼接</div>
+                    </div>
+                    <div class="strategy-option" data-strategy="auto" onclick="selectStrategy('auto')">
+                        <div class="name">Auto</div>
+                        <div class="desc">自动拼接</div>
+                    </div>
+                    <div class="strategy-option" data-strategy="manual" onclick="selectStrategy('manual')">
+                        <div class="name">Manual</div>
+                        <div class="desc">手动调节</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="manual-config-section" id="manualConfigSection" style="display: none;">
+                <div class="section-title">
+                    <div class="live-indicator"></div>
+                    实时参数调节
+                </div>
+
+                <div class="preview-note">
+                    拖动滑块实时预览拼接效果，满意后点击保存
+                </div>
+
+                <div id="cameraConfigsContainer">
+                    <!-- 动态生成 -->
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="resetManualConfig()">重置</button>
+            <button class="btn btn-success" onclick="saveStitchConfig()">💾 保存配置</button>
+        </div>
+    </div>
+</div>
+
+<!-- Toast 提示 -->
+<div id="toast" class="toast"></div>
 
 <script>
     const API_BASE = '';
     let requestId = null;
-    let currentDetections = [];
-    let currentResultImageSrc = ''; // 保存当前结果图片地址供放大使用
+
+    // 拼接配置相关
+    let currentStrategy = 'simple';
+    let manualConfigs = {};
+    let cameraCount = 2;
+    let isManualModeAvailable = false;
+    let isPreviewMode = false;
+
+    // Canvas 拼接相关
+    let panoramaCanvas = null;
+    let panoramaCtx = null;
+    let offscreenCanvas = null; // 离屏 Canvas 用于双缓冲
+    let offscreenCtx = null;
+    let cameraStreams = []; // 隐藏的 img 元素用于加载 MJPEG 流
+    let animationId = null;
+    let lastFetchTime = 0;
+    let lastCanvasWidth = 0;
+    let lastCanvasHeight = 0;
 
     setInterval(() => {
         document.getElementById('clock').innerText = new Date().toLocaleTimeString();
     }, 1000);
+
+    function showToast(message, type = 'success') {
+        const toast = document.getElementById('toast');
+        toast.textContent = message;
+        toast.className = `toast ${type}`;
+        toast.style.display = 'block';
+        setTimeout(() => { toast.style.display = 'none'; }, 3000);
+    }
 
     // --- 摄像头控制 ---
     async function startCamera() {
@@ -509,38 +761,186 @@
             const res = await fetch(`${API_BASE}/api/camera/start`, { method: 'POST' });
             const data = await res.json();
             if (data.status === 'success') {
+                cameraCount = data.cameraCount;
                 toggleState(true);
-                initMonitors(data.cameraCount);
+                initPanoramaCanvas();
+                updateStitchStatus();
+                startCanvasStitch();
+                showToast('摄像头启动成功');
             }
         } catch(e) { alert('启动失败: ' + e.message); }
     }
 
-    function initMonitors(count) {
-        const container = document.getElementById('monitorSection');
-        container.innerHTML = '';
-        const ts = new Date().getTime();
+    function initPanoramaCanvas() {
+        panoramaCanvas = document.getElementById('panoramaCanvas');
+        panoramaCtx = panoramaCanvas.getContext('2d', { alpha: false }); // 优化：关闭透明通道
 
-        for (let i = 0; i < count; i++) {
-            const card = document.createElement('div');
-            card.className = 'camera-card';
-            card.innerHTML = `
-                <div class="cam-overlay-info">
-                    <div class="rec-dot"></div> CAM 0${i+1}
-                </div>
-                <div class="video-wrapper">
-                    <img src="${API_BASE}/api/camera/stream/${i}?t=${ts}" onerror="this.style.display='none'">
-                </div>
-            `;
-            container.appendChild(card);
+        // 创建离屏 Canvas 用于双缓冲
+        offscreenCanvas = document.createElement('canvas');
+        offscreenCtx = offscreenCanvas.getContext('2d', { alpha: false });
+
+        document.getElementById('panoramaPlaceholder').style.display = 'none';
+        panoramaCanvas.style.display = 'block';
+        document.getElementById('panoramaOverlay').style.display = 'flex';
+
+        // 创建隐藏的 img 元素加载 MJPEG 流
+        const hiddenContainer = document.createElement('div');
+        hiddenContainer.style.position = 'absolute';
+        hiddenContainer.style.visibility = 'hidden';
+        hiddenContainer.style.width = '0';
+        hiddenContainer.style.height = '0';
+        hiddenContainer.style.overflow = 'hidden';
+
+        for (let i = 0; i < cameraCount; i++) {
+            const img = document.createElement('img');
+            img.crossOrigin = 'anonymous'; // 允许跨域
+            img.src = `${API_BASE}/api/camera/stream/${i}?t=${Date.now()}`;
+            hiddenContainer.appendChild(img);
+            cameraStreams.push(img);
         }
+
+        document.body.appendChild(hiddenContainer);
+
+        lastCanvasWidth = 0;
+        lastCanvasHeight = 0;
+    }
+
+    // Canvas 拼接主循环
+    async function startCanvasStitch() {
+        const fetchInterval = 50; // 约 20fps，避免过于频繁
+
+        async function stitchLoop() {
+            if (!document.getElementById('stopBtn').disabled) {
+                const now = Date.now();
+                if (now - lastFetchTime >= fetchInterval) {
+                    stitchFromStreams();
+                    lastFetchTime = now;
+                }
+            }
+            animationId = requestAnimationFrame(stitchLoop);
+        }
+
+        // 等待图片加载完成后再开始循环
+        setTimeout(() => {
+            stitchLoop();
+        }, 1000);
+    }
+
+    // 从 MJPEG 流截取画面并拼接
+    function stitchFromStreams() {
+        // 检查所有流是否已加载
+        const loadedImages = cameraStreams.filter(img => img.complete && img.naturalWidth > 0);
+
+        if (loadedImages.length === cameraCount) {
+            stitchImagesOnCanvas(loadedImages);
+        }
+    }
+
+    function stitchImagesOnCanvas(images) {
+        if (!offscreenCtx || images.length === 0) return;
+
+        // 根据策略设置画布尺寸
+        let canvasWidth, canvasHeight;
+
+        if (currentStrategy === 'manual' && Object.keys(manualConfigs).length > 0) {
+            // 手动模式：根据参数计算画布大小
+            let totalWidth = 0;
+            let maxHeight = 0;
+
+            images.forEach((img, index) => {
+                const config = manualConfigs[index] || {
+                    offset: [0, 0],
+                    scale: 1.0
+                };
+                // 使用 naturalWidth/Height 获取图像的实际尺寸
+                const scaledWidth = img.naturalWidth * config.scale;
+                const scaledHeight = img.naturalHeight * config.scale;
+                const overlapWidth = config.overlapWidth || 0;
+
+                totalWidth += scaledWidth - overlapWidth;
+                maxHeight = Math.max(maxHeight, scaledHeight + Math.abs(config.offset[1]));
+            });
+
+            canvasWidth = Math.round(totalWidth);
+            canvasHeight = Math.round(maxHeight);
+        } else {
+            // Simple/Auto 模式：简单水平拼接
+            canvasWidth = images.reduce((sum, img) => sum + img.naturalWidth, 0);
+            canvasHeight = Math.max(...images.map(img => img.naturalHeight));
+        }
+
+        // 只有尺寸真正变化时才调整 Canvas（避免频繁重置）
+        if (canvasWidth !== lastCanvasWidth || canvasHeight !== lastCanvasHeight) {
+            offscreenCanvas.width = canvasWidth;
+            offscreenCanvas.height = canvasHeight;
+            panoramaCanvas.width = canvasWidth;
+            panoramaCanvas.height = canvasHeight;
+            lastCanvasWidth = canvasWidth;
+            lastCanvasHeight = canvasHeight;
+        }
+
+        // 在离屏 Canvas 上绘制背景
+        offscreenCtx.fillStyle = '#000';
+        offscreenCtx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+        // 绘制图像
+        let offsetX = 0;
+
+        images.forEach((img, index) => {
+            let drawX, drawY, drawWidth, drawHeight;
+
+            if (currentStrategy === 'manual' && manualConfigs[index]) {
+                const config = manualConfigs[index];
+                drawWidth = img.naturalWidth * config.scale;
+                drawHeight = img.naturalHeight * config.scale;
+                drawX = offsetX + config.offset[0];
+                drawY = (canvasHeight - drawHeight) / 2 + config.offset[1];
+
+                const overlapWidth = config.overlapWidth || 0;
+                offsetX += drawWidth - overlapWidth;
+            } else {
+                drawWidth = img.naturalWidth;
+                drawHeight = img.naturalHeight;
+                drawX = offsetX;
+                drawY = (canvasHeight - img.naturalHeight) / 2;
+                offsetX += img.naturalWidth;
+            }
+
+            // 绘制到离屏 Canvas
+            try {
+                offscreenCtx.drawImage(img, drawX, drawY, drawWidth, drawHeight);
+            } catch(e) {
+                // 忽略绘制错误
+            }
+        });
+
+        // 一次性将离屏 Canvas 复制到主 Canvas（避免闪烁）
+        panoramaCtx.drawImage(offscreenCanvas, 0, 0);
     }
 
     async function stopCamera() {
         try {
             await fetch(`${API_BASE}/api/camera/stop`, { method: 'POST' });
             toggleState(false);
-            document.getElementById('monitorSection').innerHTML = `
-                <div class="camera-card"><div class="video-wrapper"><div style="color: #666; text-align:center;"><span style="font-size: 24px; opacity: 0.5;">SYSTEM HALTED</span></div></div></div>`;
+
+            // 停止 Canvas 循环
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+                animationId = null;
+            }
+
+            // 清理隐藏的流容器
+            cameraStreams.forEach(img => {
+                img.src = '';
+            });
+            cameraStreams = [];
+
+            // 重置显示
+            document.getElementById('panoramaPlaceholder').style.display = 'flex';
+            panoramaCanvas.style.display = 'none';
+            document.getElementById('panoramaOverlay').style.display = 'none';
+
+            showToast('摄像头已停止', 'warning');
         } catch(e) {}
     }
 
@@ -561,14 +961,14 @@
                 if(data.data.suggested_type) document.getElementById('part-name').value = data.data.suggested_type;
                 document.getElementById('confirmModal').style.display = 'block';
             }
-        } catch(e) { console.error(e); }
+        } catch(e) {}
     }
 
     async function confirmInspection() {
         const part = document.getElementById('part-name').value;
         const batch = document.getElementById('batch-id').value;
         const op = document.getElementById('operator').value;
-        if(!part || !batch) return alert('请完善信息');
+        if(!part || !batch) return showToast('请完善信息', 'error');
 
         closeModal();
 
@@ -580,176 +980,328 @@
             });
             const data = await res.json();
             if(data.status === 'success') showResults(data.data);
-            else alert(data.message);
-        } catch(e) { alert(e.message); }
+            else showToast(data.message, 'error');
+        } catch(e) { showToast(e.message, 'error'); }
     }
 
     function showResults(data) {
         const panelBody = document.getElementById('result-panel-body');
-        const template = document.getElementById('result-content-template').content.cloneNode(true);
 
-        panelBody.innerHTML = '';
-        panelBody.appendChild(template);
+        // 计算每种类型的统计数量
+        const typeCounts = {};
+        const details = data.analysis.details || [];
+        details.forEach(det => {
+            typeCounts[det.label] = (typeCounts[det.label] || 0) + 1;
+        });
 
-        const img = panelBody.querySelector('.res-img-display');
-        const canvas = panelBody.querySelector('.res-canvas-display');
-        const tbody = panelBody.querySelector('.defect-tbody');
-        const statsContainer = panelBody.querySelector('.stats-container'); // 统计容器
+        panelBody.innerHTML = `
+            <div class="result-view">
+                <div class="result-image">
+                    <img src="${data.result_image}" onclick="showImagePreview(this.src)" style="cursor: pointer;" title="点击放大查看">
+                </div>
+                <div class="result-info">
+                    <div class="batch-info-bar">
+                        <div class="info-card">
+                            <label>工件名称</label>
+                            <div class="val">${data.batch_info.part_name}</div>
+                        </div>
+                        <div class="info-card">
+                            <label>批次号</label>
+                            <div class="val">${data.batch_info.batch_id}</div>
+                        </div>
+                        <div class="info-card">
+                            <label>操作员</label>
+                            <div class="val">${data.batch_info.operator}</div>
+                        </div>
+                    </div>
+
+                    <!-- 统计信息 -->
+                    <div class="summary-stats">
+                        <div class="summary-title">类型统计</div>
+                        <div class="summary-cards">
+                            ${Object.entries(typeCounts).map(([type, count]) => `
+                                <div class="summary-card">
+                                    <div class="summary-type">${type}</div>
+                                    <div class="summary-count">${count}</div>
+                                </div>
+                            `).join('')}
+                            ${Object.keys(typeCounts).length === 0 ? '<div class="no-defects">无缺陷检出</div>' : ''}
+                        </div>
+                    </div>
+
+                    <div class="table-container">
+                        <table>
+                            <thead><tr><th>ID</th><th>类型</th><th>置信度</th></tr></thead>
+                            <tbody>
+                                ${details.map((det, i) => `
+                                    <tr>
+                                        <td>${i + 1}</td>
+                                        <td>${det.label}</td>
+                                        <td>${(det.confidence * 100).toFixed(0)}%</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        `;
+
         const statusTag = document.getElementById('status-tag');
-
-        // 保存全局供放大使用
-        currentResultImageSrc = data.result_image;
-        img.src = data.result_image;
-
-        // 填充醒目的卡片信息
-        panelBody.querySelector('.val-part').innerText = data.batch_info.part_name;
-        panelBody.querySelector('.val-batch').innerText = data.batch_info.batch_id;
-        panelBody.querySelector('.val-op').innerText = data.batch_info.operator;
-
         const isPass = data.analysis.quality_status === 'PASS';
-        statusTag.innerText = isPass ? 'PASS / 质检合格' : 'FAIL / 质检不合格';
-        statusTag.style.background = isPass ? '#f6ffed' : '#fff1f0';
-        statusTag.style.color = isPass ? '#52c41a' : '#f5222d';
-
-        currentDetections = data.analysis.details || [];
-
-        // --- 核心新增：统计逻辑 ---
-        const stats = {};
-        currentDetections.forEach(det => {
-            const label = det.label || 'Unknown';
-            stats[label] = (stats[label] || 0) + 1;
-        });
-
-        statsContainer.innerHTML = '';
-        if (Object.keys(stats).length === 0) {
-            statsContainer.innerHTML = '<span style="color:#999; font-size:12px;">无缺陷目标</span>';
-        } else {
-            for (const [key, count] of Object.entries(stats)) {
-                const pill = document.createElement('div');
-                pill.className = 'stat-pill';
-                pill.innerHTML = `${key}: <b>${count}</b>`;
-                statsContainer.appendChild(pill);
-            }
-        }
-        // -----------------------
-
-        tbody.innerHTML = '';
-        currentDetections.forEach((det, idx) => {
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td>${idx + 1}</td>
-                <td>${det.label}</td>
-                <td>${(det.confidence * 100).toFixed(0)}%</td>
-            `;
-            tr.onclick = () => {
-                const rows = tbody.querySelectorAll('tr');
-                rows.forEach(r => r.classList.remove('active'));
-                tr.classList.add('active');
-                drawBoxes(img, canvas, idx);
-            };
-            tbody.appendChild(tr);
-        });
-
-        if(img.complete && img.naturalHeight !== 0) {
-             drawBoxes(img, canvas, -1);
-        } else {
-             img.onload = () => drawBoxes(img, canvas, -1);
-        }
-    }
-
-    // 绘制框核心函数 (复用)
-    function drawBoxes(imgElement, canvasElement, activeIdx) {
-        if (!imgElement || imgElement.clientWidth === 0) return;
-
-        canvasElement.width = imgElement.clientWidth;
-        canvasElement.height = imgElement.clientHeight;
-        const ctx = canvasElement.getContext('2d');
-        ctx.clearRect(0,0, canvasElement.width, canvasElement.height);
-
-        const scaleX = imgElement.clientWidth / imgElement.naturalWidth;
-        const scaleY = imgElement.clientHeight / imgElement.naturalHeight;
-
-        currentDetections.forEach((det, idx) => {
-            const isActive = idx === activeIdx;
-            const [x1, y1, x2, y2] = det.bbox;
-            const x = x1 * scaleX;
-            const y = y1 * scaleY;
-            const w = (x2 - x1) * scaleX;
-            const h = (y2 - y1) * scaleY;
-
-            ctx.beginPath();
-            ctx.lineWidth = isActive ? 4 : 2; // 放大时线更粗一点
-            ctx.strokeStyle = isActive ? '#ff4d4f' : '#1890ff';
-            ctx.fillStyle = isActive ? 'rgba(255, 77, 79, 0.3)' : 'rgba(24,144,255,0.1)';
-
-            // 绘制文字背景 (仅在放大模式或高亮时显示文字，避免拥挤)
-            if (isActive || canvasElement.id === 'lightbox-canvas') {
-                ctx.font = "bold 14px Arial";
-                const txt = `${det.label} ${(det.confidence*100).toFixed(0)}%`;
-                const txtWidth = ctx.measureText(txt).width;
-                ctx.fillStyle = isActive ? '#ff4d4f' : '#1890ff';
-                ctx.fillRect(x, y - 20, txtWidth + 10, 20);
-
-                ctx.fillStyle = 'white';
-                ctx.fillText(txt, x + 5, y - 5);
-
-                // 还原填充色给框
-                ctx.fillStyle = isActive ? 'rgba(255, 77, 79, 0.3)' : 'rgba(24,144,255,0.1)';
-            }
-
-            ctx.rect(x, y, w, h);
-            ctx.stroke();
-            ctx.fill();
-        });
-    }
-
-    // --- 放大查看 (Lightbox) 逻辑 ---
-    function openLightbox() {
-        if (!currentResultImageSrc) return;
-        const lightbox = document.getElementById('lightbox');
-        const lbImg = document.getElementById('lightbox-img');
-        const lbCanvas = document.getElementById('lightbox-canvas');
-
-        lightbox.style.display = 'flex';
-        lbImg.src = currentResultImageSrc;
-
-        // 图片加载完成后绘制大图的框
-        lbImg.onload = () => {
-            drawBoxes(lbImg, lbCanvas, -1);
-        };
-        // 如果已经缓存
-        if (lbImg.complete) {
-            drawBoxes(lbImg, lbCanvas, -1);
-        }
-    }
-
-    function closeLightbox() {
-        document.getElementById('lightbox').style.display = 'none';
-    }
-
-    // 键盘ESC关闭放大
-    document.addEventListener('keydown', function(event) {
-        if (event.key === "Escape") closeLightbox();
-    });
-
-    // 窗口大小变化时重绘Canvas
-    window.onresize = () => {
-        const img = document.querySelector('.res-img-display');
-        const canvas = document.querySelector('.res-canvas-display');
-        if(img && canvas) drawBoxes(img, canvas, -1);
-
-        // 如果全屏开启中，也要重绘
-        const lb = document.getElementById('lightbox');
-        if (lb.style.display === 'flex') {
-             const lbImg = document.getElementById('lightbox-img');
-             const lbCanvas = document.getElementById('lightbox-canvas');
-             drawBoxes(lbImg, lbCanvas, -1);
-        }
+        statusTag.className = 'status-tag ' + (isPass ? 'pass' : 'fail');
+        statusTag.innerText = isPass ? '✓ 质检合格' : '✗ 质检不合格';
     }
 
     function closeModal() {
         document.getElementById('confirmModal').style.display = 'none';
     }
+
+    // 图片预览功能
+    function showImagePreview(src) {
+        // 创建预览模态框
+        const modal = document.createElement('div');
+        modal.className = 'modal';
+        modal.style.display = 'block';
+        modal.id = 'imagePreviewModal';
+        modal.innerHTML = `
+            <div class="modal-card center-dialog" style="width: auto; max-width: 90vw;">
+                <div class="modal-header">
+                    <span>检测结果图片</span>
+                    <button class="modal-close" onclick="closeImagePreview()">&times;</button>
+                </div>
+                <div class="modal-body" style="display: flex; align-items: center; justify-content: center; background: #f5f5f5; padding: 20px;">
+                    <img src="${src}" style="max-width: 100%; max-height: 70vh; object-fit: contain; border-radius: 4px;">
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+
+        // 点击背景关闭
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                closeImagePreview();
+            }
+        });
+    }
+
+    function closeImagePreview() {
+        const modal = document.getElementById('imagePreviewModal');
+        if (modal) {
+            modal.remove();
+        }
+    }
+
+    // --- 拼接配置 ---
+    async function updateStitchStatus() {
+        try {
+            const res = await fetch(`${API_BASE}/api/stitch/config`);
+            const data = await res.json();
+            if(data.status === 'success') {
+                currentStrategy = data.data.currentStrategy;
+                const strategyEl = document.getElementById('currentStrategy');
+
+                strategyEl.textContent = currentStrategy.toUpperCase();
+                document.getElementById('stitchStatus').classList.toggle('manual', currentStrategy === 'manual');
+            }
+        } catch(e) {}
+    }
+
+    async function openStitchConfigModal() {
+        document.getElementById('stitchConfigModal').style.display = 'block';
+        isPreviewMode = true;
+
+        try {
+            const res = await fetch(`${API_BASE}/api/stitch/strategy`);
+            const data = await res.json();
+            if(data.status === 'success') {
+                currentStrategy = data.data.strategy;
+                updateStrategyUI();
+            }
+        } catch(e) {}
+    }
+
+    function closeStitchConfigModal() {
+        document.getElementById('stitchConfigModal').style.display = 'none';
+        isPreviewMode = false;
+    }
+
+    function selectStrategy(strategy) {
+        currentStrategy = strategy;
+        updateStrategyUI();
+    }
+
+    function updateStrategyUI() {
+        document.querySelectorAll('.strategy-option').forEach(el => {
+            el.classList.toggle('active', el.dataset.strategy === currentStrategy);
+        });
+
+        const manualSection = document.getElementById('manualConfigSection');
+        if(currentStrategy === 'manual') {
+            manualSection.style.display = 'block';
+            loadManualConfigs();
+        } else {
+            manualSection.style.display = 'none';
+        }
+    }
+
+    async function loadManualConfigs() {
+        try {
+            const res = await fetch(`${API_BASE}/api/stitch/manual`);
+            const data = await res.json();
+            if(data.status === 'success' && data.data.cameras) {
+                renderCameraConfigs(data.data.cameras);
+            }
+        } catch(e) {}
+    }
+
+    function renderCameraConfigs(cameras) {
+        const container = document.getElementById('cameraConfigsContainer');
+        container.innerHTML = '';
+
+        cameras.forEach(cam => {
+            const config = manualConfigs[cam.index] || {
+                offset: cam.offset || [0, 0],
+                scale: cam.scale || 1.0,
+                rotation: cam.rotation || 0,
+                flip: cam.flip || [false, false],
+                overlapWidth: cam.overlapWidth || 100
+            };
+            manualConfigs[cam.index] = config;
+
+            const item = document.createElement('div');
+            item.className = 'camera-config-item';
+            item.innerHTML = `
+                <div class="camera-title">摄像头 ${cam.index}</div>
+                <div class="param-grid">
+                    <div class="param-item">
+                        <label>X 偏移</label>
+                        <div class="range-wrapper">
+                            <input type="range" min="-200" max="200" value="${config.offset[0]}"
+                                oninput="updateParam(${cam.index}, 'offset', [parseInt(this.value), manualConfigs[${cam.index}].offset[1]]); updateRangeDisplay(this)">
+                            <span class="range-value">${config.offset[0]}</span>
+                        </div>
+                    </div>
+                    <div class="param-item">
+                        <label>Y 偏移</label>
+                        <div class="range-wrapper">
+                            <input type="range" min="-200" max="200" value="${config.offset[1]}"
+                                oninput="updateParam(${cam.index}, 'offset', [manualConfigs[${cam.index}].offset[0], parseInt(this.value)]); updateRangeDisplay(this)">
+                            <span class="range-value">${config.offset[1]}</span>
+                        </div>
+                    </div>
+                    <div class="param-item">
+                        <label>缩放</label>
+                        <div class="range-wrapper">
+                            <input type="range" min="0.5" max="1.5" step="0.01" value="${config.scale}"
+                                oninput="updateParam(${cam.index}, 'scale', parseFloat(this.value)); updateRangeDisplay(this)">
+                            <span class="range-value">${config.scale.toFixed(2)}</span>
+                        </div>
+                    </div>
+                    <div class="param-item">
+                        <label>重叠宽度</label>
+                        <div class="range-wrapper">
+                            <input type="range" min="0" max="300" value="${config.overlapWidth}"
+                                oninput="updateParam(${cam.index}, 'overlapWidth', parseInt(this.value)); updateRangeDisplay(this)">
+                            <span class="range-value">${config.overlapWidth}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+            container.appendChild(item);
+        });
+    }
+
+    function updateRangeDisplay(input) {
+        const display = input.nextElementSibling;
+        const val = input.type === 'range' && input.step === '0.01' ? parseFloat(input.value).toFixed(2) : input.value;
+        display.textContent = val;
+    }
+
+    function updateParam(cameraIndex, param, value) {
+        if(!manualConfigs[cameraIndex]) {
+            manualConfigs[cameraIndex] = {
+                offset: [0, 0],
+                scale: 1.0,
+                rotation: 0,
+                flip: [false, false],
+                overlapWidth: 100
+            };
+        }
+        manualConfigs[cameraIndex][param] = value;
+    }
+
+    async function saveStitchConfig() {
+        try {
+            const strategyRes = await fetch(`${API_BASE}/api/stitch/strategy`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ strategy: currentStrategy })
+            });
+
+            const strategyData = await strategyRes.json();
+            if(strategyData.status !== 'success') {
+                showToast(strategyData.message, 'error');
+                return;
+            }
+
+            if(currentStrategy === 'manual') {
+                const configs = Object.entries(manualConfigs).map(([index, config]) => ({
+                    index: parseInt(index),
+                    offset: config.offset.map(v => typeof v === 'number' ? v : parseInt(v)),
+                    scale: config.scale,
+                    rotation: config.rotation,
+                    flip: config.flip,
+                    overlapWidth: config.overlapWidth
+                }));
+
+                const res = await fetch(`${API_BASE}/api/stitch/manual/batch`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ cameras: configs })
+                });
+
+                const data = await res.json();
+                if(data.status === 'success') {
+                    showToast('配置已保存');
+                    updateStitchStatus();
+                    closeStitchConfigModal();
+                } else {
+                    showToast(data.message, 'error');
+                }
+            } else {
+                showToast('策略已切换');
+                updateStitchStatus();
+                closeStitchConfigModal();
+            }
+        } catch(e) {
+            showToast('保存失败: ' + e.message, 'error');
+        }
+    }
+
+    async function resetManualConfig() {
+        try {
+            const res = await fetch(`${API_BASE}/api/stitch/manual/reset`, { method: 'POST' });
+            const data = await res.json();
+            if(data.status === 'success') {
+                manualConfigs = {};
+                loadManualConfigs();
+                showToast('已重置为默认配置');
+            }
+        } catch(e) { showToast('重置失败', 'error'); }
+    }
+
+    // 页面加载时更新拼接状态
+    updateStitchStatus();
+
+    // ESC 关闭模态框
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            closeModal();
+            closeStitchConfigModal();
+            closeImagePreview();
+        }
+    });
 </script>
 </body>
 </html>

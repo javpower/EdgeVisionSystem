@@ -2,6 +2,8 @@ package com.edge.vision.core.stitcher;
 
 import org.opencv.core.*;
 import org.opencv.imgproc.Imgproc;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -20,6 +22,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * 参数支持运行时动态更新和持久化
  */
 public class ManualStitchStrategy implements StitchStrategy {
+    private static final Logger logger = LoggerFactory.getLogger(ManualStitchStrategy.class);
 
     // 摄像头配置参数存储
     private final Map<Integer, CameraConfig> cameraConfigs = new ConcurrentHashMap<>();
@@ -125,14 +128,21 @@ public class ManualStitchStrategy implements StitchStrategy {
             Mat frame = frames.get(i);
             CameraConfig config = configs.getOrDefault(i, new CameraConfig(i));
 
-            double effectiveWidth = frame.cols();
+            // 帧已经经过 applyTransform 处理，已经是缩放后的尺寸
+            double actualWidth = frame.cols();
+            double actualHeight = frame.rows();
+
+            // 更新配置中的图像宽度（用于后续计算）
+            config.setImageWidth((int) actualWidth);
+
+            double effectiveWidth = actualWidth;
             if (i > 0) {
                 int overlap = getOverlapWidth(i);
                 effectiveWidth -= overlap;
             }
 
             totalWidth += effectiveWidth;
-            maxHeight = Math.max(maxHeight, frame.rows() + (config.offset != null ? config.offset[1] : 0));
+            maxHeight = Math.max(maxHeight, actualHeight + (config.offset != null ? config.offset[1] : 0));
         }
 
         return new Size(totalWidth, maxHeight);
@@ -149,8 +159,12 @@ public class ManualStitchStrategy implements StitchStrategy {
         int currentX = xOffset;
         for (int i = 0; i < config.index; i++) {
             CameraConfig prevConfig = cameraConfigs.getOrDefault(i, new CameraConfig(i));
-            int prevOverlap = i > 0 ? getOverlapWidth(i) : 0;
-            currentX += prevConfig.getImageWidth() - prevOverlap;
+            // 获取下一个摄像头（即当前摄像头）的重叠宽度
+            int prevOverlap = getOverlapWidth(i + 1);
+            // 直接使用之前配置的图像宽度（已在 calculateCanvasSize 中设置）
+            int prevImgWidth = prevConfig.getImageWidth();
+            if (prevImgWidth == 0) prevImgWidth = 640; // 默认值
+            currentX += prevImgWidth - prevOverlap;
         }
 
         // 确保不越界
@@ -160,6 +174,9 @@ public class ManualStitchStrategy implements StitchStrategy {
         // 计算实际可以放置的宽度和高度
         int width = Math.min(image.cols(), canvas.cols() - x);
         int height = Math.min(image.rows(), canvas.rows() - y);
+
+        logger.debug("Placing camera {}: position=({},{}), size=({}x{}), canvas size=({}x{})",
+            config.index, x, y, width, height, canvas.cols(), canvas.rows());
 
         if (width > 0 && height > 0) {
             // 获取目标区域

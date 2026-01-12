@@ -185,19 +185,19 @@ public class StitchConfigService {
 
             // 更新配置
             if (params.containsKey("offset")) {
-                config.offset = (int[]) params.get("offset");
+                config.offset = parseIntArrayValue(params.get("offset"));
             }
             if (params.containsKey("scale")) {
-                config.scale = ((Number) params.get("scale")).doubleValue();
+                config.scale = getNumberValue(params.get("scale")).doubleValue();
             }
             if (params.containsKey("rotation")) {
-                config.rotation = ((Number) params.get("rotation")).doubleValue();
+                config.rotation = getNumberValue(params.get("rotation")).doubleValue();
             }
             if (params.containsKey("flip")) {
-                config.flip = (boolean[]) params.get("flip");
+                config.flip = parseBooleanArrayValue(params.get("flip"));
             }
             if (params.containsKey("overlapWidth")) {
-                config.overlapWidth = ((Number) params.get("overlapWidth")).intValue();
+                config.overlapWidth = getNumberValue(params.get("overlapWidth")).intValue();
             }
 
             manualStrategy.updateCameraConfig(config);
@@ -224,22 +224,22 @@ public class StitchConfigService {
 
             for (Map<String, Object> params : cameraConfigs) {
                 ManualStitchStrategy.CameraConfig config = new ManualStitchStrategy.CameraConfig();
-                config.index = ((Number) params.get("index")).intValue();
+                config.index = getNumberValue(params.get("index")).intValue();
 
                 if (params.containsKey("offset")) {
-                    config.offset = (int[]) params.get("offset");
+                    config.offset = parseIntArrayValue(params.get("offset"));
                 }
                 if (params.containsKey("scale")) {
-                    config.scale = ((Number) params.get("scale")).doubleValue();
+                    config.scale = getNumberValue(params.get("scale")).doubleValue();
                 }
                 if (params.containsKey("rotation")) {
-                    config.rotation = ((Number) params.get("rotation")).doubleValue();
+                    config.rotation = getNumberValue(params.get("rotation")).doubleValue();
                 }
                 if (params.containsKey("flip")) {
-                    config.flip = (boolean[]) params.get("flip");
+                    config.flip = parseBooleanArrayValue(params.get("flip"));
                 }
                 if (params.containsKey("overlapWidth")) {
-                    config.overlapWidth = ((Number) params.get("overlapWidth")).intValue();
+                    config.overlapWidth = getNumberValue(params.get("overlapWidth")).intValue();
                 }
 
                 configs.add(config);
@@ -381,7 +381,14 @@ public class StitchConfigService {
             List<?> list = (List<?>) value;
             int[] result = new int[list.size()];
             for (int i = 0; i < list.size(); i++) {
-                result[i] = ((Number) list.get(i)).intValue();
+                Object item = list.get(i);
+                if (item instanceof Number) {
+                    result[i] = ((Number) item).intValue();
+                } else if (item instanceof String) {
+                    result[i] = Integer.parseInt((String) item);
+                } else {
+                    result[i] = 0;
+                }
             }
             return result;
         }
@@ -397,7 +404,71 @@ public class StitchConfigService {
             List<?> list = (List<?>) value;
             boolean[] result = new boolean[list.size()];
             for (int i = 0; i < list.size(); i++) {
-                result[i] = Boolean.TRUE.equals(list.get(i));
+                Object item = list.get(i);
+                if (item instanceof Boolean) {
+                    result[i] = (Boolean) item;
+                } else if (item instanceof String) {
+                    result[i] = Boolean.parseBoolean((String) item);
+                } else {
+                    result[i] = Boolean.TRUE.equals(item);
+                }
+            }
+            return result;
+        }
+        return new boolean[]{false, false};
+    }
+
+    // 辅助方法：从任意类型获取 Number 值（处理字符串数字）
+    private Number getNumberValue(Object value) {
+        if (value instanceof Number) {
+            return (Number) value;
+        }
+        if (value instanceof String) {
+            return Double.parseDouble((String) value);
+        }
+        return 0;
+    }
+
+    // 辅助方法：解析 int 数组（增强版，处理字符串和 ArrayList）
+    private int[] parseIntArrayValue(Object value) {
+        if (value instanceof int[]) {
+            return (int[]) value;
+        }
+        if (value instanceof List) {
+            List<?> list = (List<?>) value;
+            int[] result = new int[list.size()];
+            for (int i = 0; i < list.size(); i++) {
+                Object item = list.get(i);
+                if (item instanceof Number) {
+                    result[i] = ((Number) item).intValue();
+                } else if (item instanceof String) {
+                    result[i] = Integer.parseInt((String) item);
+                } else {
+                    result[i] = 0;
+                }
+            }
+            return result;
+        }
+        return new int[]{0, 0};
+    }
+
+    // 辅助方法：解析 boolean 数组（增强版）
+    private boolean[] parseBooleanArrayValue(Object value) {
+        if (value instanceof boolean[]) {
+            return (boolean[]) value;
+        }
+        if (value instanceof List) {
+            List<?> list = (List<?>) value;
+            boolean[] result = new boolean[list.size()];
+            for (int i = 0; i < list.size(); i++) {
+                Object item = list.get(i);
+                if (item instanceof Boolean) {
+                    result[i] = (Boolean) item;
+                } else if (item instanceof String) {
+                    result[i] = Boolean.parseBoolean((String) item);
+                } else {
+                    result[i] = false;
+                }
             }
             return result;
         }

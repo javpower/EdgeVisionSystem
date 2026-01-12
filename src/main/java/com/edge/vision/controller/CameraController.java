@@ -9,6 +9,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -16,10 +17,11 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -324,6 +326,153 @@ public class CameraController {
             }
         } catch (Exception e) {
             logger.error("Stream error: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 获取单个摄像头当前帧（用于前端 Canvas 拼接）
+     */
+    @GetMapping(value = "/frame/{cameraIndex}")
+    @Operation(
+            summary = "获取单个摄像头当前帧",
+            description = """
+                    获取指定摄像头的当前帧（Base64 编码的 JPEG 图片）。
+
+                    **使用场景**：
+                    - 前端使用 Canvas 实时拼接多个摄像头画面
+                    - 手动拼接参数预览
+                    - 降低服务器负担，由前端处理拼接
+
+                    **返回格式**：
+                    ```json
+                    {
+                      "status": "success",
+                      "data": {
+                        "index": 0,
+                        "frame": "data:image/jpeg;base64,/9j/4AAQSkZJRg...",
+                        "timestamp": 1234567890
+                      }
+                    }
+                    ```
+
+                    **注意事项**：
+                    - 返回的是单帧图片，不是视频流
+                    - 前端需要轮询此接口获取实时画面
+                    - 建议使用 30fps 轮询（约 33ms 间隔）
+                    """
+    )
+    @ApiResponses(value = {
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "获取成功",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(
+                                    value = """
+                                            {
+                                              "status": "success",
+                                              "data": {
+                                                "index": 0,
+                                                "frame": "data:image/jpeg;base64,/9j/4AAQ...",
+                                                "timestamp": 1234567890
+                                              }
+                                            }
+                                            """
+                            )
+                    )
+            )
+    })
+    public ResponseEntity<Map<String, Object>> getCameraFrame(
+            @Parameter(
+                    description = "摄像头索引（从 0 开始）",
+                    required = true,
+                    example = "0"
+            )
+            @PathVariable int cameraIndex) {
+        Map<String, Object> response = new HashMap<>();
+        try {
+            String base64Frame = cameraService.getCameraImageBase64(cameraIndex);
+            if (base64Frame == null) {
+                response.put("status", "error");
+                response.put("message", "Camera not available or no frame");
+                return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(response);
+            }
+
+            Map<String, Object> data = new HashMap<>();
+            data.put("index", cameraIndex);
+            data.put("frame", "data:image/jpeg;base64," + base64Frame);
+            data.put("timestamp", System.currentTimeMillis());
+
+            response.put("status", "success");
+            response.put("data", data);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            logger.error("Failed to get camera frame", e);
+            response.put("status", "error");
+            response.put("message", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+        }
+    }
+
+    /**
+     * 获取所有摄像头当前帧（用于前端 Canvas 拼接）
+     */
+    @GetMapping(value = "/frames")
+    @Operation(
+            summary = "获取所有摄像头当前帧",
+            description = """
+                    一次性获取所有摄像头的当前帧，用于前端 Canvas 拼接。
+
+                    **使用场景**：
+                    - 前端 Canvas 拼接全景画面
+                    - 减少网络请求次数
+                    - 手动拼接参数实时预览
+
+                    **返回格式**：
+                    ```json
+                    {
+                      "status": "success",
+                      "data": {
+                        "cameraCount": 2,
+                        "frames": [
+                          { "index": 0, "frame": "data:image/jpeg;base64,..." },
+                          { "index": 1, "frame": "data:image/jpeg;base64,..." }
+                        ]
+                      }
+                    }
+                    ```
+                    """
+    )
+    public ResponseEntity<Map<String, Object>> getAllCameraFrames() {
+        Map<String, Object> response = new HashMap<>();
+        try {
+            List<String> base64Frames = cameraService.getAllCameraFramesBase64();
+            List<Map<String, Object>> frames = new ArrayList<>();
+
+            for (int i = 0; i < base64Frames.size(); i++) {
+                Map<String, Object> frameData = new HashMap<>();
+                frameData.put("index", i);
+                if (base64Frames.get(i) != null) {
+                    frameData.put("frame", "data:image/jpeg;base64," + base64Frames.get(i));
+                } else {
+                    frameData.put("frame", null);
+                }
+                frames.add(frameData);
+            }
+
+            Map<String, Object> data = new HashMap<>();
+            data.put("cameraCount", frames.size());
+            data.put("frames", frames);
+            data.put("timestamp", System.currentTimeMillis());
+
+            response.put("status", "success");
+            response.put("data", data);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            logger.error("Failed to get all camera frames", e);
+            response.put("status", "error");
+            response.put("message", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
         }
     }
 

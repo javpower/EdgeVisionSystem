@@ -4,6 +4,8 @@ import com.edge.vision.config.YamlConfig;
 import com.edge.vision.core.camera.CameraSource;
 import com.edge.vision.core.camera.CameraSourceFactory;
 import com.edge.vision.core.stitcher.StitchStrategy;
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import org.opencv.core.Mat;
 import org.opencv.core.MatOfByte;
 import org.opencv.core.MatOfInt;
@@ -13,8 +15,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import jakarta.annotation.PostConstruct;
-import jakarta.annotation.PreDestroy;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
@@ -272,6 +272,14 @@ public class CameraService {
      * 获取拼接后的图像（用于检测）
      */
     public String getStitchedImageBase64() {
+        return getStitchedImageBase64FromOriginalFrames();
+
+    }
+
+    /**
+     * 从原始帧获取拼接图像
+     */
+    private String getStitchedImageBase64FromOriginalFrames() {
         List<Mat> frames = new ArrayList<>();
         for (int i = 0; i < cameraSources.size(); i++) {
             Mat frame = currentFrames.get(i);
