@@ -569,6 +569,133 @@
         .toast.warning { border-left: 4px solid var(--warning-color); }
 
         .hidden { display: none !important; }
+
+        /* 系统设置标签页样式 */
+        .tab-header {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #e8e8e8;
+        }
+        .tab-option {
+            flex: 1;
+            padding: 12px 8px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            border-bottom: 2px solid transparent;
+            font-weight: 500;
+            color: #666;
+        }
+        .tab-option:hover {
+            color: var(--primary-color);
+        }
+        .tab-option.active {
+            color: var(--primary-color);
+            border-bottom-color: var(--primary-color);
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+
+        /* 质检标准配置样式 */
+        .quality-standards-section {
+            background: #f0f9ff;
+            border: 1px solid #91d5ff;
+            border-radius: 6px;
+            padding: 14px;
+            margin-bottom: 16px;
+        }
+        .quality-standards-section .section-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: #0050b3;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .part-type-item {
+            background: white;
+            border: 1px solid #e8e8e8;
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 10px;
+        }
+        .part-type-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        .part-type-name {
+            font-weight: 600;
+            font-size: 13px;
+            color: #333;
+        }
+        .defect-standard-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px;
+            background: #fafafa;
+            border-radius: 4px;
+            margin-bottom: 8px;
+        }
+        .defect-type-input {
+            flex: 2;
+            padding: 6px 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        .operator-select {
+            flex: 1;
+            padding: 6px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 12px;
+            background: white;
+        }
+        .threshold-input {
+            flex: 1;
+            padding: 6px 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 12px;
+            width: 60px;
+        }
+        .btn-icon {
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            color: #999;
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+        .btn-icon:hover {
+            color: #ff4d4f;
+            background: #fff1f0;
+        }
+        .btn-add {
+            font-size: 12px;
+            padding: 6px 12px;
+            background: #e6f7ff;
+            color: #1890ff;
+            border: 1px dashed #1890ff;
+            border-radius: 4px;
+            cursor: pointer;
+            width: 100%;
+        }
+        .btn-add:hover {
+            background: #bae7ff;
+        }
     </style>
 </head>
 <body>
@@ -601,8 +728,8 @@
     </div>
 
     <div style="padding: 20px; margin-top: auto;">
-        <button class="ctrl-btn" onclick="openStitchConfigModal()" id="stitchConfigBtn" style="width: 100%; opacity: 0.5;">
-            ⚙ 拼接设置
+        <button class="ctrl-btn" onclick="openSystemConfigModal()" id="systemConfigBtn" style="width: 100%; opacity: 0.5;">
+            ⚙ 系统设置
         </button>
     </div>
 </aside>
@@ -671,50 +798,77 @@
     </div>
 </div>
 
-<!-- 拼接配置模态框 -->
-<div id="stitchConfigModal" class="modal">
+<!-- 系统设置模态框 -->
+<div id="systemConfigModal" class="modal">
     <div class="modal-card bottom-panel">
         <div class="modal-header">
-            <span>拼接配置设置</span>
-            <button class="modal-close" onclick="closeStitchConfigModal()">&times;</button>
+            <span>系统设置</span>
+            <button class="modal-close" onclick="closeSystemConfigModal()">&times;</button>
         </div>
         <div class="modal-body">
-            <div style="margin-bottom: 15px;">
-                <label style="font-size: 12px; color: #666; display: block; margin-bottom: 8px;">拼接策略</label>
-                <div class="strategy-selector">
-                    <div class="strategy-option" data-strategy="simple" onclick="selectStrategy('simple')">
-                        <div class="name">Simple</div>
-                        <div class="desc">简单拼接</div>
+            <!-- 标签页头部 -->
+            <div class="tab-header">
+                <div class="tab-option active" data-tab="stitch" onclick="switchTab('stitch')">拼接设置</div>
+                <div class="tab-option" data-tab="quality" onclick="switchTab('quality')">质检标准设置</div>
+            </div>
+
+            <!-- 拼接设置标签内容 -->
+            <div class="tab-content active" id="stitchTabContent">
+                <div style="margin-bottom: 15px;">
+                    <label style="font-size: 12px; color: #666; display: block; margin-bottom: 8px;">拼接策略</label>
+                    <div class="strategy-selector">
+                        <div class="strategy-option" data-strategy="simple" onclick="selectStrategy('simple')">
+                            <div class="name">Simple</div>
+                            <div class="desc">简单拼接</div>
+                        </div>
+                        <div class="strategy-option" data-strategy="auto" onclick="selectStrategy('auto')">
+                            <div class="name">Auto</div>
+                            <div class="desc">自动拼接</div>
+                        </div>
+                        <div class="strategy-option" data-strategy="manual" onclick="selectStrategy('manual')">
+                            <div class="name">Manual</div>
+                            <div class="desc">手动调节</div>
+                        </div>
                     </div>
-                    <div class="strategy-option" data-strategy="auto" onclick="selectStrategy('auto')">
-                        <div class="name">Auto</div>
-                        <div class="desc">自动拼接</div>
+                </div>
+
+                <div class="manual-config-section" id="manualConfigSection" style="display: none;">
+                    <div class="section-title">
+                        <div class="live-indicator"></div>
+                        实时参数调节
                     </div>
-                    <div class="strategy-option" data-strategy="manual" onclick="selectStrategy('manual')">
-                        <div class="name">Manual</div>
-                        <div class="desc">手动调节</div>
+
+                    <div class="preview-note">
+                        拖动滑块实时预览拼接效果，满意后点击保存
+                    </div>
+
+                    <div id="cameraConfigsContainer">
+                        <!-- 动态生成 -->
                     </div>
                 </div>
             </div>
 
-            <div class="manual-config-section" id="manualConfigSection" style="display: none;">
-                <div class="section-title">
-                    <div class="live-indicator"></div>
-                    实时参数调节
-                </div>
+            <!-- 质检标准设置标签内容 -->
+            <div class="tab-content" id="qualityTabContent">
+                <div class="quality-standards-section">
+                    <div class="section-title">
+                        <span>质检标准配置</span>
+                        <button class="btn btn-secondary" style="font-size: 11px; padding: 4px 10px;" onclick="addPartType()">+ 添加工件类型</button>
+                    </div>
 
-                <div class="preview-note">
-                    拖动滑块实时预览拼接效果，满意后点击保存
-                </div>
+                    <div class="preview-note" style="margin-bottom: 12px;">
+                        支持操作符：&lt;=（不超过）、&gt;=（至少）、==（精确匹配）、&lt;（少于）、&gt;（多于）
+                    </div>
 
-                <div id="cameraConfigsContainer">
-                    <!-- 动态生成 -->
+                    <div id="qualityStandardsContainer">
+                        <!-- 动态生成 -->
+                    </div>
                 </div>
             </div>
         </div>
         <div class="modal-footer">
-            <button class="btn btn-secondary" onclick="resetManualConfig()">重置</button>
-            <button class="btn btn-success" onclick="saveStitchConfig()">保存配置</button>
+            <button class="btn btn-secondary" onclick="resetCurrentConfig()">重置</button>
+            <button class="btn btn-success" onclick="saveCurrentConfig()">保存配置</button>
         </div>
     </div>
 </div>
@@ -1219,6 +1373,183 @@
         }
     }
 
+    // --- 系统设置 ---
+    let currentTab = 'stitch';
+    let qualityStandardsData = {};
+
+    // 质检标准相关
+    async function loadQualityStandards() {
+        console.log('loadQualityStandards called');
+        try {
+            const res = await fetch(`${API_BASE}/api/quality-standards`);
+            const data = await res.json();
+            console.log('Quality standards data:', data);
+            if(data.status === 'success' && data.data.standards) {
+                qualityStandardsData = data.data.standards;
+                console.log('Loaded qualityStandardsData:', qualityStandardsData);
+                renderQualityStandards();
+            }
+        } catch(e) {
+            console.error('Failed to load quality standards', e);
+        }
+    }
+
+    function renderQualityStandards() {
+        const container = document.getElementById('qualityStandardsContainer');
+        container.innerHTML = '';
+
+        for (const [partType, standards] of Object.entries(qualityStandardsData)) {
+            const partItem = document.createElement('div');
+            partItem.className = 'part-type-item';
+            partItem.innerHTML = `
+                <div class="part-type-header">
+                    <span class="part-type-name">${partType}</span>
+                    <button class="btn-icon" onclick="deletePartType('${partType}')">&times;</button>
+                </div>
+                <div class="defect-standards-list" id="standards-${partType.replace(/\W/g, '_')}">
+                    ${standards.map((std, idx) => `
+                        <div class="defect-standard-item">
+                            <input type="text" class="defect-type-input" value="${std.defectType || ''}" placeholder="缺陷类型" data-part="${partType}" data-idx="${idx}" onchange="updateStandard('${partType}', ${idx}, 'defectType', this.value)">
+                            <select class="operator-select" onchange="updateStandard('${partType}', ${idx}, 'operator', this.value)">
+                                <option value="==" ${std.operator === '==' ? 'selected' : ''}>==</option>
+                                <option value="<=" ${std.operator === '<=' ? 'selected' : ''}>&lt;=</option>
+                                <option value=">=" ${std.operator === '>=' ? 'selected' : ''}>&gt;=</option>
+                                <option value="<" ${std.operator === '<' ? 'selected' : ''}>&lt;</option>
+                                <option value=">" ${std.operator === '>' ? 'selected' : ''}>&gt;</option>
+                            </select>
+                            <input type="number" class="threshold-input" value="${std.threshold || 0}" placeholder="阈值" data-part="${partType}" data-idx="${idx}" onchange="updateStandard('${partType}', ${idx}, 'threshold', this.value)">
+                            <button class="btn-icon" onclick="removeStandard('${partType}', ${idx})">&times;</button>
+                        </div>
+                    `).join('')}
+                </div>
+                <button class="btn-add" onclick="addStandard('${partType}')">+ 添加缺陷标准</button>
+            `;
+            container.appendChild(partItem);
+        }
+    }
+
+    function updateStandard(partType, idx, field, value) {
+        if (!qualityStandardsData[partType]) return;
+        if (field === 'threshold') {
+            qualityStandardsData[partType][idx][field] = parseInt(value) || 0;
+        } else {
+            qualityStandardsData[partType][idx][field] = value;
+        }
+    }
+
+    function addStandard(partType) {
+        if (!qualityStandardsData[partType]) {
+            qualityStandardsData[partType] = [];
+        }
+        qualityStandardsData[partType].push({
+            defectType: '',
+            operator: '<=',
+            threshold: 0
+        });
+        renderQualityStandards();
+    }
+
+    function removeStandard(partType, idx) {
+        if (!qualityStandardsData[partType]) return;
+        qualityStandardsData[partType].splice(idx, 1);
+        renderQualityStandards();
+    }
+
+    function addPartType() {
+        const partTypeName = prompt('请输入新的工件类型名称:');
+        if (!partTypeName || partTypeName.trim() === '') return;
+        const partType = partTypeName.trim();
+        if (qualityStandardsData[partType]) {
+            showToast('该工件类型已存在', 'warning');
+            return;
+        }
+        qualityStandardsData[partType] = [
+            { defectType: '', operator: '<=', threshold: 0 }
+        ];
+        renderQualityStandards();
+    }
+
+    function deletePartType(partType) {
+        if (!confirm(`确定要删除工件类型 "${partType}" 的质检标准吗？`)) return;
+        delete qualityStandardsData[partType];
+        renderQualityStandards();
+    }
+
+    async function saveQualityStandards() {
+        try {
+            console.log('saveQualityStandards called, data:', qualityStandardsData);
+
+            // 过滤掉空的缺陷类型
+            for (const [partType, standards] of Object.entries(qualityStandardsData)) {
+                // 过滤掉 defectType 为空的标准
+                qualityStandardsData[partType] = standards.filter(s => s.defectType && s.defectType.trim() !== '');
+            }
+
+            // 移除没有标准工件类型
+            for (const [partType, standards] of Object.entries(qualityStandardsData)) {
+                if (!standards || standards.length === 0) {
+                    delete qualityStandardsData[partType];
+                }
+            }
+
+            console.log('Filtered qualityStandardsData:', qualityStandardsData);
+
+            for (const [partType, standards] of Object.entries(qualityStandardsData)) {
+                const res = await fetch(`${API_BASE}/api/quality-standards/part-types/${encodeURIComponent(partType)}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ standards: standards })
+                });
+                const data = await res.json();
+                if (data.status !== 'success') {
+                    showToast(`保存 ${partType} 失败: ${data.message}`, 'error');
+                    return;
+                }
+            }
+            // 保存成功后重新加载配置，确保前端数据与后端同步
+            await loadQualityStandards();
+            showToast('质检标准已保存');
+        } catch(e) {
+            console.error('Save error:', e);
+            showToast('保存失败: ' + e.message, 'error');
+        }
+    }
+
+    async function resetQualityStandards() {
+        if (!confirm('确定要重置所有质检标准为默认值吗？')) return;
+        try {
+            const res = await fetch(`${API_BASE}/api/quality-standards/reset`, { method: 'POST' });
+            const data = await res.json();
+            if (data.status === 'success') {
+                await loadQualityStandards();
+                showToast('质检标准已重置');
+            }
+        } catch(e) { showToast('重置失败', 'error'); }
+    }
+
+    // 标签页切换
+    function switchTab(tabName) {
+        console.log('switchTab called with:', tabName);
+        currentTab = tabName;
+        console.log('currentTab is now:', currentTab);
+
+        // 更新标签页头部样式
+        document.querySelectorAll('.tab-option').forEach(el => {
+            el.classList.toggle('active', el.dataset.tab === tabName);
+        });
+
+        // 更新内容显示
+        document.querySelectorAll('.tab-content').forEach(el => {
+            el.classList.remove('active');
+        });
+        document.getElementById(tabName + 'TabContent').classList.add('active');
+
+        // 加载对应标签页的数据
+        if (tabName === 'quality') {
+            loadQualityStandards();
+        }
+    }
+
     // --- 拼接配置 ---
     async function updateStitchStatus() {
         try {
@@ -1234,9 +1565,13 @@
         } catch(e) {}
     }
 
-    async function openStitchConfigModal() {
-        document.getElementById('stitchConfigModal').style.display = 'block';
+    async function openSystemConfigModal() {
+        document.getElementById('systemConfigModal').style.display = 'block';
         isPreviewMode = true;
+
+        // 重置为拼接设置标签页
+        currentTab = 'stitch';
+        switchTab('stitch');
 
         try {
             const res = await fetch(`${API_BASE}/api/stitch/strategy`);
@@ -1248,8 +1583,8 @@
         } catch(e) {}
     }
 
-    function closeStitchConfigModal() {
-        document.getElementById('stitchConfigModal').style.display = 'none';
+    function closeSystemConfigModal() {
+        document.getElementById('systemConfigModal').style.display = 'none';
         isPreviewMode = false;
     }
 
@@ -1390,19 +1725,30 @@
 
                 const data = await res.json();
                 if(data.status === 'success') {
-                    showToast('配置已保存');
+                    showToast('拼接配置已保存');
                     updateStitchStatus();
-                    closeStitchConfigModal();
                 } else {
                     showToast(data.message, 'error');
                 }
             } else {
-                showToast('策略已切换');
+                showToast('拼接策略已切换');
                 updateStitchStatus();
-                closeStitchConfigModal();
             }
         } catch(e) {
             showToast('保存失败: ' + e.message, 'error');
+        }
+    }
+
+    async function saveCurrentConfig() {
+        console.log('saveCurrentConfig called, currentTab =', currentTab);
+        if (currentTab === 'stitch') {
+            console.log('Saving stitch config');
+            await saveStitchConfig();
+        } else if (currentTab === 'quality') {
+            console.log('Saving quality standards');
+            await saveQualityStandards();
+        } else {
+            console.warn('Unknown tab:', currentTab);
         }
     }
 
@@ -1413,9 +1759,17 @@
             if(data.status === 'success') {
                 manualConfigs = {};
                 loadManualConfigs();
-                showToast('已重置为默认配置');
+                showToast('拼接配置已重置');
             }
         } catch(e) { showToast('重置失败', 'error'); }
+    }
+
+    async function resetCurrentConfig() {
+        if (currentTab === 'stitch') {
+            await resetManualConfig();
+        } else if (currentTab === 'quality') {
+            await resetQualityStandards();
+        }
     }
 
     // 页面加载时更新拼接状态
@@ -1425,7 +1779,7 @@
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
             closeModal();
-            closeStitchConfigModal();
+            closeSystemConfigModal();
             closeImagePreview();
         }
     });

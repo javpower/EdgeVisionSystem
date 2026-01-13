@@ -5,6 +5,7 @@ import com.edge.vision.core.infer.YOLOInferenceEngine;
 import com.edge.vision.model.*;
 import com.edge.vision.service.CameraService;
 import com.edge.vision.service.DataManager;
+import com.edge.vision.service.QualityStandardService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -51,6 +52,9 @@ public class InspectController {
 
     @Autowired
     private DataManager dataManager;
+
+    @Autowired
+    private QualityStandardService qualityStandardService;
 
     // 类型识别引擎（可选）
     private YOLOInferenceEngine typeInferenceEngine;
@@ -395,12 +399,10 @@ public class InspectController {
             analysis.setDefectCount(detailDetections.size());
             analysis.setDetails(detailDetections);
 
-            // 根据质量检测标准判断 PASS/FAIL
-            String qualityStatus = evaluateQualityStatus(
-                    request.getConfirmedPartName(),
-                    detailDetections
-            );
-            analysis.setQualityStatus(qualityStatus);
+            // 根据质量检测标准判断 PASS/FAIL（使用新的质检标准服务）
+            QualityStandardService.QualityEvaluationResult evaluationResult =
+                qualityStandardService.evaluate(request.getConfirmedPartName(), detailDetections);
+            analysis.setQualityStatus(evaluationResult.isPassed() ? "PASS" : "FAIL");
             data.setAnalysis(analysis);
 
             data.setDeviceId(config.getSystem().getDeviceId());
@@ -620,48 +622,6 @@ public class InspectController {
         MatOfByte mob = new MatOfByte();
         Imgcodecs.imencode(".jpg", mat, mob);
         return Base64.getEncoder().encodeToString(mob.toArray());
-    }
-
-    /**
-     * 根据质量检测标准评估检测结果
-     */
-    private String evaluateQualityStatus(String partName, List<Detection> detections) {
-        Map<String, Map<String, Integer>> standards = config.getQualityStandards();
-        if (standards == null || !standards.containsKey(partName)) {
-            logger.warn("No quality standards configured for part: {}, using default rule", partName);
-            return detections.isEmpty() ? "PASS" : "FAIL";
-        }
-
-        Map<String, Integer> partStandards = standards.get(partName);
-
-        Map<String, Long> defectCounts = new HashMap<>();
-        for (Detection det : detections) {
-            String label = det.getLabel();
-            defectCounts.put(label, defectCounts.getOrDefault(label, 0L) + 1);
-        }
-
-        for (Map.Entry<String, Integer> entry : partStandards.entrySet()) {
-            String defectType = entry.getKey();
-            int expectedCount = entry.getValue();
-            long actualCount = defectCounts.getOrDefault(defectType, 0L);
-
-            if (actualCount != expectedCount) {
-                logger.info("Quality check FAILED: {} detected {} times, expected {}",
-                        defectType, actualCount, expectedCount);
-                return "FAIL";
-            }
-        }
-
-        for (Map.Entry<String, Long> entry : defectCounts.entrySet()) {
-            if (!partStandards.containsKey(entry.getKey())) {
-                logger.warn("Unknown defect type detected: {}, treating as failure",
-                        entry.getKey());
-                return "FAIL";
-            }
-        }
-
-        logger.info("Quality check PASSED for part: {}", partName);
-        return "PASS";
     }
 
     private Mat drawDetections(Mat image, List<Detection> detections) {
