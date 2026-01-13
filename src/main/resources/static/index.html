@@ -765,7 +765,7 @@
             <canvas id="panoramaCanvas" class="panorama-canvas" style="display: none;"></canvas>
             <div class="panorama-overlay" id="panoramaOverlay" style="display: none;">
                 <div class="rec-dot"></div>
-                <span>实时拼接</span>
+                <span>实时画面</span>
             </div>
         </div>
 
@@ -1287,6 +1287,11 @@
         selectedIndex = -1;
         canvasCtx = null;
 
+        // 清空颜色映射
+        for (const key in defectTypeColors) {
+            delete defectTypeColors[key];
+        }
+
         // 清空检测开始时间
         inspectionStartTime = null;
 
@@ -1297,6 +1302,24 @@
     let bboxesData = [];
     let canvasCtx = null;
     let selectedIndex = -1;
+
+    // 缺陷类型颜色映射
+    const defectTypeColors = {};
+    const colorPalette = [
+        '#00FF00', '#FF0000', '#00FFFF', '#FF00FF', '#FFFF00',
+        '#FF8800', '#0088FF', '#FF0088', '#88FF00', '#8800FF',
+        '#00FF88', '#FF8888', '#88FFFF', '#FF88FF', '#FFFF88'
+    ];
+
+    // 获取缺陷类型的颜色
+    function getDefectTypeColor(defectType) {
+        if (!defectTypeColors[defectType]) {
+            const usedColors = Object.values(defectTypeColors);
+            const availableColor = colorPalette.find(c => !usedColors.includes(c));
+            defectTypeColors[defectType] = availableColor || colorPalette[Object.keys(defectTypeColors).length % colorPalette.length];
+        }
+        return defectTypeColors[defectType];
+    }
 
     function drawBBoxes(details) {
         const img = document.getElementById('resultImage');
@@ -1331,20 +1354,23 @@
             const height = y2 - y1;
 
             const isSelected = i === selectedIndex;
+            const color = getDefectTypeColor(det.label);
 
             // 绘制矩形框
-            canvasCtx.strokeStyle = isSelected ? '#ff0000' : '#00ff00';
+            canvasCtx.strokeStyle = isSelected ? '#FFFFFF' : color;
             canvasCtx.lineWidth = isSelected ? 4 : 2;
             canvasCtx.strokeRect(x1, y1, width, height);
 
             // 绘制标签背景
-            canvasCtx.fillStyle = isSelected ? '#ff0000' : '#00ff00';
-            canvasCtx.fillRect(x1, y1 - 24, 60, 24);
+            canvasCtx.fillStyle = isSelected ? '#FFFFFF' : color;
+            const labelText = `${det.label} (${(det.confidence * 100).toFixed(0)}%)`;
+            canvasCtx.font = 'bold 14px Arial';
+            const textWidth = canvasCtx.measureText(labelText).width;
+            canvasCtx.fillRect(x1, y1 - 24, textWidth + 8, 24);
 
             // 绘制标签文字
-            canvasCtx.fillStyle = '#000000';
-            canvasCtx.font = 'bold 14px Arial';
-            canvasCtx.fillText(`${det.label} (${(det.confidence * 100).toFixed(0)}%)`, x1 + 4, y1 - 6);
+            canvasCtx.fillStyle = isSelected ? '#000000' : '#000000';
+            canvasCtx.fillText(labelText, x1 + 4, y1 - 6);
         });
     }
 
@@ -1376,14 +1402,17 @@
         modal.style.display = 'block';
         modal.id = 'imagePreviewModal';
         modal.innerHTML = `
-            <div class="modal-card center-dialog" style="width: auto; max-width: 90vw;">
+            <div class="modal-card center-dialog" style="width: 1400px; max-width: 95vw; max-height: 90vh;">
                 <div class="modal-header">
                     <span>检测结果图片</span>
-                    <button class="modal-close" onclick="closeImagePreview()">&times;</button>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <button class="btn btn-success" onclick="downloadAnnotatedImage()" style="padding: 6px 12px; font-size: 13px;">⬇ 下载图片</button>
+                        <button class="modal-close" onclick="closeImagePreview()">&times;</button>
+                    </div>
                 </div>
                 <div class="modal-body" style="display: flex; align-items: center; justify-content: center; background: #f5f5f5; padding: 20px;">
                     <div class="preview-image-wrapper" style="position: relative; display: inline-block;">
-                        <img id="previewImage" src="${src}" style="max-width: 100%; max-height: 70vh; object-fit: contain; border-radius: 4px; display: block;">
+                        <img id="previewImage" src="${src}" style="max-width: 100%; max-height: 75vh; object-fit: contain; border-radius: 4px; display: block;">
                         <canvas id="previewCanvas" style="position: absolute; top: 0; left: 0; pointer-events: none;"></canvas>
                     </div>
                 </div>
@@ -1405,11 +1434,37 @@
         });
     }
 
+    // 下载带标注的图片
+    function downloadAnnotatedImage() {
+        const img = document.getElementById('previewImage');
+        const canvas = document.getElementById('previewCanvas');
+
+        if (!img || !canvas) return;
+
+        // 创建一个新的 canvas，将图片和检测框合并
+        const mergedCanvas = document.createElement('canvas');
+        mergedCanvas.width = img.naturalWidth;
+        mergedCanvas.height = img.naturalHeight;
+        const ctx = mergedCanvas.getContext('2d');
+
+        // 绘制原图
+        ctx.drawImage(img, 0, 0);
+
+        // 绘制检测框
+        ctx.drawImage(canvas, 0, 0);
+
+        // 导出为图片并下载
+        const link = document.createElement('a');
+        link.download = `检测结果_${new Date().toLocaleString('zh-CN', { hour12: false }).replace(/[/:]/g, '-')}.png`;
+        link.href = mergedCanvas.toDataURL('image/png');
+        link.click();
+    }
+
     function drawPreviewBBoxes(img) {
         const canvas = document.getElementById('previewCanvas');
         if (!canvas || !bboxesData.length) return;
 
-        // 设置 canvas 尺寸与图片显示尺寸一致
+        // 设置 canvas 尺寸与图片原始尺寸一致
         canvas.width = img.naturalWidth;
         canvas.height = img.naturalHeight;
         canvas.style.width = img.width + 'px';
@@ -1425,20 +1480,23 @@
             const height = y2 - y1;
 
             const isSelected = i === selectedIndex;
+            const color = getDefectTypeColor(det.label);
 
             // 绘制矩形框
-            ctx.strokeStyle = isSelected ? '#ff0000' : '#00ff00';
+            ctx.strokeStyle = isSelected ? '#FFFFFF' : color;
             ctx.lineWidth = isSelected ? 4 : 2;
             ctx.strokeRect(x1, y1, width, height);
 
             // 绘制标签背景
-            ctx.fillStyle = isSelected ? '#ff0000' : '#00ff00';
-            ctx.fillRect(x1, y1 - 24, 60, 24);
+            ctx.fillStyle = isSelected ? '#FFFFFF' : color;
+            const labelText = `${det.label} (${(det.confidence * 100).toFixed(0)}%)`;
+            ctx.font = 'bold 16px Arial';
+            const textWidth = ctx.measureText(labelText).width;
+            ctx.fillRect(x1, y1 - 26, textWidth + 10, 26);
 
             // 绘制标签文字
-            ctx.fillStyle = '#000000';
-            ctx.font = 'bold 14px Arial';
-            ctx.fillText(`${det.label} (${(det.confidence * 100).toFixed(0)}%)`, x1 + 4, y1 - 6);
+            ctx.fillStyle = isSelected ? '#000000' : '#000000';
+            ctx.fillText(labelText, x1 + 5, y1 - 7);
         });
     }
 
@@ -1715,7 +1773,7 @@
                     <div class="param-item">
                         <label>X 偏移</label>
                         <div class="range-wrapper">
-                            <input type="range" min="-200" max="200" value="${config.offset[0]}"
+                            <input type="range" min="-2000" max="2000" value="${config.offset[0]}"
                                 oninput="updateParam(${cam.index}, 'offset', [parseInt(this.value), manualConfigs[${cam.index}].offset[1]]); updateRangeDisplay(this)">
                             <span class="range-value">${config.offset[0]}</span>
                         </div>
@@ -1723,7 +1781,7 @@
                     <div class="param-item">
                         <label>Y 偏移</label>
                         <div class="range-wrapper">
-                            <input type="range" min="-200" max="200" value="${config.offset[1]}"
+                            <input type="range" min="-2000" max="2000" value="${config.offset[1]}"
                                 oninput="updateParam(${cam.index}, 'offset', [manualConfigs[${cam.index}].offset[0], parseInt(this.value)]); updateRangeDisplay(this)">
                             <span class="range-value">${config.offset[1]}</span>
                         </div>
