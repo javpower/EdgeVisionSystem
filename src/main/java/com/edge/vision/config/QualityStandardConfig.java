@@ -1,5 +1,6 @@
 package com.edge.vision.config;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 
@@ -43,6 +44,7 @@ public class QualityStandardConfig {
      * 单个缺陷类型的检测标准
      */
     @Data
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class DefectStandard {
         /**
          * 缺陷类型名称（如 hole, nut, scratch 等）
