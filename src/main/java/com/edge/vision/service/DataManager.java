@@ -72,26 +72,28 @@ public class DataManager implements ApplicationListener<UploadEvent> {
     
     /**
      * 保存图像文件
+     * 路径格式: data/images/yyyy-MM-dd/partType/xxx.jpg
      */
     private void saveImage(InspectionEntity entity, String imageBase64) throws IOException {
-        // 创建目录: data/images/yyyy-MM-dd/batchId/
-        Path dir = Paths.get("data", "images", 
-            LocalDate.now().toString(), 
-            entity.getBatchId());
-        
+        // 创建目录: data/images/yyyy-MM-dd/partType/
+        String partType = entity.getPartName() != null ? entity.getPartName() : "UNKNOWN";
+        Path dir = Paths.get("data", "images",
+            LocalDate.now().toString(),
+            partType);
+
         Files.createDirectories(dir);
-        
-        // 生成文件名: partName_timestamp.jpg
-        String filename = entity.getPartName() + "_" + 
-                         entity.getTimestamp().toEpochSecond(java.time.ZoneOffset.UTC) + 
+
+        // 生成文件名: partType_timestamp.jpg
+        String filename = partType + "_" +
+                         entity.getTimestamp().toEpochSecond(java.time.ZoneOffset.UTC) +
                          ".jpg";
-        
+
         Path imagePath = dir.resolve(filename);
-        
+
         // 解码并保存
         byte[] imageBytes = Base64.getDecoder().decode(imageBase64);
         Files.write(imagePath, imageBytes);
-        
+
         // 更新实体中的图像路径
         entity.setImagePath(imagePath.toString());
     }

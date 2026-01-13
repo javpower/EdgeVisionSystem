@@ -18,7 +18,7 @@ public class EdgeVisionApplication {
 
         SpringApplication.run(EdgeVisionApplication.class, args);
     }
-    
+
     @Bean
     public WebMvcConfigurer corsConfigurer() {
         return new WebMvcConfigurer() {
