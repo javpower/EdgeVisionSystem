@@ -186,6 +186,21 @@
             background: #fafafa;
         }
 
+        .btn-complete {
+            background: var(--success-color);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: all 0.3s;
+        }
+        .btn-complete:hover {
+            background: #73d13d;
+        }
+
         .panel-title {
             font-size: 16px;
             font-weight: 700;
@@ -758,7 +773,10 @@
         <div class="result-section">
             <div class="panel-header">
                 <div class="panel-title">检测结果分析</div>
-                <div id="status-tag" class="status-tag waiting">等待检测</div>
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <div id="status-tag" class="status-tag waiting">等待检测</div>
+                    <button id="completeBtn" class="btn-complete" style="display: none;" onclick="clearResults()">检查完成</button>
+                </div>
             </div>
             <div class="panel-body" id="result-panel-body">
                 <div class="empty-state">
@@ -879,6 +897,7 @@
 <script>
     const API_BASE = '';
     let requestId = null;
+    let inspectionStartTime = null; // 检测开始时间
 
     // 拼接配置相关
     let currentStrategy = 'simple';
@@ -1127,6 +1146,9 @@
 
         closeModal();
 
+        // 记录检测开始时间（发起请求前）
+        inspectionStartTime = new Date();
+
         try {
             const res = await fetch(`${API_BASE}/api/inspect/confirm`, {
                 method: 'POST',
@@ -1149,6 +1171,16 @@
             typeCounts[det.label] = (typeCounts[det.label] || 0) + 1;
         });
 
+        // 计算检查时间和耗费时间
+        const inspectionEndTime = new Date();
+        const checkTime = inspectionEndTime.toLocaleTimeString('zh-CN', { hour12: false });
+        let duration = '-';
+        if (inspectionStartTime) {
+            const durationMs = inspectionEndTime - inspectionStartTime;
+            const seconds = (durationMs / 1000).toFixed(2);
+            duration = `${seconds} 秒`;
+        }
+
         panelBody.innerHTML = `
             <div class="result-view">
                 <div class="result-image">
@@ -1170,6 +1202,18 @@
                         <div class="info-card">
                             <label>操作员</label>
                             <div class="val">${data.batch_info.operator}</div>
+                        </div>
+                    </div>
+
+                    <!-- 检查时间和耗费时间 -->
+                    <div class="batch-info-bar">
+                        <div class="info-card" style="background: #fffbe6; border-color: #ffe58f;">
+                            <label style="color: #d48806;">检查时间</label>
+                            <div class="val" style="color: #d46b08;">${checkTime}</div>
+                        </div>
+                        <div class="info-card" style="background: #fffbe6; border-color: #ffe58f;">
+                            <label style="color: #d48806;">耗费时间</label>
+                            <div class="val" style="color: #d46b08;">${duration}</div>
                         </div>
                     </div>
 
@@ -1215,6 +1259,38 @@
         const isPass = data.analysis.quality_status === 'PASS';
         statusTag.className = 'status-tag ' + (isPass ? 'pass' : 'fail');
         statusTag.innerText = isPass ? '✓ 质检合格' : '✗ 质检不合格';
+
+        // 显示"检查完成"按钮
+        document.getElementById('completeBtn').style.display = 'block';
+    }
+
+    // 清空检测结果，恢复到检查前的状态
+    function clearResults() {
+        // 清空结果显示区域
+        const panelBody = document.getElementById('result-panel-body');
+        panelBody.innerHTML = `
+            <div class="empty-state">
+                <p>暂无检测数据，请点击左侧 "开始检测"</p>
+            </div>
+        `;
+
+        // 重置状态标签
+        const statusTag = document.getElementById('status-tag');
+        statusTag.className = 'status-tag waiting';
+        statusTag.innerText = '等待检测';
+
+        // 隐藏"检查完成"按钮
+        document.getElementById('completeBtn').style.display = 'none';
+
+        // 清空检测框数据
+        bboxesData = [];
+        selectedIndex = -1;
+        canvasCtx = null;
+
+        // 清空检测开始时间
+        inspectionStartTime = null;
+
+        showToast('检测结果已清空');
     }
 
     // 全局变量用于存储检测框数据
