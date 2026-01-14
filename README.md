@@ -245,9 +245,112 @@ mvn -Pnative package
 
 ### 1. 使用GPU推理
 
-```yaml
-models:
-  device: "GPU"  # 需要CUDA环境
+GPU版本可显著提升检测速度（通常5-10倍），支持Windows和Linux平台。
+
+#### 下载GPU版本
+
+从 [Releases](../../releases) 页面下载对应平台的GPU版本：
+
+- `edge-vision-gpu-Windows.zip` - Windows GPU版本
+- `edge-vision-gpu-Linux.tar.gz` - Linux GPU版本
+
+#### 前置要求
+
+1. **NVIDIA GPU** - 支持CUDA 11.x或12.x的显卡
+2. **显卡驱动** - 最新版本（>= 535 for CUDA 12.x）
+3. **CUDA Toolkit** - [下载地址](https://developer.nvidia.com/cuda-downloads)
+4. **cuDNN** - [下载地址](https://developer.nvidia.com/cudnn)
+
+#### 安装步骤
+
+**Windows:**
+
+1. 安装 [CUDA Toolkit](https://developer.nvidia.com/cuda-downloads)（推荐12.x版本）
+2. 安装 [cuDNN](https://developer.nvidia.com/cudnn)（选择与CUDA匹配的版本）
+   - 下载Windows exe安装程序
+   - 运行安装程序，按默认选项完成安装
+3. 解压GPU版本压缩包
+4. 双击运行 `run.bat`
+
+**Linux:**
+
+```bash
+# 1. 安装CUDA Toolkit
+wget https://developer.download.nvidia.com/compute/cuda/12.x.x/local_installers/cuda_12.x.x_linux.run
+sudo sh cuda_12.x.x_linux.run
+
+# 2. 安装cuDNN（下载tar.gz版本）
+tar -xvf cudnn-linux-x86_64-*.tar.xz
+sudo cp -R cudnn-linux-x86_64-*/include/* /usr/local/cuda/include
+sudo cp -R cudnn-linux-x86_64-*/lib64/* /usr/local/cuda/lib64
+sudo ldconfig
+
+# 3. 运行GPU版本
+cd edge-vision-gpu-Linux
+./run.sh
+```
+
+#### 自动配置功能
+
+启动脚本会自动完成以下操作：
+
+1. ✅ 检测CUDA和cuDNN安装位置
+2. ✅ 自动复制所需库文件到应用目录
+3. ✅ 配置运行时环境变量
+4. ✅ 启动GPU模式
+
+首次运行时会自动配置，后续启动直接使用。
+
+#### 验证GPU模式
+
+启动成功后，日志会显示：
+
+```
+Found CUDA: C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.0
+Found cuDNN: C:\Program Files\NVIDIA\CUDNN\v9.17\bin\12.9
+GPU (CUDA) provider enabled successfully
+```
+
+如果显示 `Falling back to CPU execution`，请检查CUDA/cuDNN是否正确安装。
+
+#### 故障排查
+
+**问题：显示 "CUDA initialization failed"**
+
+- 确认CUDA Toolkit已安装：`nvcc --version`
+- 确认cuDNN已安装：检查安装目录下是否有 `cudart64_*.dll`（Windows）或 `libcudart.so*`（Linux）
+- Windows用户：运行 `dir "C:\Program Files\NVIDIA\CUDNN\v9.*\bin\*\cudnn*.dll"` 查找cuDNN
+- Linux用户：运行 `ldconfig -p | grep cudnn` 查找cuDNN
+
+**问题：找不到cudnn64_9.dll**
+
+- cuDNN 9.x安装在版本目录中（如 `v9.17\bin\12.9`）
+- 启动脚本会自动检测并复制，无需手动操作
+
+**问题：CPU模式回退**
+
+- 检查显卡驱动是否最新
+- 确认CUDA版本与驱动兼容
+- 查看完整错误日志
+
+#### 手动复制库文件（备用方案）
+
+如果自动复制失败，可以手动复制：
+
+**Windows:**
+```powershell
+# 复制CUDA runtime
+copy "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.0\bin\cudart64_*.dll" D:\edge-vision-gpu-Windows\
+
+# 复制cuDNN
+copy "C:\Program Files\NVIDIA\CUDNN\v9.17\bin\12.9\*.dll" D:\edge-vision-gpu-Windows\
+```
+
+**Linux:**
+```bash
+# 复制到应用目录
+cp /usr/local/cuda/lib64/libcudart.so* /path/to/app/
+cp /usr/local/cuda/lib64/libcudnn*.so* /path/to/app/
 ```
 
 ### 2. 调整摄像头分辨率
