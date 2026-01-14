@@ -465,6 +465,9 @@ jobs:
         echo ========================================
         echo.
 
+        REM Add current directory to PATH first (for manually copied DLLs)
+        set "PATH=%~dp0;%PATH%"
+
         REM Auto-detect CUDA installation
         set "CUDA_PATH="
         set "CUDNN_PATH="
@@ -487,6 +490,12 @@ jobs:
         if defined CUDA_PATH (
             echo Found CUDA: !CUDA_PATH!
             set "PATH=!CUDA_PATH!\bin;!PATH!"
+
+            REM Copy CUDA runtime to app directory if not present
+            if not exist "%~dp0cudart64_*.dll" (
+                echo Copying CUDA runtime DLLs to application directory...
+                copy "!CUDA_PATH!\bin\cudart64_*.dll" "%~dp0" >nul 2>&1
+            )
         ) else (
             echo WARNING: CUDA not found in default locations
             echo.
@@ -495,22 +504,60 @@ jobs:
             echo.
         )
 
-        REM Check cuDNN
+        REM Check cuDNN in various locations
         if exist "C:\Program Files\NVIDIA\CUDNN\bin\cudnn*.dll" (
             set "CUDNN_PATH=C:\Program Files\NVIDIA\CUDNN"
-            echo Found cuDNN: !CUDNN_PATH!
-            set "PATH=!CUDNN_PATH!\bin;!PATH!"
-        ) else if exist "!CUDA_PATH!\bin\cudnn*.dll" (
-            echo Found cuDNN in CUDA directory
-        ) else (
-            echo WARNING: cuDNN not found
-            echo.
-            echo Please install cuDNN:
-            echo https://developer.nvidia.com/cudnn
-            echo Download version matching your CUDA (12.x or 11.x)
-            echo.
+            set "CUDNN_BIN=!CUDNN_PATH!\bin"
+            goto :cudnn_found
         )
 
+        REM Check cuDNN v9.x versioned directories (e.g., v9.17\bin\12.9)
+        for /d %%i in ("C:\Program Files\NVIDIA\CUDNN\v*.*") do (
+            for /d %%j in ("%%i\bin\*") do (
+                if exist "%%j\cudnn*.dll" (
+                    set "CUDNN_PATH=%%i"
+                    set "CUDNN_BIN=%%j"
+                    goto :cudnn_found
+                )
+            )
+        )
+
+        REM Check if cuDNN is in CUDA directory
+        if exist "!CUDA_PATH!\bin\cudnn*.dll" (
+            set "CUDNN_BIN=!CUDA_PATH!\bin"
+            goto :cudnn_found
+        )
+
+        goto :cudnn_not_found
+
+        :cudnn_found
+        echo Found cuDNN: !CUDNN_BIN!
+        set "PATH=!CUDNN_BIN;!PATH!"
+
+        REM Copy cuDNN DLLs to app directory if not present
+        if not exist "%~dp0cudnn64_*.dll" (
+            echo Copying cuDNN DLLs to application directory...
+            copy "!CUDNN_BIN!\cudnn*.dll" "%~dp0" >nul 2>&1
+            echo DLLs copied successfully!
+            echo.
+        )
+        goto :cudnn_done
+
+        :cudnn_not_found
+        REM Check if cuDNN DLLs are already in current directory
+        if exist "%~dp0cudnn*.dll" (
+            echo Found cuDNN in application directory
+            goto :cudnn_done
+        )
+
+        echo WARNING: cuDNN not found in standard locations
+        echo.
+        echo Please install cuDNN:
+        echo https://developer.nvidia.com/cudnn
+        echo Download version matching your CUDA (12.x or 11.x)
+        echo.
+
+        :cudnn_done
         echo.
         echo Starting application...
         echo ========================================
@@ -561,46 +608,56 @@ jobs:
         nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader
         echo ""
 
-        # Track if we found required components
-        FOUND_CUDA=0
-        FOUND_CUDNN=0
+        # Track paths
+        CUDA_PATH=""
+        CUDNN_PATH=""
 
-        # Auto-detect and add CUDA to library path
+        # Auto-detect CUDA
         if [ -d "/usr/local/cuda/lib64" ]; then
-            export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
-            export PATH="/usr/local/cuda/bin:$PATH"
-            echo "Found CUDA: /usr/local/cuda"
-            FOUND_CUDA=1
+            CUDA_PATH="/usr/local/cuda"
+            echo "Found CUDA: $CUDA_PATH"
+            export LD_LIBRARY_PATH="$CUDA_PATH/lib64:$LD_LIBRARY_PATH"
+            export PATH="$CUDA_PATH/bin:$PATH"
         fi
 
-        # Check for specific CUDA versions
         for cuda_ver in 12 11; do
             if [ -d "/usr/local/cuda-${cuda_ver}" ]; then
-                export LD_LIBRARY_PATH="/usr/local/cuda-${cuda_ver}/lib64:$LD_LIBRARY_PATH"
-                export PATH="/usr/local/cuda-${cuda_ver}/bin:$PATH"
-                echo "Found CUDA ${cuda_ver}: /usr/local/cuda-${cuda_ver}"
-                FOUND_CUDA=1
+                CUDA_PATH="/usr/local/cuda-${cuda_ver}"
+                echo "Found CUDA ${cuda_ver}: $CUDA_PATH"
+                export LD_LIBRARY_PATH="$CUDA_PATH/lib64:$LD_LIBRARY_PATH"
+                export PATH="$CUDA_PATH/bin:$PATH"
                 break
             fi
         done
 
-        # Check for cuDNN in CUDA lib directories
-        for lib_dir in /usr/local/cuda/lib64 /usr/local/cuda-12*/lib64 /usr/local/cuda-11*/lib64 /usr/lib/x86_64-linux-gnu; do
-            if [ -d "$lib_dir" ] && ls "$lib_dir"/libcudnn*so* 2>/dev/null | head -1 > /dev/null; then
-                echo "Found cuDNN in: $lib_dir"
-                FOUND_CUDNN=1
-                break
-            fi
-        done
+        # Auto-detect and copy cuDNN if not in app directory
+        if [ ! -f "$DIR/libcudnn.so" ] && [ ! -f "$DIR/libcudnn.so.9" ]; then
+            for lib_dir in /usr/local/cuda/lib64 /usr/local/cuda-12*/lib64 /usr/local/cuda-11*/lib64 /usr/lib/x86_64-linux-gnu; do
+                if [ -d "$lib_dir" ] && ls "$lib_dir"/libcudnn*so* 2>/dev/null | head -1 > /dev/null; then
+                    CUDNN_PATH="$lib_dir"
+                    echo "Found cuDNN in: $CUDNN_PATH"
+                    echo "Copying cuDNN libraries to application directory..."
+                    cp "$lib_dir"/libcudnn*.so* "$DIR/" 2>/dev/null || true
+                    echo "cuDNN libraries copied successfully!"
+                    echo ""
+                    break
+                fi
+            done
+        else
+            echo "Found cuDNN in application directory"
+        fi
 
-        # Warnings if components missing
-        if [ $FOUND_CUDA -eq 0 ]; then
+        # Add app directory to library path for locally copied libs
+        export LD_LIBRARY_PATH="$DIR:$LD_LIBRARY_PATH"
+
+        # Warnings
+        if [ -z "$CUDA_PATH" ]; then
             echo "WARNING: CUDA not found in standard locations"
             echo "Install CUDA Toolkit: https://developer.nvidia.com/cuda-downloads"
             echo ""
         fi
 
-        if [ $FOUND_CUDNN -eq 0 ]; then
+        if [ -z "$CUDNN_PATH" ] && [ ! -f "$DIR/libcudnn.so" ] && [ ! -f "$DIR/libcudnn.so.9" ]; then
             echo "WARNING: cuDNN not found"
             echo "Install cuDNN: https://developer.nvidia.com/cudnn"
             echo "After downloading, extract and copy to /usr/local/cuda:"
