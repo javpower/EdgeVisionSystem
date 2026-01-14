@@ -456,17 +456,99 @@ jobs:
       if: runner.os == 'Windows'
       shell: pwsh
       run: |
-        "@echo off
-        echo This version requires NVIDIA GPU with CUDA
+        @"
+        @echo off
+        setlocal enabledelayedexpansion
+
+        echo ========================================
+        echo Edge Vision System - GPU Version
+        echo ========================================
+        echo.
+
+        REM Auto-detect CUDA installation
+        set "CUDA_PATH="
+        set "CUDNN_PATH="
+
+        REM Check common CUDA paths
+        if exist "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.*\bin\cudart64*.dll" (
+            for /f "delims=" %%i in ('dir /b /ad "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.*" 2^>nul') do (
+                set "CUDA_PATH=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\%%i"
+                goto :found_cuda
+            )
+        )
+        if exist "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.*\bin\cudart64*.dll" (
+            for /f "delims=" %%i in ('dir /b /ad "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.*" 2^>nul') do (
+                set "CUDA_PATH=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\%%i"
+                goto :found_cuda
+            )
+        )
+
+        :found_cuda
+        if defined CUDA_PATH (
+            echo Found CUDA: !CUDA_PATH!
+            set "PATH=!CUDA_PATH!\bin;!PATH!"
+        ) else (
+            echo WARNING: CUDA not found in default locations
+            echo.
+            echo Please install CUDA Toolkit:
+            echo https://developer.nvidia.com/cuda-downloads
+            echo.
+        )
+
+        REM Check cuDNN
+        if exist "C:\Program Files\NVIDIA\CUDNN\bin\cudnn*.dll" (
+            set "CUDNN_PATH=C:\Program Files\NVIDIA\CUDNN"
+            echo Found cuDNN: !CUDNN_PATH!
+            set "PATH=!CUDNN_PATH!\bin;!PATH!"
+        ) else if exist "!CUDA_PATH!\bin\cudnn*.dll" (
+            echo Found cuDNN in CUDA directory
+        ) else (
+            echo WARNING: cuDNN not found
+            echo.
+            echo Please install cuDNN:
+            echo https://developer.nvidia.com/cudnn
+            echo Download version matching your CUDA (12.x or 11.x)
+            echo.
+        )
+
+        echo.
+        echo Starting application...
+        echo ========================================
+        echo.
+
         jre\bin\java.exe -jar edge-vision.jar --spring.config.additional-location=application.yml
-        pause" | Out-File -FilePath dist\run.bat -Encoding ASCII
+
+        if errorlevel 1 (
+            echo.
+            echo ========================================
+            echo Application exited with error
+            echo ========================================
+            echo.
+            echo Troubleshooting:
+            echo 1. Ensure NVIDIA GPU is installed
+            echo 2. Install CUDA Toolkit: https://developer.nvidia.com/cuda-downloads
+            echo 3. Install cuDNN: https://developer.nvidia.com/cudnn
+            echo 4. Check application.log for details
+            echo.
+        )
+
+        pause
+        "@ | Out-File -FilePath dist\run.bat -Encoding ASCII
 
     - name: Create run script (Unix)
       if: runner.os != 'Windows'
       run: |
         cat > dist/run.sh << 'EOF'
         #!/bin/bash
+        set -e
+
         DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+        cd "$DIR"
+
+        echo "========================================"
+        echo "Edge Vision System - GPU Version"
+        echo "========================================"
+        echo ""
 
         # Check for NVIDIA GPU
         if ! command -v nvidia-smi &> /dev/null; then
@@ -475,7 +557,63 @@ jobs:
             exit 1
         fi
 
-        cd "$DIR"
+        echo "NVIDIA GPU detected:"
+        nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader
+        echo ""
+
+        # Track if we found required components
+        FOUND_CUDA=0
+        FOUND_CUDNN=0
+
+        # Auto-detect and add CUDA to library path
+        if [ -d "/usr/local/cuda/lib64" ]; then
+            export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
+            export PATH="/usr/local/cuda/bin:$PATH"
+            echo "Found CUDA: /usr/local/cuda"
+            FOUND_CUDA=1
+        fi
+
+        # Check for specific CUDA versions
+        for cuda_ver in 12 11; do
+            if [ -d "/usr/local/cuda-${cuda_ver}" ]; then
+                export LD_LIBRARY_PATH="/usr/local/cuda-${cuda_ver}/lib64:$LD_LIBRARY_PATH"
+                export PATH="/usr/local/cuda-${cuda_ver}/bin:$PATH"
+                echo "Found CUDA ${cuda_ver}: /usr/local/cuda-${cuda_ver}"
+                FOUND_CUDA=1
+                break
+            fi
+        done
+
+        # Check for cuDNN in CUDA lib directories
+        for lib_dir in /usr/local/cuda/lib64 /usr/local/cuda-12*/lib64 /usr/local/cuda-11*/lib64 /usr/lib/x86_64-linux-gnu; do
+            if [ -d "$lib_dir" ] && ls "$lib_dir"/libcudnn*so* 2>/dev/null | head -1 > /dev/null; then
+                echo "Found cuDNN in: $lib_dir"
+                FOUND_CUDNN=1
+                break
+            fi
+        done
+
+        # Warnings if components missing
+        if [ $FOUND_CUDA -eq 0 ]; then
+            echo "WARNING: CUDA not found in standard locations"
+            echo "Install CUDA Toolkit: https://developer.nvidia.com/cuda-downloads"
+            echo ""
+        fi
+
+        if [ $FOUND_CUDNN -eq 0 ]; then
+            echo "WARNING: cuDNN not found"
+            echo "Install cuDNN: https://developer.nvidia.com/cudnn"
+            echo "After downloading, extract and copy to /usr/local/cuda:"
+            echo "  sudo cp -R include/* /usr/local/cuda/include"
+            echo "  sudo cp -R lib64/* /usr/local/cuda/lib64"
+            echo ""
+        fi
+
+        echo ""
+        echo "Starting application..."
+        echo "========================================"
+        echo ""
+
         exec "$DIR/jre/bin/java" -jar edge-vision.jar --spring.config.additional-location=application.yml
         EOF
         chmod +x dist/run.sh

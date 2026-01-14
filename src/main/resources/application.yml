@@ -5,8 +5,8 @@ edge-vision:
     save-local: true
 
   cameras:
-    sources: ["/Users/xiongguochao/Desktop/几个螺母的视频_检测.mp4"]  # 可以是摄像头索引或RTSP URL，如 [0, 1] 或 ["rtsp://...", "rtsp://..."]
-
+    sources: [0,1]  # 可以是摄像头索引或RTSP URL，如 [0, 1] 或 ["rtsp://...", "rtsp://..."]
+  # "/Volumes/macEx/训练/EKS.mp4","/Volumes/macEx/训练/CX7564001_2.mp4" "/Volumes/macEx/训练/视频/CX756601.mp4"
   # 图像拼接配置
   stitching:
     # 拼接策略: simple（简单拼接）, auto（自动拼接）, manual（手动拼接）
@@ -21,9 +21,9 @@ edge-vision:
 #    type-model: "models/type_classifier.onnx"
     # 细节检测模型（必须）
     detail-model: "models/detail_detector.onnx"
-    conf-thres: 0.45
+    conf-thres: 0.25
     iou-thres: 0.45
-    device: "CPU"  # CPU 或 GPU
+    device: "GPU"  # CPU 或 GPU
 
   # 质量检测标准已迁移到 data/quality-standards.json
   # 可在系统设置界面中实时修改，无需重启服务

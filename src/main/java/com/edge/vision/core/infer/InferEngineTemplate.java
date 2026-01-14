@@ -52,12 +52,37 @@ public abstract class InferEngineTemplate {
                 opts.addCUDA(0);
                 System.out.println("GPU (CUDA) provider enabled successfully");
             } catch (Exception e) {
-                System.err.println("Warning: CUDA initialization failed: " + e.getMessage());
-                System.err.println("Falling back to CPU execution");
-                System.err.println("To use GPU, ensure:");
-                System.err.println("  1. NVIDIA GPU is installed");
-                System.err.println("  2. NVIDIA driver is up to date");
-                System.err.println("  3. CUDA runtime is in PATH (C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\vxx.x\\bin)");
+                String errorMsg = e.getMessage();
+                System.err.println("========================================");
+                System.err.println("CUDA initialization failed!");
+                System.err.println("========================================");
+                System.err.println("Error: " + errorMsg);
+
+                // 判断具体问题类型
+                if (errorMsg != null) {
+                    if (errorMsg.contains("LoadLibrary failed") || errorMsg.contains("error 126")) {
+                        System.err.println("");
+                        System.err.println("PROBLEM: CUDA or cuDNN libraries not found");
+                        System.err.println("");
+                        System.err.println("SOLUTION:");
+                        System.err.println("1. Install CUDA Toolkit from: https://developer.nvidia.com/cuda-downloads");
+                        System.err.println("2. Install cuDNN from: https://developer.nvidia.com/cudnn");
+                        System.err.println("   (Download cuDNN matching your CUDA version: 12.x or 11.x)");
+                        System.err.println("3. The run.bat script should auto-detect CUDA/cuDNN");
+                        System.err.println("");
+                    } else if (errorMsg.contains("not compiled with CUDA support")) {
+                        System.err.println("");
+                        System.err.println("PROBLEM: Wrong application version - using CPU build instead of GPU");
+                        System.err.println("");
+                        System.err.println("SOLUTION: Download the GPU version from:");
+                        System.err.println("https://github.com/your-repo/releases");
+                        System.err.println("");
+                    }
+                }
+
+                System.err.println("Falling back to CPU execution (slower performance)");
+                System.err.println("========================================");
+                System.err.println("");
                 opts = new OrtSession.SessionOptions();
             }
         } else {
