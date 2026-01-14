@@ -48,64 +48,23 @@ public abstract class InferEngineTemplate {
 
         // GPU 模式：支持 GPU（JAR 和 Native Image 都支持，只要有 CUDA）
         if ("GPU".equalsIgnoreCase(device)) {
-            if (isCudaAvailable()) {
-                try {
-                    opts.addCUDA(0);
-                    System.out.println("GPU (CUDA) provider enabled successfully");
-                } catch (Exception e) {
-                    System.err.println("Warning: CUDA initialization failed: " + e.getMessage());
-                    System.err.println("Falling back to CPU execution");
-                    opts = new OrtSession.SessionOptions();
-                }
-            } else {
-                System.err.println("Warning: CUDA runtime not detected. Falling back to CPU execution.");
-                System.err.println("To use GPU, ensure NVIDIA driver and CUDA runtime are installed.");
+            try {
+                opts.addCUDA(0);
+                System.out.println("GPU (CUDA) provider enabled successfully");
+            } catch (Exception e) {
+                System.err.println("Warning: CUDA initialization failed: " + e.getMessage());
+                System.err.println("Falling back to CPU execution");
+                System.err.println("To use GPU, ensure:");
+                System.err.println("  1. NVIDIA GPU is installed");
+                System.err.println("  2. NVIDIA driver is up to date");
+                System.err.println("  3. CUDA runtime is in PATH (C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\vxx.x\\bin)");
+                opts = new OrtSession.SessionOptions();
             }
         } else {
             System.out.println("Using CPU execution");
         }
 
         return opts;
-    }
-
-    /**
-     * 检测CUDA运行时是否可用
-     */
-    private boolean isCudaAvailable() {
-        try {
-            // 尝试加载CUDA运行时库
-            String osName = System.getProperty("os.name").toLowerCase();
-            String cudaLib;
-
-            if (osName.contains("linux")) {
-                cudaLib = "libcudart.so";
-            } else if (osName.contains("win")) {
-                cudaLib = "cudart64_*.dll";
-            } else {
-                // macOS不支持CUDA
-                return false;
-            }
-
-            // 尝试检查nvidia-smi是否可用（Linux）
-            if (osName.contains("linux")) {
-                try {
-                    Process proc = Runtime.getRuntime().exec("nvidia-smi");
-                    int exitCode = proc.waitFor();
-                    if (exitCode == 0) {
-                        System.out.println("Detected NVIDIA GPU via nvidia-smi");
-                        return true;
-                    }
-                } catch (IOException e) {
-                    // nvidia-smi不可用，继续尝试其他方法
-                }
-            }
-
-            // 最后尝试加载库
-            System.loadLibrary(cudaLib.replaceAll("\\.", "").replaceAll("\\*", ""));
-            return true;
-        } catch (Exception e) {
-            return false;
-        }
     }
 
     /**
