@@ -23,7 +23,7 @@
     <properties>
         <java.version>17</java.version>
         <opencv.version>4.7.0-0</opencv.version>
-        <onnxruntime.version>1.19.2</onnxruntime.version>
+        <onnxruntime.version>1.23.2</onnxruntime.version>
     </properties>
 
     <dependencies>

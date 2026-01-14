@@ -646,7 +646,8 @@ jobs:
         }
 
         Write-Host "Starting application..."
-        $process = Start-Process -FilePath "jre\bin\java.exe" -ArgumentList "-jar","edge-vision.jar","--server.port=8888" -PassThru -NoNewWindow
+        # Force CPU mode for CI testing (no GPU available)
+        $process = Start-Process -FilePath "jre\bin\java.exe" -ArgumentList "-jar","edge-vision.jar","--server.port=8888","--edge-vision.models.device=CPU" -PassThru -NoNewWindow
 
         Write-Host "Waiting for startup..."
         Start-Sleep -Seconds 45
@@ -670,7 +671,8 @@ jobs:
       run: |
         echo "Starting application..."
         cd dist
-        ./jre/bin/java -jar edge-vision.jar --spring.config.additional-location=application.yml --server.port=8888 &
+        # Force CPU mode for CI testing (no GPU available)
+        ./jre/bin/java -jar edge-vision.jar --spring.config.additional-location=application.yml --server.port=8888 --edge-vision.models.device=CPU &
         JAVA_PID=$!
         echo "Waiting for application to start (PID: $JAVA_PID)..."
         sleep 30
