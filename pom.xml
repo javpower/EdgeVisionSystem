@@ -51,14 +51,6 @@
             <version>4.7.0-0</version>
         </dependency>
 
-        <!-- ONNX Runtime CPU 版本 (Mac 开发使用，更稳定) -->
-        <dependency>
-            <groupId>com.microsoft.onnxruntime</groupId>
-            <artifactId>onnxruntime</artifactId>
-            <version>${onnxruntime.version}</version>
-        </dependency>
-
-
         <!-- HTTP Client -->
         <dependency>
             <groupId>com.squareup.okhttp3</groupId>
@@ -121,11 +113,25 @@
     </build>
 
     <profiles>
+        <!-- CPU Profile (默认激活) -->
+        <profile>
+            <id>cpu</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+            <dependencies>
+                <dependency>
+                    <groupId>com.microsoft.onnxruntime</groupId>
+                    <artifactId>onnxruntime</artifactId>
+                    <version>${onnxruntime.version}</version>
+                </dependency>
+            </dependencies>
+        </profile>
+
         <!-- GPU Profile: CI 构建时使用 GPU 版本 (Windows/Linux) -->
         <profile>
             <id>gpu</id>
             <dependencies>
-                <!-- GPU 版本覆盖 CPU 版本 -->
                 <dependency>
                     <groupId>com.microsoft.onnxruntime</groupId>
                     <artifactId>onnxruntime_gpu</artifactId>
