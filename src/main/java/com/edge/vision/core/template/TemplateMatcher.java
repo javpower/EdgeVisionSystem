@@ -177,12 +177,12 @@ public class TemplateMatcher {
 
         // 4. 设置消息
         InspectionResult.InspectionSummary summary = result.getSummary();
-        if (result.isPassed()) {
+        if (summary.totalFeatures==summary.passed) {
+            result.setPassed(true);
             result.setMessage(String.format("检测通过 - %s", summary));
-        } else {
+        }else {
             result.setMessage(String.format("检测失败 - %s", summary));
         }
-
         logger.info("Matching completed: {}", result);
         return result;
     }
