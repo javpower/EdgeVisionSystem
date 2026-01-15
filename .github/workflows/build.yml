@@ -137,6 +137,12 @@ jobs:
           Copy-Item -Path "models\*.onnx" -Destination "dist\models\" -Force
         }
 
+        # Copy MVS camera SDK libraries (complete lib directory with all dependencies)
+        if (Test-Path "mvs\lib\win64\MvCameraControl.dll") {
+          Copy-Item -Path "mvs\lib" -Destination "dist\mvs" -Recurse -Force
+          Write-Host "Copied MVS Windows libraries (complete mvs/lib directory)"
+        }
+
         # Show final structure
         Write-Host ""
         Write-Host "Final dist structure:"
@@ -184,6 +190,13 @@ jobs:
         if compgen -G "models/*.onnx" > /dev/null; then
           mkdir -p dist/models
           cp models/*.onnx dist/models/
+        fi
+
+        # Copy MVS camera SDK libraries (complete lib directory with all dependencies)
+        if [ -d "mvs/lib/linux64" ]; then
+          mkdir -p dist/mvs
+          cp -r mvs/lib dist/mvs/
+          echo "Copied MVS Linux libraries (complete mvs/lib directory)"
         fi
 
         # Show final structure
@@ -398,6 +411,12 @@ jobs:
           Copy-Item -Path "models\*.onnx" -Destination "dist\models\" -Force
         }
 
+        # Copy MVS camera SDK libraries (complete lib directory with all dependencies)
+        if (Test-Path "mvs\lib\win64\MvCameraControl.dll") {
+          Copy-Item -Path "mvs\lib" -Destination "dist\mvs" -Recurse -Force
+          Write-Host "Copied MVS Windows libraries (complete mvs/lib directory)"
+        }
+
         # Show final structure
         Write-Host ""
         Write-Host "Final dist structure:"
@@ -447,6 +466,13 @@ jobs:
           cp models/*.onnx dist/models/
         fi
 
+        # Copy MVS camera SDK libraries (complete lib directory with all dependencies)
+        if [ -d "mvs/lib/linux64" ]; then
+          mkdir -p dist/mvs
+          cp -r mvs/lib dist/mvs/
+          echo "Copied MVS Linux libraries (complete mvs/lib directory)"
+        fi
+
         # Show final structure
         echo ""
         echo "Final dist structure:"
@@ -472,7 +498,13 @@ jobs:
         set "CUDA_PATH="
         set "CUDNN_PATH="
 
-        REM Check common CUDA paths
+        REM Check common CUDA paths (check v13 first, then v12, then v11)
+        if exist "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.*\bin\cudart64*.dll" (
+            for /f "delims=" %%i in ('dir /b /ad "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.*" 2^>nul') do (
+                set "CUDA_PATH=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\%%i"
+                goto :found_cuda
+            )
+        )
         if exist "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.*\bin\cudart64*.dll" (
             for /f "delims=" %%i in ('dir /b /ad "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.*" 2^>nul') do (
                 set "CUDA_PATH=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\%%i"
@@ -491,10 +523,16 @@ jobs:
             echo Found CUDA: !CUDA_PATH!
             set "PATH=!CUDA_PATH!\bin;!PATH!"
 
-            REM Copy CUDA runtime to app directory if not present
+            REM Copy all required CUDA runtime DLLs to app directory if not present
             if not exist "%~dp0cudart64_*.dll" (
                 echo Copying CUDA runtime DLLs to application directory...
                 copy "!CUDA_PATH!\bin\cudart64_*.dll" "%~dp0" >nul 2>&1
+                copy "!CUDA_PATH!\bin\cublas64_*.dll" "%~dp0" >nul 2>&1
+                copy "!CUDA_PATH!\bin\cublasLt.dll" "%~dp0" >nul 2>&1
+                copy "!CUDA_PATH!\bin\cufft64_*.dll" "%~dp0" >nul 2>&1
+                copy "!CUDA_PATH!\bin\cusolver64_*.dll" "%~dp0" >nul 2>&1
+                copy "!CUDA_PATH!\bin\cusparse64_*.dll" "%~dp0" >nul 2>&1
+                copy "!CUDA_PATH!\bin\nvrtc64_*.dll" "%~dp0" >nul 2>&1
             )
         ) else (
             echo WARNING: CUDA not found in default locations
@@ -554,7 +592,7 @@ jobs:
         echo.
         echo Please install cuDNN:
         echo https://developer.nvidia.com/cudnn
-        echo Download version matching your CUDA (12.x or 11.x)
+        echo Download version matching your CUDA (13.x, 12.x or 11.x)
         echo.
 
         :cudnn_done
@@ -575,6 +613,7 @@ jobs:
             echo 1. Ensure NVIDIA GPU is installed
             echo 2. Install CUDA Toolkit: https://developer.nvidia.com/cuda-downloads
             echo 3. Install cuDNN: https://developer.nvidia.com/cudnn
+            echo    (Match cuDNN version to your CUDA: 13.x, 12.x or 11.x)
             echo 4. Check application.log for details
             echo.
         )
@@ -620,7 +659,7 @@ jobs:
             export PATH="$CUDA_PATH/bin:$PATH"
         fi
 
-        for cuda_ver in 12 11; do
+        for cuda_ver in 13 12 11; do
             if [ -d "/usr/local/cuda-${cuda_ver}" ]; then
                 CUDA_PATH="/usr/local/cuda-${cuda_ver}"
                 echo "Found CUDA ${cuda_ver}: $CUDA_PATH"
@@ -632,7 +671,7 @@ jobs:
 
         # Auto-detect and copy cuDNN if not in app directory
         if [ ! -f "$DIR/libcudnn.so" ] && [ ! -f "$DIR/libcudnn.so.9" ]; then
-            for lib_dir in /usr/local/cuda/lib64 /usr/local/cuda-12*/lib64 /usr/local/cuda-11*/lib64 /usr/lib/x86_64-linux-gnu; do
+            for lib_dir in /usr/local/cuda/lib64 /usr/local/cuda-13*/lib64 /usr/local/cuda-12*/lib64 /usr/local/cuda-11*/lib64 /usr/lib/x86_64-linux-gnu; do
                 if [ -d "$lib_dir" ] && ls "$lib_dir"/libcudnn*so* 2>/dev/null | head -1 > /dev/null; then
                     CUDNN_PATH="$lib_dir"
                     echo "Found cuDNN in: $CUDNN_PATH"

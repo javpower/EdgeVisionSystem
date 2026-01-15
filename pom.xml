@@ -51,6 +51,15 @@
             <version>4.7.0-0</version>
         </dependency>
 
+        <!-- MVS Camera SDK (海康威视工业相机) -->
+        <dependency>
+            <groupId>com.hikvision.mvs</groupId>
+            <artifactId>MvCameraControlWrapper</artifactId>
+            <version>1.0.0</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/mvs/MvCameraControlWrapper.jar</systemPath>
+        </dependency>
+
         <!-- HTTP Client -->
         <dependency>
             <groupId>com.squareup.okhttp3</groupId>

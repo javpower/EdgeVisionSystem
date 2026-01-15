@@ -67,7 +67,7 @@ public abstract class InferEngineTemplate {
                         System.err.println("SOLUTION:");
                         System.err.println("1. Install CUDA Toolkit from: https://developer.nvidia.com/cuda-downloads");
                         System.err.println("2. Install cuDNN from: https://developer.nvidia.com/cudnn");
-                        System.err.println("   (Download cuDNN matching your CUDA version: 12.x or 11.x)");
+                        System.err.println("   (Download cuDNN matching your CUDA version: 13.x, 12.x or 11.x)");
                         System.err.println("3. The run.bat script should auto-detect CUDA/cuDNN");
                         System.err.println("");
                     } else if (errorMsg.contains("not compiled with CUDA support")) {
