@@ -51,13 +51,14 @@
             <version>4.7.0-0</version>
         </dependency>
 
-        <!-- MVS Camera SDK (海康威视工业相机) -->
+        <!-- MVS Camera SDK (海康威视工业相机) - 可选依赖 -->
         <dependency>
             <groupId>com.hikvision.mvs</groupId>
             <artifactId>MvCameraControlWrapper</artifactId>
             <version>1.0.0</version>
             <scope>system</scope>
             <systemPath>${project.basedir}/mvs/MvCameraControlWrapper.jar</systemPath>
+            <optional>true</optional>
         </dependency>
 
         <!-- HTTP Client -->
@@ -109,6 +110,7 @@
                             <artifactId>lombok</artifactId>
                         </exclude>
                     </excludes>
+                    <includeSystemScope>true</includeSystemScope>
                 </configuration>
             </plugin>
 
