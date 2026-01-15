@@ -1,5 +1,7 @@
 package com.edge.vision.core.camera;
 
+import MvCameraControlWrapper.CameraControlException;
+import MvCameraControlWrapper.MvCameraControl;
 import org.opencv.core.CvType;
 import org.opencv.core.Mat;
 import org.opencv.imgproc.Imgproc;
@@ -8,21 +10,20 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 
-import MvCameraControlWrapper.*;
 import static MvCameraControlWrapper.MvCameraControlDefines.*;
 
 /**
  * 海康威视工业相机源（MVS SDK）
  * 支持通过 IP 地址连接 GigE 相机
  *
- * 使用方式: "mvs:ip:192.168.1.100"
+ * 使用方式: "mvs:0
  */
 public class MVSCameraSource implements CameraSource {
     private static final Logger logger = LoggerFactory.getLogger(MVSCameraSource.class);
     private static boolean sdkInitialized = false;
     private static final Object sdkLock = new Object();
 
-    private final String ipAddress;
+    private final String index;
     private Handle hCamera;
     private boolean isOpened;
     private MV_FRAME_OUT_INFO frameInfo;
@@ -30,10 +31,10 @@ public class MVSCameraSource implements CameraSource {
 
     /**
      * 创建 MVS 相机源
-     * @param ipAddress GigE 相机的 IP 地址
+     * @param index GigE 相机的 IP 地址
      */
-    public MVSCameraSource(String ipAddress) {
-        this.ipAddress = ipAddress;
+    public MVSCameraSource(String index) {
+        this.index = index;
         this.hCamera = null;
         this.isOpened = false;
     }
@@ -49,52 +50,106 @@ public class MVSCameraSource implements CameraSource {
      */
     private static void loadNativeLibrary() {
         String osName = System.getProperty("os.name").toLowerCase();
-        String libName;
+        String osArch = System.getProperty("os.arch").toLowerCase();
         String libFileName;
 
-        // 根据操作系统确定库文件名
+        // 根据操作系统和架构确定库文件名和路径
         if (osName.contains("win")) {
             libFileName = "MvCameraControl.dll";
-            libName = "MvCameraControl";
         } else if (osName.contains("mac") || osName.contains("darwin")) {
             libFileName = "libMvCameraControl.dylib";
-            libName = "MvCameraControl";
         } else {
             libFileName = "libMvCameraControl.so";
-            libName = "MvCameraControl";
         }
 
-        // 按优先级尝试多个路径
-        String[] searchPaths = {
-            ".",                           // 当前目录
-            "./lib",                       // lib 子目录
-            "./libs",                      // libs 子目录
-            "./native",                    // native 子目录
-            "./mvs/lib",                   // mvs/lib 目录
-        };
-
-        boolean loaded = false;
-        for (String path : searchPaths) {
-            String fullPath = path + "/" + libFileName;
-            try {
-                System.load(new java.io.File(fullPath).getAbsolutePath());
-                logger.info("Loaded MVS native library from: {}", fullPath);
-                loaded = true;
-                break;
-            } catch (UnsatisfiedLinkError | Exception e) {
-                // 继续尝试下一个路径
+        // 按优先级尝试多个路径（优先匹配架构特定的路径）
+        String[] searchPaths;
+        if (osName.contains("win")) {
+            // Windows: 根据 JVM 架构选择对应的 DLL
+            if (osArch.contains("amd64") || osArch.contains("x86_64") || osArch.contains("x64")) {
+                // 64-bit JVM
+                searchPaths = new String[]{
+                    "./mvs/lib/win64/MvCameraControl.dll",    // 项目中的 64-bit DLL
+                    "./lib/win64/MvCameraControl.dll",
+                    "./mvs/lib/win64",
+                    "./mvs/lib",
+                    "./lib",
+                    "./libs",
+                    "./native",
+                };
+            } else {
+                // 32-bit JVM
+                searchPaths = new String[]{
+                    "./mvs/lib/win32/MvCameraControl.dll",    // 项目中的 32-bit DLL
+                    "./lib/win32/MvCameraControl.dll",
+                    "./mvs/lib/win32",
+                    "./mvs/lib",
+                    "./lib",
+                    "./libs",
+                    "./native",
+                };
+            }
+        } else if (osName.contains("mac") || osName.contains("darwin")) {
+            searchPaths = new String[]{
+                "./mvs/lib/macosx/libMvCameraControl.dylib",
+                "./lib/macosx/libMvCameraControl.dylib",
+                "./mvs/lib",
+                "./lib",
+                "./libs",
+                "./native",
+            };
+        } else {
+            // Linux
+            if (osArch.contains("amd64") || osArch.contains("x86_64") || osArch.contains("x64")) {
+                searchPaths = new String[]{
+                    "./mvs/lib/linux64/libMvCameraControl.so",
+                    "./lib/linux64/libMvCameraControl.so",
+                    "./mvs/lib/linux64",
+                    "./mvs/lib",
+                    "./lib",
+                    "./libs",
+                    "./native",
+                };
+            } else {
+                searchPaths = new String[]{
+                    "./mvs/lib/linux32/libMvCameraControl.so",
+                    "./lib/linux32/libMvCameraControl.so",
+                    "./mvs/lib/linux32",
+                    "./mvs/lib",
+                    "./lib",
+                    "./libs",
+                    "./native",
+                };
             }
         }
 
-        // 如果所有路径都失败，尝试通过 java.library.path 加载
+        boolean loaded = false;
+        for (String path : searchPaths) {
+            try {
+                java.io.File file = new java.io.File(path);
+                if (file.exists() && file.isFile()) {
+                    System.load(file.getAbsolutePath());
+                    logger.info("Loaded MVS native library from: {}", path);
+                    loaded = true;
+                    break;
+                }
+            } catch (UnsatisfiedLinkError e) {
+                logger.debug("Failed to load from {}: {}", path, e.getMessage());
+            } catch (Exception e) {
+                logger.debug("Failed to load from {}: {}", path, e.getMessage());
+            }
+        }
+
+        // 如果所有路径都失败，尝试通过 java.library.path 加载（最后手段）
         if (!loaded) {
             try {
-                System.loadLibrary(libName);
-                logger.info("Loaded MVS native library: {} (from java.library.path)", libName);
+                System.loadLibrary(libFileName.replace(".dll", "").replace(".so", "").replace(".dylib", ""));
+                logger.info("Loaded MVS native library from system path");
+                loaded = true;
             } catch (UnsatisfiedLinkError e) {
-                logger.warn("Failed to load MVS native library: {}. Please ensure {} is in the project directory or system library path.",
-                    libName, libFileName);
-                logger.debug("Load error details", e);
+                logger.warn("Failed to load MVS native library: {}. Please ensure {} is in the project directory (mvs/lib/{}).",
+                    libFileName, libFileName, osName.contains("win") ? "win64" : osName.contains("mac") ? "macosx" : "linux64");
+                logger.debug("Load error details: {}", e.getMessage());
             }
         }
     }
@@ -140,16 +195,18 @@ public class MVSCameraSource implements CameraSource {
 
             // 查找匹配 IP 地址的设备
             MV_CC_DEVICE_INFO targetDevice = null;
-            for (MV_CC_DEVICE_INFO device : deviceList) {
+            for (int i = 0; i < deviceList.size(); i++) {
+                MV_CC_DEVICE_INFO device=deviceList.get(i);
                 if (device.transportLayerType == MV_GIGE_DEVICE) {
                     String deviceIp = device.gigEInfo.currentIp.trim();
                     logger.debug("Found MVS device with IP: {}", deviceIp);
-                    if (deviceIp.equals(ipAddress)) {
+                    if (i==Integer.parseInt(index)) {
                         targetDevice = device;
-                        logger.info("Found target MVS device: IP={}, Model={}, Name={}",
-                            deviceIp,
-                            device.gigEInfo.modelName,
-                            device.gigEInfo.userDefinedName);
+                        logger.info("Found target MVS device: index={},IP={}, Model={}, Name={}",
+                                index,
+                                deviceIp,
+                                device.gigEInfo.modelName,
+                                device.gigEInfo.userDefinedName);
                         break;
                     }
                 }
@@ -157,21 +214,21 @@ public class MVSCameraSource implements CameraSource {
 
             if (targetDevice == null) {
                 logger.error("No MVS device found with IP: {}. Available devices: {}",
-                    ipAddress, deviceList.size());
+                    index, deviceList.size());
                 return false;
             }
 
             // 创建设备句柄
             hCamera = MvCameraControl.MV_CC_CreateHandle(targetDevice);
             if (hCamera == null) {
-                logger.error("Failed to create handle for MVS device: {}", ipAddress);
+                logger.error("Failed to create handle for MVS device: {}", index);
                 return false;
             }
 
             // 打开设备
             int ret = MvCameraControl.MV_CC_OpenDevice(hCamera);
             if (ret != MV_OK) {
-                logger.error("Failed to open MVS device: {}, errcode: [0x{}]", ipAddress, Integer.toHexString(ret));
+                logger.error("Failed to open MVS device: {}, errcode: [0x{}]", index, Integer.toHexString(ret));
                 MvCameraControl.MV_CC_DestroyHandle(hCamera);
                 hCamera = null;
                 return false;
@@ -204,14 +261,14 @@ public class MVSCameraSource implements CameraSource {
             }
 
             isOpened = true;
-            logger.info("Successfully opened MVS camera: {}", ipAddress);
+            logger.info("Successfully opened MVS camera: {}", index);
             return true;
 
         } catch (CameraControlException e) {
-            logger.error("CameraControlException while opening MVS camera: {}", ipAddress, e);
+            logger.error("CameraControlException while opening MVS camera: {}", index, e);
             return false;
         } catch (Exception e) {
-            logger.error("Unexpected error while opening MVS camera: {}", ipAddress, e);
+            logger.error("Unexpected error while opening MVS camera: {}", index, e);
             return false;
         }
     }
@@ -219,7 +276,7 @@ public class MVSCameraSource implements CameraSource {
     @Override
     public Mat read() {
         if (!isOpened || hCamera == null) {
-            logger.warn("MVS camera is not opened: {}", ipAddress);
+            logger.warn("MVS camera is not opened: {}", index);
             return null;
         }
 
@@ -238,7 +295,7 @@ public class MVSCameraSource implements CameraSource {
             return convertToMat(imageBuffer, frameInfo);
 
         } catch (Exception e) {
-            logger.error("Error reading frame from MVS camera: {}", ipAddress, e);
+            logger.error("Error reading frame from MVS camera: {}", index, e);
             return null;
         }
     }
@@ -354,12 +411,12 @@ public class MVSCameraSource implements CameraSource {
             }
 
         } catch (Exception e) {
-            logger.error("Error closing MVS camera: {}", ipAddress, e);
+            logger.error("Error closing MVS camera: {}", index, e);
         } finally {
             hCamera = null;
             isOpened = false;
             imageBuffer = null;
-            logger.info("MVS camera closed: {}", ipAddress);
+            logger.info("MVS camera closed: {}", index);
         }
     }
 
@@ -369,9 +426,9 @@ public class MVSCameraSource implements CameraSource {
     }
 
     /**
-     * 获取相机 IP 地址
+     * 获取相机 index 地址
      */
-    public String getIpAddress() {
-        return ipAddress;
+    public String getindex() {
+        return index;
     }
 }
