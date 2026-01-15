@@ -237,6 +237,24 @@
             50% { transform: scale(1.05); }
         }
 
+        /* 模板比对状态样式 */
+        .status-pass {
+            color: #52c41a;
+            font-weight: 600;
+        }
+        .status-fail {
+            color: #ff4d4f;
+            font-weight: 600;
+        }
+        .status-missing {
+            color: #faad14;
+            font-weight: 600;
+        }
+        .status-extra {
+            color: #722ed1;
+            font-weight: 600;
+        }
+
         .result-view {
             display: flex;
             gap: 30px;
@@ -827,7 +845,7 @@
             <!-- 标签页头部 -->
             <div class="tab-header">
                 <div class="tab-option active" data-tab="stitch" onclick="switchTab('stitch')">拼接设置</div>
-                <div class="tab-option" data-tab="quality" onclick="switchTab('quality')">质检标准设置</div>
+                <div class="tab-option" data-tab="template" onclick="switchTab('template')">模板管理</div>
             </div>
 
             <!-- 拼接设置标签内容 -->
@@ -866,20 +884,20 @@
                 </div>
             </div>
 
-            <!-- 质检标准设置标签内容 -->
-            <div class="tab-content" id="qualityTabContent">
+            <!-- 模板管理标签内容 -->
+            <div class="tab-content" id="templateTabContent">
                 <div class="quality-standards-section">
                     <div class="section-title">
-                        <span>质检标准配置</span>
-                        <button class="btn btn-secondary" style="font-size: 11px; padding: 4px 10px;" onclick="addPartType()">+ 添加工件类型</button>
+                        <span>模板管理</span>
+                        <button class="btn btn-success" style="font-size: 11px; padding: 4px 10px;" onclick="showBuildTemplateModal()">+ 构建新模板</button>
                     </div>
 
                     <div class="preview-note" style="margin-bottom: 12px;">
-                        支持操作符：&lt;=（不超过）、&gt;=（至少）、==（精确匹配）、&lt;（少于）、&gt;（多于）
+                        上传标准工件图片和 YOLO 标注，自动生成检测模板
                     </div>
 
-                    <div id="qualityStandardsContainer">
-                        <!-- 动态生成 -->
+                    <div id="templatesContainer">
+                        <!-- 动态生成模板列表 -->
                     </div>
                 </div>
             </div>
@@ -1231,21 +1249,85 @@
                         </div>
                     </div>
 
-                    <div class="table-container">
-                        <table>
-                            <thead><tr><th>ID</th><th>类型</th><th>坐标</th><th>置信度</th></tr></thead>
-                            <tbody id="resultTableBody">
-                                ${details.map((det, i) => `
-                                    <tr data-index="${i}" onclick="highlightBBox(${i})" style="cursor: pointer;">
-                                        <td>${i + 1}</td>
-                                        <td>${det.label}</td>
-                                        <td>${det.bbox ? `[${det.bbox.map(v => Math.round(v)).join(', ')}]` : '-'}</td>
-                                        <td>${(det.confidence * 100).toFixed(0)}%</td>
+                    <!-- 模板比对结果表格 -->
+                    ${data.analysis.templateComparisons && data.analysis.templateComparisons.length > 0 ? `
+                        <div class="table-container">
+                            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                                <div class="summary-title">模板比对结果</div>
+                                <div style="font-size: 12px; color: #666;">
+                                    总计: ${data.analysis.templateComparisons.length} 个特征
+                                </div>
+                            </div>
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>状态</th>
+                                        <th>类型</th>
+                                        <th>模板位置</th>
+                                        <th>检测位置</th>
+                                        <th>X偏差</th>
+                                        <th>Y偏差</th>
+                                        <th>总偏差</th>
+                                        <th>容差</th>
                                     </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>
-                    </div>
+                                </thead>
+                                <tbody>
+                                    ${data.analysis.templateComparisons.map((comp, i) => {
+                                        const statusClass = comp.withinTolerance ? 'status-pass' :
+                                            comp.status === 'MISSING' ? 'status-missing' :
+                                            comp.status === 'EXTRA' ? 'status-extra' : 'status-fail';
+                                        const statusText = comp.withinTolerance ? '合格' :
+                                            comp.status === 'MISSING' ? '漏检' :
+                                            comp.status === 'EXTRA' ? '错检' : '偏差';
+                                        const tplX = comp.templatePosition?.x ?? comp.template_position?.x;
+                                        const tplY = comp.templatePosition?.y ?? comp.template_position?.y;
+                                        const detX = comp.detectedPosition?.x ?? comp.detected_position?.x;
+                                        const detY = comp.detectedPosition?.y ?? comp.detected_position?.y;
+                                        const xError = comp.xError ?? comp.x_error;
+                                        const yError = comp.yError ?? comp.y_error;
+                                        const totalError = comp.totalError ?? comp.total_error;
+                                        const toleranceX = comp.toleranceX ?? comp.tolerance_x;
+                                        const toleranceY = comp.toleranceY ?? comp.tolerance_y;
+                                        return `
+                                            <tr data-index="${i}" onclick="${comp.status !== 'MISSING' ? `highlightBBox(${i})` : ''}" style="cursor: ${comp.status !== 'MISSING' ? 'pointer' : 'default'}; ${!comp.withinTolerance ? 'background: #fff1f0;' : ''}">
+                                                <td><span class="${statusClass}">${statusText}</span></td>
+                                                <td>${comp.className || comp.featureName || comp.feature_name || 'class_' + comp.classId}</td>
+                                                <td>(${tplX != null ? Math.round(tplX) : '-'}, ${tplY != null ? Math.round(tplY) : '-'})</td>
+                                                <td>${detX != null ? `(${Math.round(detX)}, ${Math.round(detY)})` : '-'}</td>
+                                                <td style="color: ${xError != null && xError !== undefined && xError !== 0 && Math.abs(xError) > toleranceX ? '#ff4d4f' : 'inherit'}">
+                                                    ${xError != null && xError !== undefined && xError !== 0 ? xError.toFixed(2) : '-'}
+                                                </td>
+                                                <td style="color: ${yError != null && yError !== undefined && yError !== 0 && Math.abs(yError) > toleranceY ? '#ff4d4f' : 'inherit'}">
+                                                    ${yError != null && yError !== undefined && yError !== 0 ? yError.toFixed(2) : '-'}
+                                                </td>
+                                                <td style="color: ${totalError != null && totalError !== undefined && totalError !== 0 && totalError > Math.max(toleranceX, toleranceY) ? '#ff4d4f' : 'inherit'}">
+                                                    ${totalError != null && totalError !== undefined && totalError !== 0 ? totalError.toFixed(2) : '-'}
+                                                </td>
+                                                <td>X≤${toleranceX}, Y≤${toleranceY}</td>
+                                            </tr>
+                                        `;
+                                    }).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    ` : `
+                        <!-- 没有模板比对结果时显示原始检测列表 -->
+                        <div class="table-container">
+                            <table>
+                                <thead><tr><th>ID</th><th>类型</th><th>坐标</th><th>置信度</th></tr></thead>
+                                <tbody id="resultTableBody">
+                                    ${details.map((det, i) => `
+                                        <tr data-index="${i}" onclick="highlightBBox(${i})" style="cursor: pointer;">
+                                            <td>${i + 1}</td>
+                                            <td>${det.label}</td>
+                                            <td>${det.bbox ? `[${det.bbox.map(v => Math.round(v)).join(', ')}]` : '-'}</td>
+                                            <td>${(det.confidence * 100).toFixed(0)}%</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    `}
                 </div>
             </div>
         `;
@@ -1509,156 +1591,257 @@
 
     // --- 系统设置 ---
     let currentTab = 'stitch';
-    let qualityStandardsData = {};
+    let templatesData = [];
+    let currentTemplate = null;
 
-    // 质检标准相关
-    async function loadQualityStandards() {
-        console.log('loadQualityStandards called');
+    // 模板管理相关
+    async function loadTemplates() {
+        console.log('loadTemplates called');
         try {
-            const res = await fetch(`${API_BASE}/api/quality-standards`);
+            const res = await fetch(`${API_BASE}/api/templates`);
             const data = await res.json();
-            console.log('Quality standards data:', data);
-            if(data.status === 'success' && data.data.standards) {
-                qualityStandardsData = data.data.standards;
-                console.log('Loaded qualityStandardsData:', qualityStandardsData);
-                renderQualityStandards();
+            console.log('Templates data:', data);
+            if (Array.isArray(data)) {
+                templatesData = data;
+                renderTemplates();
             }
         } catch(e) {
-            console.error('Failed to load quality standards', e);
+            console.error('Failed to load templates', e);
         }
     }
 
-    function renderQualityStandards() {
-        const container = document.getElementById('qualityStandardsContainer');
+    function renderTemplates() {
+        const container = document.getElementById('templatesContainer');
         container.innerHTML = '';
 
-        for (const [partType, standards] of Object.entries(qualityStandardsData)) {
-            const partItem = document.createElement('div');
-            partItem.className = 'part-type-item';
-            partItem.innerHTML = `
-                <div class="part-type-header">
-                    <span class="part-type-name">${partType}</span>
-                    <button class="btn-icon" onclick="deletePartType('${partType}')">&times;</button>
-                </div>
-                <div class="defect-standards-list" id="standards-${partType.replace(/\W/g, '_')}">
-                    ${standards.map((std, idx) => `
-                        <div class="defect-standard-item">
-                            <input type="text" class="defect-type-input" value="${std.defectType || ''}" placeholder="缺陷类型" data-part="${partType}" data-idx="${idx}" onchange="updateStandard('${partType}', ${idx}, 'defectType', this.value)">
-                            <select class="operator-select" onchange="updateStandard('${partType}', ${idx}, 'operator', this.value)">
-                                <option value="==" ${std.operator === '==' ? 'selected' : ''}>==</option>
-                                <option value="<=" ${std.operator === '<=' ? 'selected' : ''}>&lt;=</option>
-                                <option value=">=" ${std.operator === '>=' ? 'selected' : ''}>&gt;=</option>
-                                <option value="<" ${std.operator === '<' ? 'selected' : ''}>&lt;</option>
-                                <option value=">" ${std.operator === '>' ? 'selected' : ''}>&gt;</option>
-                            </select>
-                            <input type="number" class="threshold-input" value="${std.threshold || 0}" placeholder="阈值" data-part="${partType}" data-idx="${idx}" onchange="updateStandard('${partType}', ${idx}, 'threshold', this.value)">
-                            <button class="btn-icon" onclick="removeStandard('${partType}', ${idx})">&times;</button>
-                        </div>
-                    `).join('')}
-                </div>
-                <button class="btn-add" onclick="addStandard('${partType}')">+ 添加缺陷标准</button>
-            `;
-            container.appendChild(partItem);
-        }
-    }
-
-    function updateStandard(partType, idx, field, value) {
-        if (!qualityStandardsData[partType]) return;
-        if (field === 'threshold') {
-            qualityStandardsData[partType][idx][field] = parseInt(value) || 0;
-        } else {
-            qualityStandardsData[partType][idx][field] = value;
-        }
-    }
-
-    function addStandard(partType) {
-        if (!qualityStandardsData[partType]) {
-            qualityStandardsData[partType] = [];
-        }
-        qualityStandardsData[partType].push({
-            defectType: '',
-            operator: '<=',
-            threshold: 0
-        });
-        renderQualityStandards();
-    }
-
-    function removeStandard(partType, idx) {
-        if (!qualityStandardsData[partType]) return;
-        qualityStandardsData[partType].splice(idx, 1);
-        renderQualityStandards();
-    }
-
-    function addPartType() {
-        const partTypeName = prompt('请输入新的工件类型名称:');
-        if (!partTypeName || partTypeName.trim() === '') return;
-        const partType = partTypeName.trim();
-        if (qualityStandardsData[partType]) {
-            showToast('该工件类型已存在', 'warning');
+        if (templatesData.length === 0) {
+            container.innerHTML = '<div style="color: #888; padding: 20px; text-align: center;">暂无模板，请点击上方按钮构建新模板</div>';
             return;
         }
-        qualityStandardsData[partType] = [
-            { defectType: '', operator: '<=', threshold: 0 }
-        ];
-        renderQualityStandards();
+
+        templatesData.forEach(template => {
+            const templateItem = document.createElement('div');
+            templateItem.className = 'part-type-item';
+
+            const partType = template.metadata?.partType || '未关联';
+            const featureCount = template.features?.length || 0;
+            const isCurrent = currentTemplate?.templateId === template.templateId;
+
+            templateItem.innerHTML = `
+                <div class="part-type-header" style="${isCurrent ? 'background: #e8f5e9;' : ''}">
+                    <span class="part-type-name">${template.templateId} ${isCurrent ? '<span style="color: #4caf50; font-size: 11px;">(当前)</span>' : ''}</span>
+                    <div>
+                        ${!isCurrent ? `<button class="btn btn-success" style="font-size: 10px; padding: 2px 8px; margin-right: 5px;" onclick="activateTemplate('${template.templateId}')">激活</button>` : ''}
+                        <button class="btn-icon" onclick="viewTemplateDetails('${template.templateId}')">📋</button>
+                        <button class="btn-icon" onclick="deleteTemplate('${template.templateId}')">&times;</button>
+                    </div>
+                </div>
+                <div style="padding: 10px; font-size: 12px; color: #666;">
+                    <div>关联工件: ${partType}</div>
+                    <div>特征数量: ${featureCount}</div>
+                    <div>图片尺寸: ${template.imageSize?.width}x${template.imageSize?.height}</div>
+                    <div>容差: X=${template.toleranceX}, Y=${template.toleranceY}</div>
+                </div>
+            `;
+            container.appendChild(templateItem);
+        });
+
+        // 加载当前模板
+        loadCurrentTemplate();
     }
 
-    function deletePartType(partType) {
-        if (!confirm(`确定要删除工件类型 "${partType}" 的质检标准吗？`)) return;
-        delete qualityStandardsData[partType];
-        renderQualityStandards();
-    }
-
-    async function saveQualityStandards() {
+    async function loadCurrentTemplate() {
         try {
-            console.log('saveQualityStandards called, data:', qualityStandardsData);
-
-            // 过滤掉空的缺陷类型
-            for (const [partType, standards] of Object.entries(qualityStandardsData)) {
-                // 过滤掉 defectType 为空的标准
-                qualityStandardsData[partType] = standards.filter(s => s.defectType && s.defectType.trim() !== '');
+            const res = await fetch(`${API_BASE}/api/templates/current`);
+            if (res.ok) {
+                currentTemplate = await res.json();
+                // 不再调用 renderTemplates()，避免无限循环
             }
-
-            // 移除没有标准工件类型
-            for (const [partType, standards] of Object.entries(qualityStandardsData)) {
-                if (!standards || standards.length === 0) {
-                    delete qualityStandardsData[partType];
-                }
-            }
-
-            console.log('Filtered qualityStandardsData:', qualityStandardsData);
-
-            for (const [partType, standards] of Object.entries(qualityStandardsData)) {
-                const res = await fetch(`${API_BASE}/api/quality-standards/part-types/${encodeURIComponent(partType)}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ standards: standards })
-                });
-                const data = await res.json();
-                if (data.status !== 'success') {
-                    showToast(`保存 ${partType} 失败: ${data.message}`, 'error');
-                    return;
-                }
-            }
-            // 保存成功后重新加载配置，确保前端数据与后端同步
-            await loadQualityStandards();
-            showToast('质检标准已保存');
         } catch(e) {
-            console.error('Save error:', e);
-            showToast('保存失败: ' + e.message, 'error');
+            console.error('Failed to load current template', e);
         }
     }
 
-    async function resetQualityStandards() {
-        if (!confirm('确定要重置所有质检标准为默认值吗？')) return;
+    async function activateTemplate(templateId) {
         try {
-            const res = await fetch(`${API_BASE}/api/quality-standards/reset`, { method: 'POST' });
+            const res = await fetch(`${API_BASE}/api/templates/${encodeURIComponent(templateId)}/activate`, {
+                method: 'POST'
+            });
             const data = await res.json();
-            if (data.status === 'success') {
-                await loadQualityStandards();
-                showToast('质检标准已重置');
+            if (data.success === true) {
+                currentTemplate = data.template;
+                renderTemplates();
+                showToast('模板已激活');
+            } else {
+                showToast('激活失败: ' + data.message, 'error');
             }
-        } catch(e) { showToast('重置失败', 'error'); }
+        } catch(e) {
+            console.error('Activate template error:', e);
+            showToast('激活失败', 'error');
+        }
+    }
+
+    async function deleteTemplate(templateId) {
+        if (!confirm(`确定要删除模板 "${templateId}" 吗？`)) return;
+        try {
+            const res = await fetch(`${API_BASE}/api/templates/${encodeURIComponent(templateId)}`, {
+                method: 'DELETE'
+            });
+            if (res.ok) {
+                await loadTemplates();
+                showToast('模板已删除');
+            }
+        } catch(e) {
+            console.error('Delete template error:', e);
+            showToast('删除失败', 'error');
+        }
+    }
+
+    function viewTemplateDetails(templateId) {
+        const template = templatesData.find(t => t.templateId === templateId);
+        if (!template) return;
+
+        let details = `模板 ID: ${template.templateId}\n\n`;
+        details += `图片尺寸: ${template.imageSize?.width}x${template.imageSize?.height}\n`;
+        details += `容差: X=${template.toleranceX}, Y=${template.toleranceY}\n`;
+        details += `关联工件: ${template.metadata?.partType || '未关联'}\n`;
+        details += `特征数量: ${template.features?.length || 0}\n`;
+        details += `锚点数量: ${template.anchorPoints?.length || 0}\n\n`;
+
+        if (template.features && template.features.length > 0) {
+            details += '特征列表:\n';
+            template.features.forEach((f, idx) => {
+                details += `  ${idx + 1}. ${f.featureName} (classId: ${f.classId}) at (${f.position?.x?.toFixed(1)}, ${f.position?.y?.toFixed(1)})\n`;
+            });
+        }
+
+        alert(details);
+    }
+
+    // 显示构建模板对话框
+    function showBuildTemplateModal() {
+        const html = `
+            <div id="buildTemplateModal" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 2000;">
+                <div style="background: #fff; padding: 20px; border-radius: 8px; width: 500px; max-width: 90%; max-height: 90vh; overflow-y: auto;">
+                    <h3 style="margin-top: 0;">构建新模板</h3>
+
+                    <div style="margin-bottom: 12px;">
+                        <label style="display: block; margin-bottom: 5px; font-weight: bold;">模板 ID:</label>
+                        <input type="text" id="templateId" placeholder="例如: 工件_EKS_001" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                    </div>
+
+                    <div style="margin-bottom: 12px;">
+                        <label style="display: block; margin-bottom: 5px; font-weight: bold;">关联工件类型:</label>
+                        <input type="text" id="partType" placeholder="例如: EKS" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                    </div>
+
+                    <div style="margin-bottom: 12px;">
+                        <label style="display: block; margin-bottom: 5px; font-weight: bold;">标准图片 *:</label>
+                        <input type="file" id="imageFile" accept="image/*" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                        <div style="font-size: 11px; color: #888; margin-top: 4px;">支持 JPG、PNG 等图片格式</div>
+                    </div>
+
+                    <div style="margin-bottom: 12px;">
+                        <label style="display: block; margin-bottom: 5px; font-weight: bold;">YOLO 标注文件 *:</label>
+                        <input type="file" id="labelFile" accept=".txt" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                        <div style="font-size: 11px; color: #888; margin-top: 4px;">YOLO 格式的 .txt 标注文件</div>
+                    </div>
+
+                    <div style="display: flex; gap: 10px; margin-bottom: 12px;">
+                        <div style="flex: 1;">
+                            <label style="display: block; margin-bottom: 5px; font-weight: bold;">X 轴容差:</label>
+                            <input type="number" id="toleranceX" value="5.0" step="0.1" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                        </div>
+                        <div style="flex: 1;">
+                            <label style="display: block; margin-bottom: 5px; font-weight: bold;">Y 轴容差:</label>
+                            <input type="number" id="toleranceY" value="5.0" step="0.1" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                        </div>
+                    </div>
+
+                    <div style="margin-bottom: 12px;">
+                        <label style="display: block; margin-bottom: 5px; font-weight: bold;">类别标签映射:</label>
+                        <input type="text" id="classNameMapping" placeholder='例如: {"0":"螺丝孔","1":"定位孔"}' style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                        <div style="font-size: 11px; color: #888; margin-top: 4px;">JSON 格式，将类别 ID 映射到实际名称（可选）</div>
+                    </div>
+
+                    <div style="margin-bottom: 12px;">
+                        <label style="display: block; margin-bottom: 5px; font-weight: bold;">
+                            <input type="checkbox" id="includeAuxiliaryAnchors" checked>
+                            包含辅助锚点（用于检测旋转）
+                        </label>
+                    </div>
+
+                    <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                        <button class="btn btn-secondary" onclick="closeBuildTemplateModal()">取消</button>
+                        <button class="btn btn-success" onclick="buildTemplate()">构建</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.insertAdjacentHTML('beforeend', html);
+    }
+
+    function closeBuildTemplateModal() {
+        const modal = document.getElementById('buildTemplateModal');
+        if (modal) modal.remove();
+    }
+
+    async function buildTemplate() {
+        const templateId = document.getElementById('templateId').value.trim();
+        const partType = document.getElementById('partType').value.trim();
+        const imageFile = document.getElementById('imageFile').files[0];
+        const labelFile = document.getElementById('labelFile').files[0];
+        const toleranceX = parseFloat(document.getElementById('toleranceX').value) || 5.0;
+        const toleranceY = parseFloat(document.getElementById('toleranceY').value) || 5.0;
+        const includeAuxiliaryAnchors = document.getElementById('includeAuxiliaryAnchors').checked;
+        const classNameMapping = document.getElementById('classNameMapping').value.trim();
+
+        if (!templateId) {
+            showToast('请输入模板 ID', 'error');
+            return;
+        }
+        if (!imageFile) {
+            showToast('请选择标准图片', 'error');
+            return;
+        }
+        if (!labelFile) {
+            showToast('请选择 YOLO 标注文件', 'error');
+            return;
+        }
+
+        try {
+            // 使用 FormData 上传文件
+            const formData = new FormData();
+            formData.append('templateId', templateId);
+            if (partType) {
+                formData.append('partType', partType);
+            }
+            formData.append('imageFile', imageFile);
+            formData.append('labelFile', labelFile);
+            if (classNameMapping) {
+                formData.append('classNameMapping', classNameMapping);
+            }
+            formData.append('toleranceX', toleranceX.toString());
+            formData.append('toleranceY', toleranceY.toString());
+            formData.append('includeAuxiliaryAnchors', includeAuxiliaryAnchors.toString());
+
+            const res = await fetch(`${API_BASE}/api/templates/build-with-files`, {
+                method: 'POST',
+                body: formData
+            });
+            const data = await res.json();
+
+            if (data.success === true) {
+                closeBuildTemplateModal();
+                await loadTemplates();
+                showToast('模板构建成功');
+            } else {
+                showToast('构建失败: ' + data.message, 'error');
+            }
+        } catch(e) {
+            console.error('Build template error:', e);
+            showToast('构建失败', 'error');
+        }
     }
 
     // 标签页切换
@@ -1676,11 +1859,14 @@
         document.querySelectorAll('.tab-content').forEach(el => {
             el.classList.remove('active');
         });
-        document.getElementById(tabName + 'TabContent').classList.add('active');
+        const targetContent = document.getElementById(tabName + 'TabContent');
+        if (targetContent) {
+            targetContent.classList.add('active');
+        }
 
         // 加载对应标签页的数据
-        if (tabName === 'quality') {
-            loadQualityStandards();
+        if (tabName === 'template') {
+            loadTemplates();
         }
     }
 
@@ -1878,9 +2064,6 @@
         if (currentTab === 'stitch') {
             console.log('Saving stitch config');
             await saveStitchConfig();
-        } else if (currentTab === 'quality') {
-            console.log('Saving quality standards');
-            await saveQualityStandards();
         } else {
             console.warn('Unknown tab:', currentTab);
         }
@@ -1901,8 +2084,9 @@
     async function resetCurrentConfig() {
         if (currentTab === 'stitch') {
             await resetManualConfig();
-        } else if (currentTab === 'quality') {
-            await resetQualityStandards();
+        } else if (currentTab === 'template') {
+            // Template tab doesn't have a reset function
+            showToast('模板管理不需要重置', 'warning');
         }
     }
 

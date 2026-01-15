@@ -5,7 +5,7 @@ edge-vision:
     save-local: true
 
   cameras:
-    sources: [0,1]  # 可以是摄像头索引或RTSP URL，如 [0, 1] 或 ["rtsp://...", "rtsp://..."]
+    sources: ["/Volumes/macEx/训练/视频/EKS.mp4"]  # 可以是摄像头索引或RTSP URL，如 [0, 1] 或 ["rtsp://...", "rtsp://..."]
   # "/Volumes/macEx/训练/EKS.mp4","/Volumes/macEx/训练/CX7564001_2.mp4" "/Volumes/macEx/训练/视频/CX756601.mp4"
   # 图像拼接配置
   stitching:
@@ -42,6 +42,11 @@ spring:
   jackson:
     serialization:
       write-dates-as-timestamps: false
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 10MB
+      max-request-size: 10MB
 
 # Actuator 健康检查配置
 management:

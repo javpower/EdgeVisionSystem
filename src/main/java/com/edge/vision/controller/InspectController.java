@@ -2,6 +2,7 @@ package com.edge.vision.controller;
 
 import com.edge.vision.config.YamlConfig;
 import com.edge.vision.core.infer.YOLOInferenceEngine;
+import com.edge.vision.core.template.model.DetectedObject;
 import com.edge.vision.model.*;
 import com.edge.vision.service.CameraService;
 import com.edge.vision.service.DataManager;
@@ -399,10 +400,31 @@ public class InspectController {
             analysis.setDefectCount(detailDetections.size());
             analysis.setDetails(detailDetections);
 
-            // 根据质量检测标准判断 PASS/FAIL（使用新的质检标准服务）
-            QualityStandardService.QualityEvaluationResult evaluationResult =
-                qualityStandardService.evaluate(request.getConfirmedPartName(), detailDetections);
-            analysis.setQualityStatus(evaluationResult.isPassed() ? "PASS" : "FAIL");
+            // 根据质量检测标准判断 PASS/FAIL
+            // 首先尝试使用新的模板比对模式（如果配置了模板）
+            QualityStandardService.QualityEvaluationResult evaluationResult=null;
+            List<DetectedObject> detectedObjects = convertDetectionsToDetectedObjects(detailDetections);
+
+            try {
+                // 尝试使用模板比对模式
+                evaluationResult = qualityStandardService.evaluateWithTemplate(
+                    request.getConfirmedPartName(), detectedObjects);
+
+                // 如果返回了模板比对结果，说明使用了新模式
+                if (evaluationResult.getTemplateComparisons() != null &&
+                    !evaluationResult.getTemplateComparisons().isEmpty()) {
+                    logger.info("Using template-based evaluation for part type: {}",
+                        request.getConfirmedPartName());
+
+                    // 将模板比对结果添加到 analysis 中
+                    analysis.setTemplateComparisons(evaluationResult.getTemplateComparisons());
+                }
+            } catch (Exception e) {
+                logger.warn("Template-based evaluation failed, falling back to traditional: {}",
+                    e.getMessage());
+            }
+
+            analysis.setQualityStatus(evaluationResult==null||!evaluationResult.isPassed() ? "FAIL" : "PASS");
             data.setAnalysis(analysis);
 
             data.setDeviceId(config.getSystem().getDeviceId());
@@ -417,10 +439,29 @@ public class InspectController {
             inspectionEntity.setOperator(request.getOperator());
             inspectionEntity.setTimestamp(LocalDateTime.now());
 
+            // 质检结果
+            inspectionEntity.setPassed(evaluationResult.isPassed());
+            inspectionEntity.setQualityStatus(evaluationResult.isPassed() ? "PASS" : "FAIL");
+            inspectionEntity.setQualityMessage(evaluationResult.getMessage());
+
+            // 使用的模板
+            if (evaluationResult.getTemplateComparisons() != null &&
+                !evaluationResult.getTemplateComparisons().isEmpty()) {
+                inspectionEntity.setTemplateId(request.getConfirmedPartName());
+            }
+
+            // 元数据
             Map<String, Object> meta = new HashMap<>();
             meta.put("defectCount", analysis.getDefectCount());
             meta.put("details", analysis.getDetails());
             meta.put("qualityStatus", analysis.getQualityStatus());
+            // 保存模板比对详细结果
+            if (evaluationResult.getTemplateComparisons() != null) {
+                meta.put("templateComparisons", evaluationResult.getTemplateComparisons());
+            }
+            if (evaluationResult.getProcessingTimeMs() != null) {
+                meta.put("processingTimeMs", evaluationResult.getProcessingTimeMs());
+            }
             inspectionEntity.setMeta(meta);
 
             dataManager.saveRecord(inspectionEntity, resultImageBase64);
@@ -613,6 +654,38 @@ public class InspectController {
     }
 
     // 工具方法
+
+    /**
+     * 将 Detection 列表转换为 DetectedObject 列表
+     * 用于模板比对模式
+     */
+    private List<DetectedObject> convertDetectionsToDetectedObjects(List<Detection> detections) {
+        List<DetectedObject> result = new ArrayList<>();
+        for (Detection detection : detections) {
+            DetectedObject obj = new DetectedObject();
+            obj.setClassName(detection.getLabel());
+            obj.setClassId(detection.getClassId());
+            obj.setConfidence(detection.getConfidence());
+
+            // 从 bbox 计算 center 和 width/height
+            float[] bbox = detection.getBbox();
+            if (bbox != null && bbox.length >= 4) {
+                double centerX = (bbox[0] + bbox[2]) / 2.0;
+                double centerY = (bbox[1] + bbox[3]) / 2.0;
+                double width = bbox[2] - bbox[0];
+                double height = bbox[3] - bbox[1];
+
+                obj.setCenter(new com.edge.vision.core.template.model.Point(centerX, centerY));
+                obj.setWidth(width);
+                obj.setHeight(height);
+            }
+
+            result.add(obj);
+        }
+        return result;
+    }
+
+
     private Mat base64ToMat(String base64) {
         byte[] bytes = Base64.getDecoder().decode(base64);
         return Imgcodecs.imdecode(new MatOfByte(bytes), Imgcodecs.IMREAD_COLOR);

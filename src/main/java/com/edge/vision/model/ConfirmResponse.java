@@ -60,5 +60,11 @@ public class ConfirmResponse {
 
         @JsonProperty("quality_status")
         private String qualityStatus; // PASS/FAIL
+
+        /**
+         * 模板比对结果（仅在使用模板比对模式时有值）
+         * 包含每个特征的精确位置对比信息
+         */
+        private java.util.List<com.edge.vision.service.QualityStandardService.QualityEvaluationResult.TemplateComparison> templateComparisons;
     }
 }
