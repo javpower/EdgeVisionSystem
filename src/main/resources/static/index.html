@@ -889,11 +889,11 @@
                 <div class="quality-standards-section">
                     <div class="section-title">
                         <span>模板管理</span>
-                        <button class="btn btn-success" style="font-size: 11px; padding: 4px 10px;" onclick="showBuildTemplateModal()">+ 构建新模板</button>
+                        <button class="btn btn-success" style="font-size: 11px; padding: 4px 10px;" onclick="showOneClickBuildModal()">⚡ 一键建模</button>
                     </div>
 
                     <div class="preview-note" style="margin-bottom: 12px;">
-                        上传标准工件图片和 YOLO 标注，自动生成检测模板
+                        截取当前画面，AI 自动识别特征并生成模板
                     </div>
 
                     <div id="templatesContainer">
@@ -1711,136 +1711,266 @@
         if (template.features && template.features.length > 0) {
             details += '特征列表:\n';
             template.features.forEach((f, idx) => {
-                details += `  ${idx + 1}. ${f.featureName} (classId: ${f.classId}) at (${f.position?.x?.toFixed(1)}, ${f.position?.y?.toFixed(1)})\n`;
+                const name = f.name || f.className || 'class_' + f.classId;
+                const x = f.position?.x || f.relativePosition?.x || 0;
+                const y = f.position?.y || f.relativePosition?.y || 0;
+                details += `  ${idx + 1}. ${name} (classId: ${f.classId}) at (${x.toFixed(1)}, ${y.toFixed(1)})\n`;
             });
         }
 
         alert(details);
     }
 
-    // 显示构建模板对话框
-    function showBuildTemplateModal() {
+    // 保存预览的检测结果
+    let previewDetectionData = null;
+
+    // 显示一键建模对话框
+    function showOneClickBuildModal() {
         const html = `
-            <div id="buildTemplateModal" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 2000;">
-                <div style="background: #fff; padding: 20px; border-radius: 8px; width: 500px; max-width: 90%; max-height: 90vh; overflow-y: auto;">
-                    <h3 style="margin-top: 0;">构建新模板</h3>
+            <div id="oneClickBuildModal" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 2000;">
+                <div style="background: #fff; padding: 24px; border-radius: 8px; width: 600px; max-width: 95%; max-height: 95vh; overflow-y: auto;">
+                    <h3 style="margin-top: 0;">⚡ 一键建模</h3>
+                    <p style="color: #666; font-size: 13px; margin-bottom: 20px;">
+                        先预览识别结果，确认无误后再创建模板
+                    </p>
 
-                    <div style="margin-bottom: 12px;">
-                        <label style="display: block; margin-bottom: 5px; font-weight: bold;">模板 ID:</label>
-                        <input type="text" id="templateId" placeholder="例如: 工件_EKS_001" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
-                    </div>
-
-                    <div style="margin-bottom: 12px;">
-                        <label style="display: block; margin-bottom: 5px; font-weight: bold;">关联工件类型:</label>
-                        <input type="text" id="partType" placeholder="例如: EKS" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
-                    </div>
-
-                    <div style="margin-bottom: 12px;">
-                        <label style="display: block; margin-bottom: 5px; font-weight: bold;">标准图片 *:</label>
-                        <input type="file" id="imageFile" accept="image/*" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
-                        <div style="font-size: 11px; color: #888; margin-top: 4px;">支持 JPG、PNG 等图片格式</div>
-                    </div>
-
-                    <div style="margin-bottom: 12px;">
-                        <label style="display: block; margin-bottom: 5px; font-weight: bold;">YOLO 标注文件 *:</label>
-                        <input type="file" id="labelFile" accept=".txt" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
-                        <div style="font-size: 11px; color: #888; margin-top: 4px;">YOLO 格式的 .txt 标注文件</div>
-                    </div>
-
-                    <div style="display: flex; gap: 10px; margin-bottom: 12px;">
-                        <div style="flex: 1;">
-                            <label style="display: block; margin-bottom: 5px; font-weight: bold;">X 轴容差:</label>
-                            <input type="number" id="toleranceX" value="5.0" step="0.1" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                    <!-- 步骤1: 设置参数 -->
+                    <div id="buildStep1">
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; margin-bottom: 6px; font-weight: bold;">工件类型 *</label>
+                            <input type="text" id="oneClickPartType" placeholder="例如: CX756601" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
+                            <div style="font-size: 11px; color: #888; margin-top: 4px;">用于标识模板名称</div>
                         </div>
-                        <div style="flex: 1;">
-                            <label style="display: block; margin-bottom: 5px; font-weight: bold;">Y 轴容差:</label>
-                            <input type="number" id="toleranceY" value="5.0" step="0.1" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+
+                        <div style="display: flex; gap: 15px; margin-bottom: 15px;">
+                            <div style="flex: 1;">
+                                <label style="display: block; margin-bottom: 6px; font-weight: bold;">X 轴容差 (像素)</label>
+                                <input type="number" id="oneClickToleranceX" value="20" min="1" max="500" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                                <div style="font-size: 11px; color: #888; margin-top: 4px;">默认: 20</div>
+                            </div>
+                            <div style="flex: 1;">
+                                <label style="display: block; margin-bottom: 6px; font-weight: bold;">Y 轴容差 (像素)</label>
+                                <input type="number" id="oneClickToleranceY" value="20" min="1" max="500" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                                <div style="font-size: 11px; color: #888; margin-top: 4px;">默认: 20</div>
+                            </div>
+                        </div>
+
+                        <div style="padding: 12px; background: #f0f9ff; border-left: 3px solid #1890ff; border-radius: 4px; margin-bottom: 15px; font-size: 12px;">
+                            <strong style="color: #1890ff;">操作说明：</strong><br>
+                            1. 确保摄像头已启动<br>
+                            2. 确保当前画面中有完整的工件<br>
+                            3. 点击"预览识别结果"查看检测效果
+                        </div>
+
+                        <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                            <button class="btn btn-secondary" onclick="closeOneClickBuildModal()">取消</button>
+                            <button class="btn btn-primary" onclick="previewDetection()">预览识别结果</button>
                         </div>
                     </div>
 
-                    <div style="margin-bottom: 12px;">
-                        <label style="display: block; margin-bottom: 5px; font-weight: bold;">类别标签映射:</label>
-                        <input type="text" id="classNameMapping" placeholder='例如: {"0":"螺丝孔","1":"定位孔"}' style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
-                        <div style="font-size: 11px; color: #888; margin-top: 4px;">JSON 格式，将类别 ID 映射到实际名称（可选）</div>
-                    </div>
+                    <!-- 步骤2: 预览结果 -->
+                    <div id="buildStep2" style="display: none;">
+                        <div style="margin-bottom: 15px;">
+                            <h4 style="margin: 0 0 10px 0;">识别结果</h4>
+                            <div id="previewImageContainer" style="text-align: center; margin-bottom: 15px;">
+                                <div style="color: #999; padding: 40px;">加载中...</div>
+                            </div>
+                            <div id="detectionInfo" style="font-size: 13px; color: #666;"></div>
+                        </div>
 
-                    <div style="margin-bottom: 12px;">
-                        <label style="display: block; margin-bottom: 5px; font-weight: bold;">
-                            <input type="checkbox" id="includeAuxiliaryAnchors" checked>
-                            包含辅助锚点（用于检测旋转）
-                        </label>
-                    </div>
+                        <div id="detectionList" style="max-height: 200px; overflow-y: auto; margin-bottom: 15px; border: 1px solid #eee; border-radius: 4px; padding: 10px;">
+                        </div>
 
-                    <div style="display: flex; gap: 10px; justify-content: flex-end;">
-                        <button class="btn btn-secondary" onclick="closeBuildTemplateModal()">取消</button>
-                        <button class="btn btn-success" onclick="buildTemplate()">构建</button>
+                        <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                            <button class="btn btn-secondary" onclick="backToStep1()">返回</button>
+                            <button class="btn btn-success" onclick="confirmBuild()">确认并创建模板</button>
+                        </div>
                     </div>
                 </div>
             </div>
         `;
         document.body.insertAdjacentHTML('beforeend', html);
+
+        // 自动聚焦到输入框
+        setTimeout(() => {
+            const input = document.getElementById('oneClickPartType');
+            if (input) input.focus();
+        }, 100);
     }
 
-    function closeBuildTemplateModal() {
-        const modal = document.getElementById('buildTemplateModal');
+    function closeOneClickBuildModal() {
+        const modal = document.getElementById('oneClickBuildModal');
         if (modal) modal.remove();
+        previewDetectionData = null;
     }
 
-    async function buildTemplate() {
-        const templateId = document.getElementById('templateId').value.trim();
-        const partType = document.getElementById('partType').value.trim();
-        const imageFile = document.getElementById('imageFile').files[0];
-        const labelFile = document.getElementById('labelFile').files[0];
-        const toleranceX = parseFloat(document.getElementById('toleranceX').value) || 5.0;
-        const toleranceY = parseFloat(document.getElementById('toleranceY').value) || 5.0;
-        const includeAuxiliaryAnchors = document.getElementById('includeAuxiliaryAnchors').checked;
-        const classNameMapping = document.getElementById('classNameMapping').value.trim();
+    // 预览识别结果
+    async function previewDetection() {
+        const partType = document.getElementById('oneClickPartType').value.trim();
+        const toleranceX = parseFloat(document.getElementById('oneClickToleranceX').value) || 20;
+        const toleranceY = parseFloat(document.getElementById('oneClickToleranceY').value) || 20;
 
-        if (!templateId) {
-            showToast('请输入模板 ID', 'error');
-            return;
-        }
-        if (!imageFile) {
-            showToast('请选择标准图片', 'error');
-            return;
-        }
-        if (!labelFile) {
-            showToast('请选择 YOLO 标注文件', 'error');
+        if (!partType) {
+            showToast('请输入工件类型', 'error');
             return;
         }
 
         try {
-            // 使用 FormData 上传文件
-            const formData = new FormData();
-            formData.append('templateId', templateId);
-            if (partType) {
-                formData.append('partType', partType);
-            }
-            formData.append('imageFile', imageFile);
-            formData.append('labelFile', labelFile);
-            if (classNameMapping) {
-                formData.append('classNameMapping', classNameMapping);
-            }
-            formData.append('toleranceX', toleranceX.toString());
-            formData.append('toleranceY', toleranceY.toString());
-            formData.append('includeAuxiliaryAnchors', includeAuxiliaryAnchors.toString());
+            // 显示加载状态
+            document.getElementById('buildStep1').innerHTML = `
+                <div style="text-align: center; padding: 40px;">
+                    <div style="font-size: 40px; margin-bottom: 10px;">🔍</div>
+                    <div style="color: #666;">正在识别画面...</div>
+                </div>
+            `;
 
-            const res = await fetch(`${API_BASE}/api/templates/build-with-files`, {
+            const res = await fetch(`${API_BASE}/api/templates/preview-detection`, {
                 method: 'POST',
-                body: formData
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({})
             });
+
             const data = await res.json();
 
-            if (data.success === true) {
-                closeBuildTemplateModal();
-                await loadTemplates();
-                showToast('模板构建成功');
+            if (data.success) {
+                // 保存预览数据
+                previewDetectionData = {
+                    partType: partType,
+                    toleranceX: toleranceX,
+                    toleranceY: toleranceY,
+                    detections: data.detections,
+                    imageWidth: data.imageWidth,
+                    imageHeight: data.imageHeight
+                };
+
+                // 显示步骤2
+                showPreviewResult(data);
             } else {
-                showToast('构建失败: ' + data.message, 'error');
+                showToast('识别失败: ' + data.message, 'error');
+                // 恢复步骤1
+                backToStep1();
             }
         } catch(e) {
-            console.error('Build template error:', e);
-            showToast('构建失败', 'error');
+            console.error('Preview error:', e);
+            showToast('识别失败: ' + e.message, 'error');
+            backToStep1();
+        }
+    }
+
+    // 显示预览结果
+    function showPreviewResult(data) {
+        document.getElementById('buildStep1').style.display = 'none';
+        document.getElementById('buildStep2').style.display = 'block';
+
+        // 显示图像
+        const imgHtml = `<img src="${data.image}" style="max-width: 100%; max-height: 350px; border: 1px solid #ddd; border-radius: 4px;">`;
+        document.getElementById('previewImageContainer').innerHTML = imgHtml;
+
+        // 显示检测信息
+        document.getElementById('detectionInfo').innerHTML = `
+            <strong>检测到 ${data.count} 个特征</strong>
+        `;
+
+        // 显示检测列表
+        const listHtml = data.detections.map((d, i) => `
+            <div style="padding: 6px 0; border-bottom: 1px solid #f5f5f5; font-size: 12px;">
+                <span style="color: #1890ff; font-weight: bold;">${d.className || 'class_' + d.classId}</span>
+                <span style="color: #999;">置信度:</span> ${(d.confidence * 100).toFixed(1)}%
+                <span style="color: #999;">位置:</span> (${d.centerX.toFixed(0)}, ${d.centerY.toFixed(0)})
+            </div>
+        `).join('');
+        document.getElementById('detectionList').innerHTML = listHtml;
+    }
+
+    // 返回步骤1
+    function backToStep1() {
+        // 保存之前的输入值
+        const prevPartType = previewDetectionData ? previewDetectionData.partType : '';
+        const prevToleranceX = previewDetectionData ? previewDetectionData.toleranceX : 20;
+        const prevToleranceY = previewDetectionData ? previewDetectionData.toleranceY : 20;
+
+        // 重新渲染步骤1
+        document.getElementById('buildStep1').innerHTML = `
+            <div style="margin-bottom: 15px;">
+                <label style="display: block; margin-bottom: 6px; font-weight: bold;">工件类型 *</label>
+                <input type="text" id="oneClickPartType" placeholder="例如: CX756601" value="${prevPartType}" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
+                <div style="font-size: 11px; color: #888; margin-top: 4px;">用于标识模板名称</div>
+            </div>
+
+            <div style="display: flex; gap: 15px; margin-bottom: 15px;">
+                <div style="flex: 1;">
+                    <label style="display: block; margin-bottom: 6px; font-weight: bold;">X 轴容差 (像素)</label>
+                    <input type="number" id="oneClickToleranceX" value="${prevToleranceX}" min="1" max="500" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                    <div style="font-size: 11px; color: #888; margin-top: 4px;">默认: 20</div>
+                </div>
+                <div style="flex: 1;">
+                    <label style="display: block; margin-bottom: 6px; font-weight: bold;">Y 轴容差 (像素)</label>
+                    <input type="number" id="oneClickToleranceY" value="${prevToleranceY}" min="1" max="500" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                    <div style="font-size: 11px; color: #888; margin-top: 4px;">默认: 20</div>
+                </div>
+            </div>
+
+            <div style="padding: 12px; background: #f0f9ff; border-left: 3px solid #1890ff; border-radius: 4px; margin-bottom: 15px; font-size: 12px;">
+                <strong style="color: #1890ff;">操作说明：</strong><br>
+                1. 确保摄像头已启动<br>
+                2. 确保当前画面中有完整的工件<br>
+                3. 点击"预览识别结果"查看检测效果
+            </div>
+
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button class="btn btn-secondary" onclick="closeOneClickBuildModal()">取消</button>
+                <button class="btn btn-primary" onclick="previewDetection()">预览识别结果</button>
+            </div>
+        `;
+
+        document.getElementById('buildStep2').style.display = 'none';
+        document.getElementById('buildStep1').style.display = 'block';
+    }
+
+    // 确认并创建模板
+    async function confirmBuild() {
+        if (!previewDetectionData) {
+            showToast('没有预览数据，请重新预览', 'error');
+            return;
+        }
+
+        try {
+            // 显示加载状态
+            const button = document.querySelector('#buildStep2 .btn-success');
+            const originalText = button.textContent;
+            button.textContent = '创建中...';
+            button.disabled = true;
+
+            const res = await fetch(`${API_BASE}/api/templates/one-click-build`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    partType: previewDetectionData.partType,
+                    toleranceX: previewDetectionData.toleranceX,
+                    toleranceY: previewDetectionData.toleranceY
+                })
+            });
+
+            const data = await res.json();
+
+            if (data.success === true || data.template) {
+                closeOneClickBuildModal();
+                await loadTemplates();
+                showToast(`模板创建成功！检测到 ${data.template?.featureCount || 0} 个特征`);
+            } else {
+                showToast('创建失败: ' + data.message, 'error');
+            }
+        } catch(e) {
+            console.error('Build error:', e);
+            showToast('创建失败: ' + e.message, 'error');
+        } finally {
+            const button = document.querySelector('#buildStep2 .btn-success');
+            if (button) {
+                button.textContent = '确认并创建模板';
+                button.disabled = false;
+            }
         }
     }
 

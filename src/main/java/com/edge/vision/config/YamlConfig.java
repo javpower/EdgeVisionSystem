@@ -16,6 +16,7 @@ public class YamlConfig {
     private ModelConfig models;
     private RemoteConfig remote;
     private StitchingConfig stitching;
+    private InspectionConfig inspection;
     private Map<String, Map<String, Integer>> qualityStandards;
 
     @Data
@@ -50,5 +51,16 @@ public class YamlConfig {
         private String strategy = "simple";  // simple, auto, manual
         private int blendWidth = 100;
         private boolean enableBlend = true;
+    }
+
+    @Data
+    public static class InspectionConfig {
+        // 最大匹配距离（像素，相对坐标）
+        private double maxMatchDistance = 200.0;
+        // 是否将未在模板中定义的检测对象视为错检
+        private boolean treatExtraAsError = false;
+        // 默认容差值（像素）
+        private double defaultToleranceX = 20.0;
+        private double defaultToleranceY = 20.0;
     }
 }

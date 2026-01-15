@@ -54,6 +54,84 @@ public class TemplateBuilder {
     }
 
     /**
+     * 从检测结果直接构建模板
+     * <p>
+     * 使用模型识别的结果直接创建模板，无需手动标注
+     *
+     * @param detectedObjects 模型检测到的对象列表
+     * @param imageSize       图像尺寸
+     * @param config          构建配置
+     * @return 构建的模板
+     */
+    public Template buildFromDetection(List<DetectedObject> detectedObjects, ImageSize imageSize, BuildConfig config) {
+        logger.info("Building template from {} detected objects", detectedObjects.size());
+
+        if (detectedObjects.isEmpty()) {
+            throw new IllegalArgumentException("No detected objects provided");
+        }
+
+        // 1. 计算边界框
+        BoundingBox bbox = calculateBoundingBox(detectedObjects);
+        logger.info("Calculated bounding box: {}", bbox);
+
+        // 2. 生成锚点
+        List<AnchorPoint> anchors = generateAnchorPoints(bbox);
+        logger.info("Generated {} anchor points", anchors.size());
+
+        // 3. 构建模板
+        Template template = new Template(config.getTemplateId());
+        template.setDescription("Auto-generated from model detection");
+        template.setImageSize(imageSize);
+        template.setBoundingBox(bbox);
+        template.setAnchorPoints(anchors);
+        template.setToleranceX(config.getDefaultToleranceX());
+        template.setToleranceY(config.getDefaultToleranceY());
+
+        // 4. 添加特征
+        Point geometricCenter = bbox.getCenter();
+        for (int i = 0; i < detectedObjects.size(); i++) {
+            DetectedObject obj = detectedObjects.get(i);
+
+            TemplateFeature feature = new TemplateFeature(
+                "F" + i,
+                obj.getClassName() != null ? obj.getClassName() : config.getClassName(obj.getClassId()),
+                obj.getCenter(),
+                obj.getClassId()
+            );
+
+            // 计算相对坐标
+            Point relativePos = new Point(
+                obj.getCenter().x - geometricCenter.x,
+                obj.getCenter().y - geometricCenter.y
+            );
+            feature.setRelativePosition(relativePos);
+
+            // 设置容差
+            feature.setTolerance(new TemplateFeature.Tolerance(
+                config.getDefaultToleranceX(),
+                config.getDefaultToleranceY()
+            ));
+
+            template.addFeature(feature);
+        }
+
+        // 5. 添加元数据
+        template.putMetadata("totalFeatures", detectedObjects.size());
+        template.putMetadata("anchorCount", anchors.size());
+        template.putMetadata("source", "model_detection");
+
+        logger.info("Template built successfully from detection: {}", template.getTemplateId());
+        return template;
+    }
+
+    /**
+     * 从检测结果直接构建模板（使用默认配置）
+     */
+    public Template buildFromDetection(List<DetectedObject> detectedObjects, ImageSize imageSize) {
+        return buildFromDetection(detectedObjects, imageSize, config);
+    }
+
+    /**
      * 构建模板
      *
      * @param imagePath     图片路径

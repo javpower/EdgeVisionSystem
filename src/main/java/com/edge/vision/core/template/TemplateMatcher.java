@@ -23,7 +23,11 @@ import java.util.Set;
 public class TemplateMatcher {
     private static final Logger logger = LoggerFactory.getLogger(TemplateMatcher.class);
 
-    private double maxMatchDistance = 500.0;  // 最大匹配距离（像素，相对坐标）
+    // 最大匹配距离（像素，相对坐标）- 用于查找最近匹配
+    private double maxMatchDistance = 200.0;
+
+    // 是否将未在模板中定义的检测对象视为错检（默认false，只检查模板定义的特征）
+    private boolean treatExtraAsError = false;
 
     public TemplateMatcher() {
     }
@@ -152,23 +156,31 @@ public class TemplateMatcher {
             }
         }
 
-        // 2. 检查多余的检测对象（错检）
-        for (int i = 0; i < relativeObjects.size(); i++) {
-            if (!matchedIndices.contains(i)) {
-                DetectedObject obj = relativeObjects.get(i);
-                com.edge.vision.core.template.model.Point absolutePos = new com.edge.vision.core.template.model.Point(
-                    obj.getCenter().x + detectedCenter.x,
-                    obj.getCenter().y + detectedCenter.y
-                );
-                FeatureComparison comp = FeatureComparison.extra(
-                    "extra_" + i,
-                    obj.getClassName() != null ? obj.getClassName() : "多余特征_" + i,
-                    absolutePos,
-                    obj.getClassId(),
-                    obj.getConfidence()
-                );
-                comp.setClassName(obj.getClassName());
-                result.addComparison(comp);
+        // 2. 检查多余的检测对象（错检）- 仅当启用 treatExtraAsError 时
+        if (treatExtraAsError) {
+            for (int i = 0; i < relativeObjects.size(); i++) {
+                if (!matchedIndices.contains(i)) {
+                    DetectedObject obj = relativeObjects.get(i);
+                    com.edge.vision.core.template.model.Point absolutePos = new com.edge.vision.core.template.model.Point(
+                        obj.getCenter().x + detectedCenter.x,
+                        obj.getCenter().y + detectedCenter.y
+                    );
+                    FeatureComparison comp = FeatureComparison.extra(
+                        "extra_" + i,
+                        obj.getClassName() != null ? obj.getClassName() : "多余特征_" + i,
+                        absolutePos,
+                        obj.getClassId(),
+                        obj.getConfidence()
+                    );
+                    comp.setClassName(obj.getClassName());
+                    result.addComparison(comp);
+                }
+            }
+        } else {
+            // 记录未匹配的检测对象数量（调试用）
+            int unmatchedCount = relativeObjects.size() - matchedIndices.size();
+            if (unmatchedCount > 0) {
+                logger.info("有 {} 个检测对象未在模板中定义（不计入错检）", unmatchedCount);
             }
         }
 
@@ -238,6 +250,14 @@ public class TemplateMatcher {
         // 使用相对位置进行比对
         com.edge.vision.core.template.model.Point featureRelativePos = feature.getRelativePosition();
 
+        if (featureRelativePos == null) {
+            logger.warn("特征 {} 没有相对位置，无法匹配", feature.getId());
+            return null;
+        }
+
+        // 记录所有候选对象及其距离（用于调试）
+        List<CandidateMatch> candidates = new ArrayList<>();
+
         for (int i = 0; i < detectedObjects.size(); i++) {
             // 跳过已匹配的对象
             if (matchedIndices.contains(i)) {
@@ -253,6 +273,7 @@ public class TemplateMatcher {
 
             // 计算相对坐标的距离
             double distance = obj.getCenter().distanceTo(featureRelativePos);
+            candidates.add(new CandidateMatch(i, obj, distance));
 
             if (distance < minDistance) {
                 minDistance = distance;
@@ -260,7 +281,42 @@ public class TemplateMatcher {
             }
         }
 
+        // 输出调试信息
+        if (!candidates.isEmpty()) {
+            candidates.sort((a, b) -> Double.compare(a.distance, b.distance));
+            logger.debug("特征 {} ({}) 的候选匹配（共{}个）:",
+                feature.getId(), feature.getName(), candidates.size());
+            for (int i = 0; i < Math.min(3, candidates.size()); i++) {
+                CandidateMatch c = candidates.get(i);
+                logger.debug("  候选{}: 索引={}, 距离={:.2f}, 相对位置=({},{})",
+                    i + 1, c.index, c.distance,
+                    c.obj.getCenter().x, c.obj.getCenter().y);
+            }
+        }
+
+        if (nearest != null) {
+            logger.debug("特征 {} 匹配到检测对象，距离={:.2f}", feature.getId(), minDistance);
+        } else {
+            logger.warn("特征 {} ({}) 未找到匹配（距离阈值={:.2f}）",
+                feature.getId(), feature.getName(), maxMatchDistance);
+        }
+
         return nearest;
+    }
+
+    /**
+     * 候选匹配（用于调试）
+     */
+    private static class CandidateMatch {
+        int index;
+        DetectedObject obj;
+        double distance;
+
+        CandidateMatch(int index, DetectedObject obj, double distance) {
+            this.index = index;
+            this.obj = obj;
+            this.distance = distance;
+        }
     }
 
     /**
@@ -275,5 +331,20 @@ public class TemplateMatcher {
      */
     public void setMaxMatchDistance(double maxMatchDistance) {
         this.maxMatchDistance = maxMatchDistance;
+    }
+
+    /**
+     * 是否将未在模板中定义的检测对象视为错检
+     */
+    public boolean isTreatExtraAsError() {
+        return treatExtraAsError;
+    }
+
+    /**
+     * 设置是否将未在模板中定义的检测对象视为错检
+     * @param treatExtraAsError true=将额外检测视为错检，false=只验证模板定义的特征（默认）
+     */
+    public void setTreatExtraAsError(boolean treatExtraAsError) {
+        this.treatExtraAsError = treatExtraAsError;
     }
 }

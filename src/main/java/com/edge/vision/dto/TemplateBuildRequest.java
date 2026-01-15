@@ -1,5 +1,7 @@
 package com.edge.vision.dto;
 
+import java.util.List;
+
 /**
  * 模板构建请求
  */
@@ -13,6 +15,11 @@ public class TemplateBuildRequest {
     private double toleranceY = 5.0;
     private boolean includeAuxiliaryAnchors = true;
     private String classNameMapping;  // JSON 格式的类别映射，如 {"0":"螺丝孔","1":"定位孔"}
+
+    // 用于从检测结果创建模板
+    private List<InspectionRequest.DetectedObject> detections;
+    private Integer imageWidth;
+    private Integer imageHeight;
 
     public String getTemplateId() { return templateId; }
     public void setTemplateId(String templateId) { this.templateId = templateId; }
@@ -42,4 +49,13 @@ public class TemplateBuildRequest {
 
     public String getClassNameMapping() { return classNameMapping; }
     public void setClassNameMapping(String classNameMapping) { this.classNameMapping = classNameMapping; }
+
+    public List<InspectionRequest.DetectedObject> getDetections() { return detections; }
+    public void setDetections(List<InspectionRequest.DetectedObject> detections) { this.detections = detections; }
+
+    public Integer getImageWidth() { return imageWidth; }
+    public void setImageWidth(Integer imageWidth) { this.imageWidth = imageWidth; }
+
+    public Integer getImageHeight() { return imageHeight; }
+    public void setImageHeight(Integer imageHeight) { this.imageHeight = imageHeight; }
 }

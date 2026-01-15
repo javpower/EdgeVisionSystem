@@ -1,40 +1,38 @@
 package com.edge.vision.controller;
 
+import com.edge.vision.config.YamlConfig;
+import com.edge.vision.core.infer.YOLOInferenceEngine;
 import com.edge.vision.core.template.*;
 import com.edge.vision.core.template.model.DetectedObject;
+import com.edge.vision.core.template.model.ImageSize;
 import com.edge.vision.core.template.model.Point;
 import com.edge.vision.core.template.model.Template;
 import com.edge.vision.dto.InspectionRequest;
 import com.edge.vision.dto.InspectionResponse;
-import com.edge.vision.dto.TemplateBuildRequest;
 import com.edge.vision.dto.TemplateBuildResponse;
+import com.edge.vision.model.Detection;
+import com.edge.vision.service.CameraService;
 import com.edge.vision.service.QualityStandardService;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.opencv.core.Mat;
+import org.opencv.core.MatOfByte;
+import org.opencv.imgcodecs.Imgcodecs;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
  * 模板管理 API
  * <p>
- * 提供实时建模功能，支持图片和标注上传后立即生成模板并生效
+ * 提供一键建模功能，自动截屏、识别、建模
  */
-@Tag(name = "模板管理", description = "质量检测模板的构建、管理和应用")
+@Tag(name = "模板管理", description = "质量检测模板的一键建模、管理和应用")
 @RestController
 @RequestMapping("/api/templates")
 public class TemplateController {
@@ -49,232 +47,278 @@ public class TemplateController {
     @Autowired
     private QualityStandardService qualityStandardService;
 
+    @Autowired
+    private CameraService cameraService;
+
+    @Autowired
+    private YamlConfig yamlConfig;
+
+    // 细节检测引擎（用于一键建模）
+    private YOLOInferenceEngine detailInferenceEngine;
+
     /**
-     * 实时构建模板
+     * 预览识别结果（用于一键建模前确认）
      * <p>
-     * 上传图片和 YOLO 标注，自动生成模板并立即生效
+     * 截取当前画面，调用模型识别，返回带框的图像供用户确认
      */
-    @Operation(summary = "实时构建模板", description = "上传图片和YOLO标注，自动生成模板并立即生效")
-    @PostMapping("/build")
-    public ResponseEntity<TemplateBuildResponse> buildTemplate(@RequestBody TemplateBuildRequest request) {
+    @Operation(summary = "预览识别结果", description = "截取当前画面并识别，返回带框图像供确认")
+    @PostMapping("/preview-detection")
+    public ResponseEntity<Map<String, Object>> previewDetection(@RequestBody Map<String, Object> request) {
         try {
-            logger.info("Building template: {}", request.getTemplateId());
+            logger.info("=== Preview Detection ===");
 
-            // 1. 处理 YOLO 标注（可能是文件路径或直接内容）
-            String labelPath = request.getYoloLabels();
-            if (labelPath == null || labelPath.isEmpty()) {
-                // 使用模板标注目录
-                labelPath = Paths.get("templates", "labels", request.getTemplateId() + ".txt").toString();
+            // 1. 检查摄像头是否运行
+            if (!cameraService.isRunning()) {
+                return ResponseEntity.badRequest()
+                    .body(Map.of("success", false, "message", "摄像头未启动，请先启动摄像头"));
             }
 
-            // 2. 解析类别映射（从前端传来的 JSON）
-            Map<Integer, String> classNameMapping = new HashMap<>();
-            if (request.getClassNameMapping() != null && !request.getClassNameMapping().isEmpty()) {
+            // 2. 初始化检测引擎（如果尚未初始化）
+            if (detailInferenceEngine == null) {
                 try {
-                    ObjectMapper mapper = new ObjectMapper();
-                    TypeReference<Map<String, String>> typeRef =
-                        new TypeReference<Map<String, String>>() {};
-                    Map<String, String> rawMapping = mapper.readValue(request.getClassNameMapping(), typeRef);
-                    for (Map.Entry<String, String> entry : rawMapping.entrySet()) {
-                        classNameMapping.put(Integer.parseInt(entry.getKey()), entry.getValue());
-                    }
+                    detailInferenceEngine = new YOLOInferenceEngine(
+                        yamlConfig.getModels().getDetailModel(),
+                        yamlConfig.getModels().getConfThres(),
+                        yamlConfig.getModels().getIouThres(),
+                        yamlConfig.getModels().getDevice(),
+                        1280, 1280
+                    );
+                    logger.info("Detail inference engine initialized for preview");
                 } catch (Exception e) {
-                    logger.warn("Failed to parse classNameMapping: {}", e.getMessage());
+                    logger.error("Failed to initialize detail inference engine", e);
+                    return ResponseEntity.internalServerError()
+                        .body(Map.of("success", false, "message", "检测引擎初始化失败: " + e.getMessage()));
                 }
             }
 
-            TemplateBuilder.BuildConfig config = TemplateBuilder.BuildConfig.builder()
-                .templateId(request.getTemplateId())
-                .tolerance(request.getToleranceX(), request.getToleranceY())
-                .includeAuxiliaryAnchors(request.isIncludeAuxiliaryAnchors())
-                .classNameMapping(classNameMapping);
-
-            // 3. 构建模板
-            String imagePath = request.getImageUrl();
-            if (imagePath == null || imagePath.isEmpty()) {
-                imagePath = Paths.get("templates", "images", request.getTemplateId() + ".jpg").toString();
+            // 3. 截取当前拼接图像
+            String stitchedImageBase64 = cameraService.getStitchedImageBase64();
+            if (stitchedImageBase64 == null) {
+                return ResponseEntity.internalServerError()
+                    .body(Map.of("success", false, "message", "无法获取当前画面"));
             }
 
-            Template template = templateBuilder.build(imagePath, labelPath, config);
+            // 4. 解码图像
+            byte[] imageBytes = Base64.getDecoder().decode(stitchedImageBase64);
+            Mat imageMat = Imgcodecs.imdecode(new MatOfByte(imageBytes), Imgcodecs.IMREAD_COLOR);
 
-            // 4. 保存模板
-            templateManager.save(template);
-
-            // 5. 立即生效（设置为当前模板）
-            templateManager.setCurrentTemplate(template);
-
-            // 6. 如果关联了工件类型，更新质检配置
-            if (request.getPartType() != null && !request.getPartType().isEmpty()) {
-                // 在模板元数据中记录关联的工件类型
-                template.putMetadata("partType", request.getPartType());
-                templateManager.save(template); // 重新保存以更新元数据
+            if (imageMat.empty()) {
+                return ResponseEntity.internalServerError()
+                    .body(Map.of("success", false, "message", "图像解码失败"));
             }
 
-            logger.info("Template built and activated: {}", template.getTemplateId());
+            // 5. 调用YOLO模型进行检测
+            List<Detection> detections = detailInferenceEngine.predict(imageMat);
+            logger.info("Detected {} objects", detections.size());
 
-            return ResponseEntity.ok(TemplateBuildResponse.success(request.getTemplateId(), template));
+            // 6. 绘制检测框
+            Mat resultMat = drawDetections(imageMat.clone(), detections);
+            String resultImageBase64 = matToBase64(resultMat);
+            resultMat.release();
 
-        } catch (IOException e) {
-            logger.error("Failed to build template: {}", e.getMessage());
-            return ResponseEntity.badRequest()
-                .body(TemplateBuildResponse.error("模板构建失败: " + e.getMessage()));
+            // 7. 转换检测结果
+            List<Map<String, Object>> detectionResults = new ArrayList<>();
+            for (Detection detection : detections) {
+                Map<String, Object> result = new HashMap<>();
+                result.put("classId", detection.getClassId());
+                result.put("className", detection.getLabel());
+                result.put("confidence", detection.getConfidence());
+
+                float[] bbox = detection.getBbox();
+                if (bbox != null && bbox.length >= 4) {
+                    result.put("bbox", bbox);
+                    result.put("centerX", (bbox[0] + bbox[2]) / 2.0);
+                    result.put("centerY", (bbox[1] + bbox[3]) / 2.0);
+                    result.put("width", bbox[2] - bbox[0]);
+                    result.put("height", bbox[3] - bbox[1]);
+                }
+
+                detectionResults.add(result);
+            }
+
+            imageMat.release();
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("image", "data:image/jpeg;base64," + resultImageBase64);
+            response.put("detections", detectionResults);
+            response.put("count", detections.size());
+            response.put("imageWidth", imageMat.cols());
+            response.put("imageHeight", imageMat.rows());
+
+            return ResponseEntity.ok(response);
+
         } catch (Exception e) {
-            logger.error("Unexpected error building template", e);
+            logger.error("Preview detection failed", e);
             return ResponseEntity.internalServerError()
-                .body(TemplateBuildResponse.error("内部错误: " + e.getMessage()));
+                .body(Map.of("success", false, "message", "预览失败: " + e.getMessage()));
         }
     }
 
     /**
-     * 通过原始 YOLO 标注内容构建模板
+     * 一键建模
+     * <p>
+     * 截取当前画面，调用模型识别，自动生成模板并立即生效
+     * 只需传入工件类型，后端自动完成截图、识别、建模
      */
-    @Operation(summary = "通过标注内容构建模板", description = "直接提供YOLO标注内容，自动生成模板")
-    @PostMapping("/build-from-labels")
-    public ResponseEntity<TemplateBuildResponse> buildFromLabels(@RequestBody TemplateBuildRequest request) {
+    @Operation(summary = "一键建模", description = "截取当前画面，调用模型识别，自动生成模板并立即生效")
+    @PostMapping("/one-click-build")
+    public ResponseEntity<TemplateBuildResponse> oneClickBuild(@RequestBody Map<String, Object> request) {
         try {
-            logger.info("Building template from inline labels: {}", request.getTemplateId());
+            String partType = (String) request.get("partType");
+            if (partType == null || partType.isEmpty()) {
+                return ResponseEntity.badRequest()
+                    .body(TemplateBuildResponse.error("请提供工件类型"));
+            }
 
-            // 1. 将标注内容写入模板标注目录
-            Path templateLabelDir = Paths.get("templates/labels");
-            Files.createDirectories(templateLabelDir);
+            logger.info("=== One-Click Template Build ===");
+            logger.info("Part Type: {}", partType);
 
-            Path labelPath = templateLabelDir.resolve(request.getTemplateId() + ".txt");
-            Files.writeString(labelPath, request.getYoloLabels());
+            // 1. 检查摄像头是否运行
+            if (!cameraService.isRunning()) {
+                return ResponseEntity.badRequest()
+                    .body(TemplateBuildResponse.error("摄像头未启动，请先启动摄像头"));
+            }
 
-            // 2. 解析类别映射（从前端传来的 JSON）
-            Map<Integer, String> classNameMapping = new HashMap<>();
-            if (request.getClassNameMapping() != null && !request.getClassNameMapping().isEmpty()) {
+            // 2. 初始化检测引擎（如果尚未初始化）
+            if (detailInferenceEngine == null) {
                 try {
-                    ObjectMapper mapper = new ObjectMapper();
-                    TypeReference<Map<String, String>> typeRef =
-                        new TypeReference<Map<String, String>>() {};
-                    Map<String, String> rawMapping = mapper.readValue(request.getClassNameMapping(), typeRef);
-                    for (Map.Entry<String, String> entry : rawMapping.entrySet()) {
-                        classNameMapping.put(Integer.parseInt(entry.getKey()), entry.getValue());
-                    }
+                    detailInferenceEngine = new YOLOInferenceEngine(
+                        yamlConfig.getModels().getDetailModel(),
+                        yamlConfig.getModels().getConfThres(),
+                        yamlConfig.getModels().getIouThres(),
+                        yamlConfig.getModels().getDevice(),
+                        1280, 1280
+                    );
+                    logger.info("Detail inference engine initialized for one-click build");
                 } catch (Exception e) {
-                    logger.warn("Failed to parse classNameMapping: {}", e.getMessage());
+                    logger.error("Failed to initialize detail inference engine", e);
+                    return ResponseEntity.internalServerError()
+                        .body(TemplateBuildResponse.error("检测引擎初始化失败: " + e.getMessage()));
                 }
             }
 
-            TemplateBuilder.BuildConfig config = TemplateBuilder.BuildConfig.builder()
-                .templateId(request.getTemplateId())
-                .tolerance(request.getToleranceX(), request.getToleranceY())
-                .includeAuxiliaryAnchors(request.isIncludeAuxiliaryAnchors())
-                .classNameMapping(classNameMapping);
-
-            String imagePath = request.getImageUrl();
-            if (imagePath == null || imagePath.isEmpty()) {
-                imagePath = Paths.get("templates", "images", request.getTemplateId() + ".jpg").toString();
+            // 3. 截取当前拼接图像
+            String stitchedImageBase64 = cameraService.getStitchedImageBase64();
+            if (stitchedImageBase64 == null) {
+                return ResponseEntity.internalServerError()
+                    .body(TemplateBuildResponse.error("无法获取当前画面"));
             }
 
-            Template template = templateBuilder.build(imagePath, labelPath.toString(), config);
+            // 4. 解码图像
+            byte[] imageBytes = Base64.getDecoder().decode(stitchedImageBase64);
+            Mat imageMat = Imgcodecs.imdecode(new MatOfByte(imageBytes), Imgcodecs.IMREAD_COLOR);
 
-            // 3. 保存并激活
-            templateManager.save(template);
-            templateManager.setCurrentTemplate(template);
-
-            if (request.getPartType() != null && !request.getPartType().isEmpty()) {
-                template.putMetadata("partType", request.getPartType());
-                templateManager.save(template);
+            if (imageMat.empty()) {
+                return ResponseEntity.internalServerError()
+                    .body(TemplateBuildResponse.error("图像解码失败"));
             }
 
-            logger.info("Template built and activated: {}", template.getTemplateId());
+            logger.info("Image size: {}x{}", imageMat.cols(), imageMat.rows());
 
-            return ResponseEntity.ok(TemplateBuildResponse.success(request.getTemplateId(), template));
+            // 5. 调用YOLO模型进行检测
+            List<Detection> detections = detailInferenceEngine.predict(imageMat);
+            logger.info("Detected {} objects", detections.size());
 
-        } catch (Exception e) {
-            logger.error("Failed to build template from labels", e);
-            return ResponseEntity.internalServerError()
-                .body(TemplateBuildResponse.error("模板构建失败: " + e.getMessage()));
-        }
-    }
+            if (detections.isEmpty()) {
+                imageMat.release();
+                return ResponseEntity.badRequest()
+                    .body(TemplateBuildResponse.error("未检测到任何特征，请确保画面中有目标工件"));
+            }
 
-    /**
-     * 通过上传文件构建模板
-     */
-    @Operation(summary = "通过上传文件构建模板", description = "上传图片和YOLO标注文件，自动生成模板")
-    @PostMapping(value = "/build-with-files", consumes = "multipart/form-data")
-    public ResponseEntity<TemplateBuildResponse> buildWithFiles(
-            @RequestParam("templateId") String templateId,
-            @RequestParam(value = "partType", required = false) String partType,
-            @RequestParam("imageFile") org.springframework.web.multipart.MultipartFile imageFile,
-            @RequestParam("labelFile") org.springframework.web.multipart.MultipartFile labelFile,
-            @RequestParam(value = "classNameMapping", required = false) String classNameMappingJson,
-            @RequestParam(value = "toleranceX", defaultValue = "5.0") double toleranceX,
-            @RequestParam(value = "toleranceY", defaultValue = "5.0") double toleranceY,
-            @RequestParam(value = "includeAuxiliaryAnchors", defaultValue = "true") boolean includeAuxiliaryAnchors) {
-        try {
-            logger.info("Building template from files: {}", templateId);
+            // 6. 转换为DetectedObject列表（直接使用检测结果中的className）
+            List<DetectedObject> detectedObjects = new ArrayList<>();
+            for (Detection detection : detections) {
+                DetectedObject obj = new DetectedObject();
+                obj.setClassId(detection.getClassId());
+                obj.setClassName(detection.getLabel());
+                obj.setConfidence(detection.getConfidence());
 
-            // 1. 保存上传的文件到 templates 目录
-            Path templateImageDir = Paths.get("templates", "images").toAbsolutePath();
-            Path templateLabelDir = Paths.get("templates", "labels").toAbsolutePath();
-            Files.createDirectories(templateImageDir);
-            Files.createDirectories(templateLabelDir);
+                // 从bbox计算center和尺寸
+                float[] bbox = detection.getBbox();
+                if (bbox != null && bbox.length >= 4) {
+                    double centerX = (bbox[0] + bbox[2]) / 2.0;
+                    double centerY = (bbox[1] + bbox[3]) / 2.0;
+                    double width = bbox[2] - bbox[0];
+                    double height = bbox[3] - bbox[1];
 
-            // 保存图片
-            String imageExtension = getImageExtension(imageFile.getOriginalFilename());
-            Path imagePath = templateImageDir.resolve(templateId + imageExtension);
-            Files.copy(imageFile.getInputStream(), imagePath,
-                java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-
-            // 保存标注文件
-            Path labelPath = templateLabelDir.resolve(templateId + ".txt");
-            Files.copy(labelFile.getInputStream(), labelPath,
-                java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-
-            // 2. 解析类别映射（从前端传来的 JSON）
-            Map<Integer, String> classNameMapping = new HashMap<>();
-            if (classNameMappingJson != null && !classNameMappingJson.isEmpty()) {
-                try {
-                    ObjectMapper mapper = new ObjectMapper();
-                    TypeReference<Map<String, String>> typeRef =
-                        new TypeReference<Map<String, String>>() {};
-                    Map<String, String> rawMapping = mapper.readValue(classNameMappingJson, typeRef);
-                    for (Map.Entry<String, String> entry : rawMapping.entrySet()) {
-                        classNameMapping.put(Integer.parseInt(entry.getKey()), entry.getValue());
-                    }
-                } catch (Exception e) {
-                    logger.warn("Failed to parse classNameMapping: {}", e.getMessage());
+                    obj.setCenter(new Point(centerX, centerY));
+                    obj.setWidth(width);
+                    obj.setHeight(height);
                 }
+
+                detectedObjects.add(obj);
+                logger.debug("  - classId={}, className={} at ({}, {}) conf={}",
+                    obj.getClassId(), obj.getClassName(),
+                    obj.getCenter().x, obj.getCenter().y, obj.getConfidence());
             }
+
+            // 7. 创建图像尺寸对象
+            ImageSize imageSize = new ImageSize(imageMat.cols(), imageMat.rows());
+
+            // 8. 从检测结果构建模板
+            String templateId = partType + "_" + System.currentTimeMillis();
+
+            // 获取容差值（优先使用请求参数，否则使用配置默认值）
+            double toleranceX = 20.0;
+            double toleranceY = 20.0;
+
+            // 从请求中获取容差值
+            Object toleranceXObj = request.get("toleranceX");
+            Object toleranceYObj = request.get("toleranceY");
+            if (toleranceXObj instanceof Number) {
+                toleranceX = ((Number) toleranceXObj).doubleValue();
+            } else if (yamlConfig.getInspection() != null) {
+                toleranceX = yamlConfig.getInspection().getDefaultToleranceX();
+            }
+
+            if (toleranceYObj instanceof Number) {
+                toleranceY = ((Number) toleranceYObj).doubleValue();
+            } else if (yamlConfig.getInspection() != null) {
+                toleranceY = yamlConfig.getInspection().getDefaultToleranceY();
+            }
+
+            logger.info("Tolerance: X={}, Y={}", toleranceX, toleranceY);
+
+            // 从检测结果中提取类别映射（不写死，使用识别结果中的className）
+            Map<Integer, String> classNameMapping = new HashMap<>();
+            detectedObjects.forEach(obj -> {
+                if (obj.getClassName() != null && !classNameMapping.containsKey(obj.getClassId())) {
+                    classNameMapping.put(obj.getClassId(), obj.getClassName());
+                }
+            });
+
+            logger.info("Class name mapping: {}", classNameMapping);
 
             TemplateBuilder.BuildConfig config = TemplateBuilder.BuildConfig.builder()
                 .templateId(templateId)
                 .tolerance(toleranceX, toleranceY)
-                .includeAuxiliaryAnchors(includeAuxiliaryAnchors)
+                .includeAuxiliaryAnchors(true)
                 .classNameMapping(classNameMapping);
 
-            Template template = templateBuilder.build(imagePath.toString(), labelPath.toString(), config);
+            Template template = templateBuilder.buildFromDetection(detectedObjects, imageSize, config);
 
-            // 3. 保存并激活
+            // 9. 关联工件类型
+            template.putMetadata("partType", partType);
+
+            // 10. 保存并激活模板
             templateManager.save(template);
             templateManager.setCurrentTemplate(template);
 
-            if (partType != null && !partType.isEmpty()) {
-                template.putMetadata("partType", partType);
-                templateManager.save(template);
-            }
+            imageMat.release();
 
-            logger.info("Template built and activated: {}", template.getTemplateId());
+            logger.info("=== One-Click Build Successful ===");
+            logger.info("Template ID: {}", templateId);
+            logger.info("Features: {}", detectedObjects.size());
+            logger.info("Part Type: {}", partType);
 
             return ResponseEntity.ok(TemplateBuildResponse.success(templateId, template));
 
         } catch (Exception e) {
-            logger.error("Failed to build template from files", e);
+            logger.error("One-click build failed", e);
             return ResponseEntity.internalServerError()
-                .body(TemplateBuildResponse.error("模板构建失败: " + e.getMessage()));
+                .body(TemplateBuildResponse.error("一键建模失败: " + e.getMessage()));
         }
-    }
-
-    private String getImageExtension(String filename) {
-        if (filename == null) return ".jpg";
-        String lower = filename.toLowerCase();
-        if (lower.endsWith(".png")) return ".png";
-        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return ".jpg";
-        if (lower.endsWith(".bmp")) return ".bmp";
-        return ".jpg"; // 默认
     }
 
     /**
@@ -289,7 +333,7 @@ public class TemplateController {
             Template template = templateManager.getCurrentTemplate();
             return ResponseEntity.ok(TemplateBuildResponse.success(templateId, template));
 
-        } catch (IOException e) {
+        } catch (Exception e) {
             return ResponseEntity.badRequest()
                 .body(TemplateBuildResponse.error("模板加载失败: " + e.getMessage()));
         }
@@ -326,7 +370,7 @@ public class TemplateController {
         try {
             Template template = templateManager.load(templateId);
             return ResponseEntity.ok(template);
-        } catch (IOException e) {
+        } catch (Exception e) {
             return ResponseEntity.notFound().build();
         }
     }
@@ -426,5 +470,56 @@ public class TemplateController {
         templateManager.clearCache();
         templateManager.loadAllTemplates();
         return ResponseEntity.ok().build();
+    }
+
+    // ============ 工具方法 ============
+
+    /**
+     * 在图像上绘制检测框
+     */
+    private Mat drawDetections(Mat image, List<Detection> detections) {
+        for (Detection detection : detections) {
+            float[] bbox = detection.getBbox();
+            if (bbox != null && bbox.length >= 4) {
+                // 绘制边界框
+                org.opencv.core.Point p1 = new org.opencv.core.Point(bbox[0], bbox[1]);
+                org.opencv.core.Point p2 = new org.opencv.core.Point(bbox[2], bbox[3]);
+                org.opencv.imgproc.Imgproc.rectangle(image, p1, p2, new org.opencv.core.Scalar(0, 255, 0), 2);
+
+                // 绘制标签
+                String label = String.format("%s: %.2f", detection.getLabel(), detection.getConfidence());
+                int[] baseline = new int[1];
+                org.opencv.core.Size textSize = org.opencv.imgproc.Imgproc.getTextSize(
+                    label, org.opencv.imgproc.Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, 1, baseline);
+
+                double textY = Math.max(bbox[1] - 5, textSize.height + 5);
+                org.opencv.core.Point textPos = new org.opencv.core.Point(bbox[0], textY);
+
+                // 绘制背景
+                org.opencv.core.Point bg1 = new org.opencv.core.Point(
+                    bbox[0], textY - textSize.height - 5);
+                org.opencv.core.Point bg2 = new org.opencv.core.Point(
+                    bbox[0] + textSize.width, textY + 5);
+                org.opencv.imgproc.Imgproc.rectangle(image, bg1, bg2,
+                    new org.opencv.core.Scalar(0, 255, 0), -1);
+
+                // 绘制文字
+                org.opencv.imgproc.Imgproc.putText(image, label, textPos,
+                    org.opencv.imgproc.Imgproc.FONT_HERSHEY_SIMPLEX, 0.5,
+                    new org.opencv.core.Scalar(0, 0, 0), 1);
+            }
+        }
+        return image;
+    }
+
+    /**
+     * 将Mat转换为Base64字符串
+     */
+    private String matToBase64(Mat mat) {
+        MatOfByte mob = new MatOfByte();
+        Imgcodecs.imencode(".jpg", mat, mob);
+        byte[] bytes = mob.toArray();
+        mob.release();
+        return Base64.getEncoder().encodeToString(bytes);
     }
 }
