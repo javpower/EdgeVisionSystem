@@ -74,8 +74,13 @@ public class InspectionResult {
      * 获取统计摘要
      */
     public InspectionSummary getSummary() {
+        // totalFeatures 应该是模板特征的数量，不包括 extra（错检）
+        int totalFeatures = (int) comparisons.stream()
+            .filter(c -> c.getStatus() != FeatureComparison.ComparisonStatus.EXTRA)
+            .count();
+
         return new InspectionSummary(
-            comparisons.size(),
+            totalFeatures,
             getPassedFeatures().size(),
             getMissingFeatures().size(),
             getExtraFeatures().size(),

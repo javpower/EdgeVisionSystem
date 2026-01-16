@@ -144,6 +144,11 @@ public class QualityStandardService {
             tc.setWithinTolerance(comp.isWithinTolerance());
             tc.setStatus(comp.getStatus());
 
+            // 复制错检时的预期类型信息
+            tc.setExpectedClassName(comp.getExpectedClassName());
+            tc.setExpectedFeatureName(comp.getExpectedFeatureName());
+            tc.setExpectedPosition(comp.getExpectedPosition());
+
             result.getTemplateComparisons().add(tc);
         }
 
@@ -230,6 +235,11 @@ public class QualityStandardService {
             private boolean withinTolerance;
             private FeatureComparison.ComparisonStatus status;
 
+            // 错检时的预期类型信息
+            private String expectedClassName;  // 模板上预期的类别名称（错检时使用）
+            private String expectedFeatureName;  // 模板上预期的特征名称（错检时使用）
+            private com.edge.vision.core.template.model.Point expectedPosition;  // 模板上预期的位置（错检时使用）
+
             public String getFeatureId() { return featureId; }
             public void setFeatureId(String featureId) { this.featureId = featureId; }
 
@@ -272,6 +282,15 @@ public class QualityStandardService {
 
             public FeatureComparison.ComparisonStatus getStatus() { return status; }
             public void setStatus(FeatureComparison.ComparisonStatus status) { this.status = status; }
+
+            public String getExpectedClassName() { return expectedClassName; }
+            public void setExpectedClassName(String expectedClassName) { this.expectedClassName = expectedClassName; }
+
+            public String getExpectedFeatureName() { return expectedFeatureName; }
+            public void setExpectedFeatureName(String expectedFeatureName) { this.expectedFeatureName = expectedFeatureName; }
+
+            public com.edge.vision.core.template.model.Point getExpectedPosition() { return expectedPosition; }
+            public void setExpectedPosition(com.edge.vision.core.template.model.Point expectedPosition) { this.expectedPosition = expectedPosition; }
         }
     }
 }

@@ -33,6 +33,9 @@ public class QualityInspector {
     @Autowired
     private TemplateMatcher templateMatcher;
 
+    @Autowired
+    private RotationInvariantMatcher rotationInvariantMatcher;
+
     public QualityInspector() {
     }
 
@@ -107,96 +110,36 @@ public class QualityInspector {
     /**
      * 从检测结果中生成锚点
      * <p>
-     * 根据所有检测对象的边界，计算几何中心和十字锚点
-     * 生成的锚点类型和数量必须与模板匹配
+     * 使用旋转不变匹配算法，支持任意旋转角度和平移
      */
     private List<AnchorPoint> generateDetectedAnchors(List<DetectedObject> detectedObjects) {
         if (detectedObjects.isEmpty()) {
             return new ArrayList<>();
         }
 
-        // 获取当前模板以确定需要生成哪些锚点
+        // 获取当前模板
         Template template = templateManager.getCurrentTemplate();
-        if (template == null || template.getAnchorPoints() == null) {
+        if (template == null || template.getFeatures() == null || template.getFeatures().isEmpty()) {
             // 如果没有模板，只生成几何中心
             return generateBasicAnchors(detectedObjects);
         }
 
-        // 检查模板有哪些类型的锚点
-        boolean hasTopCenter = template.getAnchorPoints().stream()
-            .anyMatch(a -> a.getType() == AnchorPoint.AnchorType.TOP_CENTER);
-        boolean hasRightCenter = template.getAnchorPoints().stream()
-            .anyMatch(a -> a.getType() == AnchorPoint.AnchorType.RIGHT_CENTER);
-        boolean hasBottomCenter = template.getAnchorPoints().stream()
-            .anyMatch(a -> a.getType() == AnchorPoint.AnchorType.BOTTOM_CENTER);
-        boolean hasLeftCenter = template.getAnchorPoints().stream()
-            .anyMatch(a -> a.getType() == AnchorPoint.AnchorType.LEFT_CENTER);
+        // 使用旋转不变匹配器生成锚点
+        try {
+            List<AnchorPoint> anchors = rotationInvariantMatcher.generateDetectedAnchors(
+                template, detectedObjects
+            );
 
-        // 计算边界框
-        double minX = Double.MAX_VALUE;
-        double maxX = Double.MIN_VALUE;
-        double minY = Double.MAX_VALUE;
-        double maxY = Double.MIN_VALUE;
-
-        for (DetectedObject obj : detectedObjects) {
-            Point center = obj.getCenter();
-            double halfW = obj.getWidth() / 2;
-            double halfH = obj.getHeight() / 2;
-
-            minX = Math.min(minX, center.x - halfW);
-            maxX = Math.max(maxX, center.x + halfW);
-            minY = Math.min(minY, center.y - halfH);
-            maxY = Math.max(maxY, center.y + halfH);
+            if (!anchors.isEmpty()) {
+                logger.info("使用旋转不变匹配生成了 {} 个锚点", anchors.size());
+                return anchors;
+            }
+        } catch (Exception e) {
+            logger.warn("旋转不变匹配失败，回退到基础锚点: {}", e.getMessage());
         }
 
-        // 生成锚点
-        List<AnchorPoint> anchors = new ArrayList<>();
-        Point center = new Point((minX + maxX) / 2, (minY + maxY) / 2);
-
-        // 几何中心（始终生成）
-        anchors.add(new AnchorPoint(
-            "A0_detected",
-            AnchorPoint.AnchorType.GEOMETRIC_CENTER,
-            center,
-            "检测几何中心"
-        ));
-
-        // 根据模板的锚点类型生成辅助锚点
-        if (hasTopCenter) {
-            anchors.add(new AnchorPoint(
-                "A1_detected",
-                AnchorPoint.AnchorType.TOP_CENTER,
-                new Point(center.x, minY),
-                "检测上边界中心"
-            ));
-        }
-        if (hasRightCenter) {
-            anchors.add(new AnchorPoint(
-                "A2_detected",
-                AnchorPoint.AnchorType.RIGHT_CENTER,
-                new Point(maxX, center.y),
-                "检测右边界中心"
-            ));
-        }
-        if (hasBottomCenter) {
-            anchors.add(new AnchorPoint(
-                "A3_detected",
-                AnchorPoint.AnchorType.BOTTOM_CENTER,
-                new Point(center.x, maxY),
-                "检测下边界中心"
-            ));
-        }
-        if (hasLeftCenter) {
-            anchors.add(new AnchorPoint(
-                "A4_detected",
-                AnchorPoint.AnchorType.LEFT_CENTER,
-                new Point(minX, center.y),
-                "检测左边界中心"
-            ));
-        }
-
-        logger.debug("Generated {} detected anchors to match template anchors", anchors.size());
-        return anchors;
+        // 回退到基础锚点
+        return generateBasicAnchors(detectedObjects);
     }
 
     /**

@@ -28,7 +28,9 @@ public class AnchorPoint {
         /** 右下角 */
         BOTTOM_RIGHT,
         /** 左下角 */
-        BOTTOM_LEFT
+        BOTTOM_LEFT,
+        /** 特征锚点（用于旋转不变匹配） */
+        FEATURE_ANCHOR
     }
 
     public AnchorPoint() {

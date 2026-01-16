@@ -254,6 +254,10 @@
             color: #722ed1;
             font-weight: 600;
         }
+        .status-type-mismatch {
+            color: #eb2f96;
+            font-weight: 600;
+        }
 
         .result-view {
             display: flex;
@@ -1275,10 +1279,12 @@
                                     ${data.analysis.templateComparisons.map((comp, i) => {
                                         const statusClass = comp.withinTolerance ? 'status-pass' :
                                             comp.status === 'MISSING' ? 'status-missing' :
-                                            comp.status === 'EXTRA' ? 'status-extra' : 'status-fail';
+                                            comp.status === 'EXTRA' ? 'status-extra' :
+                                            comp.status === 'TYPE_MISMATCH' ? 'status-type-mismatch' : 'status-fail';
                                         const statusText = comp.withinTolerance ? '合格' :
                                             comp.status === 'MISSING' ? '漏检' :
-                                            comp.status === 'EXTRA' ? '错检' : '偏差';
+                                            comp.status === 'EXTRA' ? '错检' :
+                                            comp.status === 'TYPE_MISMATCH' ? '类型错误' : '偏差';
                                         const tplX = comp.templatePosition?.x ?? comp.template_position?.x;
                                         const tplY = comp.templatePosition?.y ?? comp.template_position?.y;
                                         const detX = comp.detectedPosition?.x ?? comp.detected_position?.x;
@@ -1288,11 +1294,28 @@
                                         const totalError = comp.totalError ?? comp.total_error;
                                         const toleranceX = comp.toleranceX ?? comp.tolerance_x;
                                         const toleranceY = comp.toleranceY ?? comp.tolerance_y;
+                                        // 类型错误或错检时显示格式: "模板: nut -> 检测: hole"
+                                        let displayType = comp.className || comp.featureName || comp.feature_name || 'class_' + comp.classId;
+                                        if ((comp.status === 'TYPE_MISMATCH' || comp.status === 'EXTRA') && comp.expectedClassName && comp.className) {
+                                            displayType = `模板: ${comp.expectedClassName} &rarr; 检测: ${comp.className}`;
+                                        }
+                                        // 类型错误时，模板位置就是预期的特征位置
+                                        let displayTplX = tplX;
+                                        let displayTplY = tplY;
+                                        if (comp.status === 'TYPE_MISMATCH' && comp.expectedPosition) {
+                                            displayTplX = comp.expectedPosition.x ?? comp.expected_position?.x;
+                                            displayTplY = comp.expectedPosition.y ?? comp.expected_position?.y;
+                                        }
+                                        // 错检时使用预期位置作为模板位置
+                                        if (comp.status === 'EXTRA' && comp.expectedPosition) {
+                                            displayTplX = comp.expectedPosition.x ?? comp.expected_position?.x;
+                                            displayTplY = comp.expectedPosition.y ?? comp.expected_position?.y;
+                                        }
                                         return `
                                             <tr data-index="${i}" onclick="${comp.status !== 'MISSING' ? `highlightBBox(${i})` : ''}" style="cursor: ${comp.status !== 'MISSING' ? 'pointer' : 'default'}; ${!comp.withinTolerance ? 'background: #fff1f0;' : ''}">
                                                 <td><span class="${statusClass}">${statusText}</span></td>
-                                                <td>${comp.className || comp.featureName || comp.feature_name || 'class_' + comp.classId}</td>
-                                                <td>(${tplX != null ? Math.round(tplX) : '-'}, ${tplY != null ? Math.round(tplY) : '-'})</td>
+                                                <td>${displayType}</td>
+                                                <td>(${displayTplX != null ? Math.round(displayTplX) : '-'}, ${displayTplY != null ? Math.round(displayTplY) : '-'})</td>
                                                 <td>${detX != null ? `(${Math.round(detX)}, ${Math.round(detY)})` : '-'}</td>
                                                 <td style="color: ${xError != null && xError !== undefined && xError !== 0 && Math.abs(xError) > toleranceX ? '#ff4d4f' : 'inherit'}">
                                                     ${xError != null && xError !== undefined && xError !== 0 ? xError.toFixed(2) : '-'}

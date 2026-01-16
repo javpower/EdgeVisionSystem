@@ -22,6 +22,11 @@ public class FeatureComparison {
     private ComparisonStatus status;
     private double confidence;
 
+    // 错检时的预期类型信息
+    private String expectedClassName;  // 模板上预期的类别名称（错检时使用）
+    private String expectedFeatureName;  // 模板上预期的特征名称（错检时使用）
+    private Point expectedPosition;  // 模板上预期的位置（错检时使用）
+
     public enum ComparisonStatus {
         /** 合格：在容差范围内 */
         PASSED,
@@ -30,7 +35,9 @@ public class FeatureComparison {
         /** 漏检：模板有但检测无 */
         MISSING,
         /** 错检：检测有但模板无 */
-        EXTRA
+        EXTRA,
+        /** 类型错误：检测出错误的类型（如 nut 被检测成 hole） */
+        TYPE_MISMATCH
     }
 
     public FeatureComparison() {
@@ -139,6 +146,15 @@ public class FeatureComparison {
 
     public double getConfidence() { return confidence; }
     public void setConfidence(double confidence) { this.confidence = confidence; }
+
+    public String getExpectedClassName() { return expectedClassName; }
+    public void setExpectedClassName(String expectedClassName) { this.expectedClassName = expectedClassName; }
+
+    public String getExpectedFeatureName() { return expectedFeatureName; }
+    public void setExpectedFeatureName(String expectedFeatureName) { this.expectedFeatureName = expectedFeatureName; }
+
+    public Point getExpectedPosition() { return expectedPosition; }
+    public void setExpectedPosition(Point expectedPosition) { this.expectedPosition = expectedPosition; }
 
     @Override
     public String toString() {
