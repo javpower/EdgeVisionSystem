@@ -55,11 +55,9 @@ public class YamlConfig {
 
     @Data
     public static class InspectionConfig {
-        // 最大匹配距离（像素，相对坐标）
-        private double maxMatchDistance = 200.0;
         // 是否将未在模板中定义的检测对象视为错检
         private boolean treatExtraAsError = false;
-        // 默认容差值（像素）
+        // 默认容差值（像素），用于创建模板时的初始值
         private double defaultToleranceX = 20.0;
         private double defaultToleranceY = 20.0;
     }

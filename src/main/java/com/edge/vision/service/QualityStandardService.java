@@ -5,7 +5,9 @@ import com.edge.vision.core.quality.InspectionResult;
 import com.edge.vision.core.quality.QualityInspector;
 import com.edge.vision.core.template.TemplateManager;
 import com.edge.vision.core.template.model.DetectedObject;
+import com.edge.vision.core.template.model.Point;
 import com.edge.vision.core.template.model.Template;
+import com.edge.vision.dto.InspectionRequest;
 import com.edge.vision.model.Detection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,7 +21,13 @@ import java.util.stream.Collectors;
 /**
  * 质检服务
  * <p>
- * 基于模板的精确坐标比对进行质量检测
+ * 基于拓扑图匹配的高精度特征一一对应方案进行质量检测
+ * <p>
+ * 核心特性：
+ * - 完全兼容旋转、平移、尺度变化
+ * - 基于拓扑关系（相对角度、相对距离比）
+ * - 使用匈牙利算法进行全局最优匹配
+ * - 针对弓箭孔、螺丝等重复特征匹配精度高
  */
 @Service
 public class QualityStandardService {
@@ -32,58 +40,89 @@ public class QualityStandardService {
     private QualityInspector qualityInspector;
 
     /**
-     * 使用模板坐标比对模式进行质检评估
+     * 使用拓扑图匹配模式进行质检评估（模型格式）
      * <p>
      * 支持：
-     * - 基于锚点的自动坐标对齐
-     * - 旋转、平移、缩放的自动校正
-     * - 精确的位置偏差检测
+     * - 自动构建拓扑图（节点=特征，边=拓扑关系）
+     * - 旋转、平移、缩放的天然不变性
+     * - 全局最优一一对应匹配
      * - 漏检/错检识别
      *
      * @param partType       工件类型（用于查找关联的模板）
-     * @param detectedObjects 检测到的对象列表
+     * @param detectedObjects 模型格式的检测对象列表
      * @return 质检结果
      */
     public QualityEvaluationResult evaluateWithTemplate(String partType,
                                                          List<DetectedObject> detectedObjects) {
-        logger.info("Evaluating with template mode for part type: {}", partType);
+        logger.info("Evaluating with topology-based matching for part type: {}", partType);
 
         // 检查模板系统是否可用
         if (templateManager == null || qualityInspector == null) {
             logger.warn("Template system not available");
-            QualityEvaluationResult result = new QualityEvaluationResult();
-            result.setPartType(partType);
-            result.setPassed(false);
-            result.setMessage("模板系统未初始化");
-            return result;
+            return createErrorResult(partType, "模板系统未初始化");
         }
 
         // 查找与工件类型关联的模板
         Template template = findTemplateByPartType(partType);
         if (template == null) {
             logger.warn("No template found for part type: {}", partType);
-            QualityEvaluationResult result = new QualityEvaluationResult();
-            result.setPartType(partType);
-            result.setPassed(false);
-            result.setMessage("未找到匹配的模板");
-            return result;
+            return createErrorResult(partType, "未找到匹配的模板");
         }
 
         try {
-            // 使用质量检测器执行检测
+            // 使用拓扑匹配检测器执行检测
             InspectionResult inspectionResult = qualityInspector.inspect(template, detectedObjects);
-
-            // 转换结果为 QualityEvaluationResult
             return convertToQualityEvaluationResult(partType, inspectionResult);
 
         } catch (Exception e) {
-            logger.error("Error during template-based evaluation", e);
-            QualityEvaluationResult result = new QualityEvaluationResult();
-            result.setPartType(partType);
-            result.setPassed(false);
-            result.setMessage("模板比对失败: " + e.getMessage());
-            return result;
+            logger.error("Error during topology-based evaluation", e);
+            return createErrorResult(partType, "拓扑匹配失败: " + e.getMessage());
         }
+    }
+
+    /**
+     * 使用拓扑图匹配模式进行质检评估（DTO 格式）
+     * <p>
+     * 从 InspectionRequest DTO 转换后调用
+     *
+     * @param partType       工件类型（用于查找关联的模板）
+     * @param requestDetections DTO 格式的检测对象列表
+     * @return 质检结果
+     */
+    public QualityEvaluationResult evaluateWithTemplateFromRequest(String partType,
+                                                                   List<InspectionRequest.DetectedObject> requestDetections) {
+        // 转换 DTO 为模型对象后调用主方法
+        List<DetectedObject> modelObjects = convertDtoToModel(requestDetections);
+        return evaluateWithTemplate(partType, modelObjects);
+    }
+
+    /**
+     * 将 DTO 格式的 DetectedObject 转换为模型格式
+     */
+    private List<DetectedObject> convertDtoToModel(List<InspectionRequest.DetectedObject> dtoObjects) {
+        return dtoObjects.stream()
+            .map(dto -> {
+                DetectedObject obj = new DetectedObject();
+                obj.setClassId(dto.getClassId());
+                obj.setClassName(dto.getClassName());
+                obj.setCenter(new Point(dto.getCenterX(), dto.getCenterY()));
+                obj.setWidth(dto.getWidth());
+                obj.setHeight(dto.getHeight());
+                obj.setConfidence(dto.getConfidence());
+                return obj;
+            })
+            .collect(Collectors.toList());
+    }
+
+    /**
+     * 创建错误结果
+     */
+    private QualityEvaluationResult createErrorResult(String partType, String message) {
+        QualityEvaluationResult result = new QualityEvaluationResult();
+        result.setPartType(partType);
+        result.setPassed(false);
+        result.setMessage(message);
+        return result;
     }
 
     /**
@@ -143,12 +182,6 @@ public class QualityStandardService {
             tc.setToleranceY(comp.getToleranceY());
             tc.setWithinTolerance(comp.isWithinTolerance());
             tc.setStatus(comp.getStatus());
-
-            // 复制错检时的预期类型信息
-            tc.setExpectedClassName(comp.getExpectedClassName());
-            tc.setExpectedFeatureName(comp.getExpectedFeatureName());
-            tc.setExpectedPosition(comp.getExpectedPosition());
-
             result.getTemplateComparisons().add(tc);
         }
 
@@ -164,7 +197,6 @@ public class QualityStandardService {
                 String label = obj.getClassName() != null ? obj.getClassName() : "class_" + obj.getClassId();
                 int classId = obj.getClassId();
                 float confidence = (float) obj.getConfidence();
-                // 计算边界框 [x1, y1, x2, y2]
                 float[] bbox = new float[]{
                     (float) (obj.getCenter().x - obj.getWidth() / 2),
                     (float) (obj.getCenter().y - obj.getHeight() / 2),
@@ -176,16 +208,12 @@ public class QualityStandardService {
             .collect(Collectors.toList());
     }
 
-    /**
-     * 设置模板管理器（用于测试或手动注入）
-     */
+    // Getters and Setters
+
     public void setTemplateManager(TemplateManager templateManager) {
         this.templateManager = templateManager;
     }
 
-    /**
-     * 设置质量检测器（用于测试或手动注入）
-     */
     public void setQualityInspector(QualityInspector qualityInspector) {
         this.qualityInspector = qualityInspector;
     }
@@ -223,10 +251,10 @@ public class QualityStandardService {
         public static class TemplateComparison {
             private String featureId;
             private String featureName;
-            private String className;  // 实际类别名称，如 "hole", "nut"
+            private String className;
             private int classId;
-            private com.edge.vision.core.template.model.Point templatePosition;
-            private com.edge.vision.core.template.model.Point detectedPosition;
+            private Point templatePosition;
+            private Point detectedPosition;
             private double xError;
             private double yError;
             private double totalError;
@@ -235,11 +263,7 @@ public class QualityStandardService {
             private boolean withinTolerance;
             private FeatureComparison.ComparisonStatus status;
 
-            // 错检时的预期类型信息
-            private String expectedClassName;  // 模板上预期的类别名称（错检时使用）
-            private String expectedFeatureName;  // 模板上预期的特征名称（错检时使用）
-            private com.edge.vision.core.template.model.Point expectedPosition;  // 模板上预期的位置（错检时使用）
-
+            // Getters and Setters
             public String getFeatureId() { return featureId; }
             public void setFeatureId(String featureId) { this.featureId = featureId; }
 
@@ -252,13 +276,13 @@ public class QualityStandardService {
             public int getClassId() { return classId; }
             public void setClassId(int classId) { this.classId = classId; }
 
-            public com.edge.vision.core.template.model.Point getTemplatePosition() { return templatePosition; }
-            public void setTemplatePosition(com.edge.vision.core.template.model.Point templatePosition) {
+            public Point getTemplatePosition() { return templatePosition; }
+            public void setTemplatePosition(Point templatePosition) {
                 this.templatePosition = templatePosition;
             }
 
-            public com.edge.vision.core.template.model.Point getDetectedPosition() { return detectedPosition; }
-            public void setDetectedPosition(com.edge.vision.core.template.model.Point detectedPosition) {
+            public Point getDetectedPosition() { return detectedPosition; }
+            public void setDetectedPosition(Point detectedPosition) {
                 this.detectedPosition = detectedPosition;
             }
 
@@ -282,15 +306,6 @@ public class QualityStandardService {
 
             public FeatureComparison.ComparisonStatus getStatus() { return status; }
             public void setStatus(FeatureComparison.ComparisonStatus status) { this.status = status; }
-
-            public String getExpectedClassName() { return expectedClassName; }
-            public void setExpectedClassName(String expectedClassName) { this.expectedClassName = expectedClassName; }
-
-            public String getExpectedFeatureName() { return expectedFeatureName; }
-            public void setExpectedFeatureName(String expectedFeatureName) { this.expectedFeatureName = expectedFeatureName; }
-
-            public com.edge.vision.core.template.model.Point getExpectedPosition() { return expectedPosition; }
-            public void setExpectedPosition(com.edge.vision.core.template.model.Point expectedPosition) { this.expectedPosition = expectedPosition; }
         }
     }
 }

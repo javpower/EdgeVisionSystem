@@ -62,6 +62,15 @@ public class InspectionResult {
     }
 
     /**
+     * 获取所有可疑的特征
+     */
+    public List<FeatureComparison> getSuspicious() {
+        return comparisons.stream()
+            .filter(c -> c.getStatus() == FeatureComparison.ComparisonStatus.SUSPICIOUS)
+            .collect(Collectors.toList());
+    }
+
+    /**
      * 获取所有合格的特征
      */
     public List<FeatureComparison> getPassedFeatures() {

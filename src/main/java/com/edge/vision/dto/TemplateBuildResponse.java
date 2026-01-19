@@ -47,7 +47,10 @@ public class TemplateBuildResponse {
         private String templateId;
         private String description;
         private int featureCount;
-        private int anchorCount;
+        private String partType;
+        private int topologyK;
+        private double toleranceX;
+        private double toleranceY;
         private String boundingBox;
 
         public static TemplateInfo from(Template template) {
@@ -55,7 +58,10 @@ public class TemplateBuildResponse {
             info.templateId = template.getTemplateId();
             info.description = template.getDescription();
             info.featureCount = template.getFeatures().size();
-            info.anchorCount = template.getAnchorPoints().size();
+            info.partType = template.getPartType();
+            info.topologyK = template.getTopologyK();
+            info.toleranceX = template.getToleranceX();
+            info.toleranceY = template.getToleranceY();
             if (template.getBoundingBox() != null) {
                 info.boundingBox = template.getBoundingBox().toString();
             }
@@ -71,8 +77,17 @@ public class TemplateBuildResponse {
         public int getFeatureCount() { return featureCount; }
         public void setFeatureCount(int featureCount) { this.featureCount = featureCount; }
 
-        public int getAnchorCount() { return anchorCount; }
-        public void setAnchorCount(int anchorCount) { this.anchorCount = anchorCount; }
+        public String getPartType() { return partType; }
+        public void setPartType(String partType) { this.partType = partType; }
+
+        public int getTopologyK() { return topologyK; }
+        public void setTopologyK(int topologyK) { this.topologyK = topologyK; }
+
+        public double getToleranceX() { return toleranceX; }
+        public void setToleranceX(double toleranceX) { this.toleranceX = toleranceX; }
+
+        public double getToleranceY() { return toleranceY; }
+        public void setToleranceY(double toleranceY) { this.toleranceY = toleranceY; }
 
         public String getBoundingBox() { return boundingBox; }
         public void setBoundingBox(String boundingBox) { this.boundingBox = boundingBox; }

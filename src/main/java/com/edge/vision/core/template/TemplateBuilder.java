@@ -19,9 +19,11 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 模板构建工具
+ * 模板构建工具（拓扑匹配版本）
  * <p>
  * 从图片和 YOLO 标注自动构建质量检测模板
+ * <p>
+ * 注意：拓扑匹配方案不需要锚点（anchorPoints），模板构建时不再生成锚点
  */
 @Component
 public class TemplateBuilder {
@@ -74,20 +76,17 @@ public class TemplateBuilder {
         BoundingBox bbox = calculateBoundingBox(detectedObjects);
         logger.info("Calculated bounding box: {}", bbox);
 
-        // 2. 生成锚点
-        List<AnchorPoint> anchors = generateAnchorPoints(bbox);
-        logger.info("Generated {} anchor points", anchors.size());
-
-        // 3. 构建模板
+        // 2. 构建模板
         Template template = new Template(config.getTemplateId());
         template.setDescription("Auto-generated from model detection");
         template.setImageSize(imageSize);
         template.setBoundingBox(bbox);
-        template.setAnchorPoints(anchors);
         template.setToleranceX(config.getDefaultToleranceX());
         template.setToleranceY(config.getDefaultToleranceY());
+        template.setTopologyK(10);  // 默认拓扑k值
+        template.setTopologyThreshold(0.5);  // 默认拓扑阈值
 
-        // 4. 添加特征
+        // 3. 添加特征
         Point geometricCenter = bbox.getCenter();
         for (int i = 0; i < detectedObjects.size(); i++) {
             DetectedObject obj = detectedObjects.get(i);
@@ -115,9 +114,8 @@ public class TemplateBuilder {
             template.addFeature(feature);
         }
 
-        // 5. 添加元数据
+        // 4. 添加元数据
         template.putMetadata("totalFeatures", detectedObjects.size());
-        template.putMetadata("anchorCount", anchors.size());
         template.putMetadata("source", "model_detection");
 
         logger.info("Template built successfully from detection: {}", template.getTemplateId());
@@ -160,21 +158,18 @@ public class TemplateBuilder {
         BoundingBox bbox = calculateBoundingBox(objects);
         logger.info("Calculated bounding box: {}", bbox);
 
-        // 4. 生成锚点
-        List<AnchorPoint> anchors = generateAnchorPoints(bbox);
-        logger.info("Generated {} anchor points", anchors.size());
-
-        // 5. 构建模板
+        // 4. 构建模板
         Template template = new Template(config.getTemplateId());
         template.setDescription("Auto-generated from " + imagePath);
         template.setImageSize(imageSize);
         template.setImagePath(imagePath);
         template.setBoundingBox(bbox);
-        template.setAnchorPoints(anchors);
         template.setToleranceX(config.getDefaultToleranceX());
         template.setToleranceY(config.getDefaultToleranceY());
+        template.setTopologyK(10);  // 默认拓扑k值
+        template.setTopologyThreshold(0.5);  // 默认拓扑阈值
 
-        // 6. 添加特征
+        // 5. 添加特征
         Point geometricCenter = bbox.getCenter();
         for (int i = 0; i < objects.size(); i++) {
             DetectedObject obj = objects.get(i);
@@ -202,9 +197,8 @@ public class TemplateBuilder {
             template.addFeature(feature);
         }
 
-        // 7. 添加元数据
+        // 6. 添加元数据
         template.putMetadata("totalFeatures", objects.size());
-        template.putMetadata("anchorCount", anchors.size());
         template.putMetadata("sourceLabelFile", yoloLabelPath);
 
         logger.info("Template built successfully: {}", template.getTemplateId());
@@ -239,58 +233,6 @@ public class TemplateBuilder {
         maxY += padding;
 
         return new BoundingBox(minX, maxX, minY, maxY);
-    }
-
-    /**
-     * 自动生成十字锚点
-     */
-    private List<AnchorPoint> generateAnchorPoints(BoundingBox bbox) {
-        List<AnchorPoint> anchors = new ArrayList<>();
-        Point center = bbox.getCenter();
-
-        // A0: 几何中心（主锚点）
-        anchors.add(new AnchorPoint(
-            "A0",
-            AnchorPoint.AnchorType.GEOMETRIC_CENTER,
-            center,
-            "几何中心（主锚点）"
-        ));
-
-        if (config.isIncludeAuxiliaryAnchors()) {
-            // A1: 上边界中心
-            anchors.add(new AnchorPoint(
-                "A1",
-                AnchorPoint.AnchorType.TOP_CENTER,
-                bbox.getTopCenter(),
-                "上边界中心"
-            ));
-
-            // A2: 右边界中心
-            anchors.add(new AnchorPoint(
-                "A2",
-                AnchorPoint.AnchorType.RIGHT_CENTER,
-                bbox.getRightCenter(),
-                "右边界中心"
-            ));
-
-            // A3: 下边界中心
-            anchors.add(new AnchorPoint(
-                "A3",
-                AnchorPoint.AnchorType.BOTTOM_CENTER,
-                bbox.getBottomCenter(),
-                "下边界中心"
-            ));
-
-            // A4: 左边界中心
-            anchors.add(new AnchorPoint(
-                "A4",
-                AnchorPoint.AnchorType.LEFT_CENTER,
-                bbox.getLeftCenter(),
-                "左边界中心"
-            ));
-        }
-
-        return anchors;
     }
 
     /**
@@ -377,6 +319,16 @@ public class TemplateBuilder {
 
         public BuildConfig classNameMapping(Map<Integer, String> mapping) {
             this.classNameMapping = mapping;
+            return this;
+        }
+
+        public BuildConfig topologyK(int k) {
+            // 可以添加topologyK配置
+            return this;
+        }
+
+        public BuildConfig topologyThreshold(double threshold) {
+            // 可以添加topologyThreshold配置
             return this;
         }
 

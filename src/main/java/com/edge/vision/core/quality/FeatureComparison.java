@@ -37,7 +37,9 @@ public class FeatureComparison {
         /** 错检：检测有但模板无 */
         EXTRA,
         /** 类型错误：检测出错误的类型（如 nut 被检测成 hole） */
-        TYPE_MISMATCH
+        TYPE_MISMATCH,
+        /** 可疑：拓扑一致性差，需人工复核 */
+        SUSPICIOUS
     }
 
     public FeatureComparison() {
