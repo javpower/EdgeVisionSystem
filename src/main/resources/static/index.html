@@ -1025,6 +1025,12 @@
             const data = await res.json();
             if (data.status === 'success') {
                 cameraCount = data.cameraCount;
+
+                // 如果摄像头数量大于1，加载拼接配置
+                if (cameraCount > 1) {
+                    await loadManualConfigs();
+                }
+
                 toggleState(true);
                 initPanoramaCanvas();
                 updateStitchStatus();
