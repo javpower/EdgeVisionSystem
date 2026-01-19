@@ -369,7 +369,7 @@
         }
 
         /* Modal - 底部滑入，更宽更低（拼接设置用） */
-        .modal { display: none; position: fixed; z-index: 100; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); }
+        .modal { display: none; position: fixed; z-index: 100; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); }
         .modal-card.bottom-panel {
             background: white;
             position: fixed;
@@ -529,14 +529,15 @@
 
         .param-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
+            grid-template-columns: 1fr;
+            gap: 12px;
         }
         .param-item label {
             font-size: 11px;
-            color: #999;
-            margin-bottom: 4px;
+            color: #555;
+            margin-bottom: 6px;
             display: block;
+            font-weight: 500;
         }
         .param-item input[type="range"] {
             width: 100%;
@@ -564,9 +565,12 @@
         .range-wrapper .range-value {
             min-width: 45px;
             text-align: right;
-            font-size: 11px;
-            color: #666;
+            font-size: 12px;
+            color: var(--primary-color);
             font-weight: 600;
+            background: #e6f7ff;
+            padding: 2px 6px;
+            border-radius: 4px;
         }
 
         .preview-note {
@@ -854,32 +858,95 @@
 
             <!-- 拼接设置标签内容 -->
             <div class="tab-content active" id="stitchTabContent">
-                <div style="margin-bottom: 15px;">
-                    <label style="font-size: 12px; color: #666; display: block; margin-bottom: 8px;">拼接策略</label>
-                    <div class="strategy-selector">
-                        <div class="strategy-option" data-strategy="simple" onclick="selectStrategy('simple')">
-                            <div class="name">Simple</div>
-                            <div class="desc">简单拼接</div>
-                        </div>
-                        <div class="strategy-option" data-strategy="auto" onclick="selectStrategy('auto')">
-                            <div class="name">Auto</div>
-                            <div class="desc">自动拼接</div>
-                        </div>
-                        <div class="strategy-option" data-strategy="manual" onclick="selectStrategy('manual')">
-                            <div class="name">Manual</div>
-                            <div class="desc">手动调节</div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="manual-config-section" id="manualConfigSection" style="display: none;">
+                <div class="manual-config-section" id="manualConfigSection" style="display: block;">
                     <div class="section-title">
                         <div class="live-indicator"></div>
-                        实时参数调节
+                        摄像头拼接参数
                     </div>
 
                     <div class="preview-note">
                         拖动滑块实时预览拼接效果，满意后点击保存
+                    </div>
+
+                    <!-- 参数说明图示 -->
+                    <div style="background: #f5f7fa; border-radius: 6px; padding: 12px; margin-bottom: 15px; border: 1px solid #e1e4e8;">
+                        <div style="font-size: 12px; color: #333; margin-bottom: 10px; font-weight: 600;">📌 拼接原理（每个摄像头只保留一部分）：</div>
+
+                        <!-- 两摄像头示例 -->
+                        <div style="margin-bottom: 12px;">
+                            <div style="font-size: 11px; color: #666; margin-bottom: 6px;">两个摄像头时：</div>
+                            <div style="display: flex; align-items: center; gap: 6px;">
+                                <div style="flex: 1;">
+                                    <div style="background: linear-gradient(90deg, #4CAF50 0%, #4CAF50 65%, #ddd 65%, #ddd 100%); height: 35px; border-radius: 4px; display: flex; align-items: center; justify-content: center; color: white; font-size: 10px; font-weight: bold;">
+                                        摄像头0
+                                    </div>
+                                    <div style="text-align: center; margin-top: 4px; font-size: 10px; color: #666;">
+                                        保留 0 到 stitchX<br><span style="color: #4CAF50;">stitchX: 900</span>
+                                    </div>
+                                </div>
+                                <div style="font-size: 14px; color: #999;">➕</div>
+                                <div style="flex: 1;">
+                                    <div style="background: linear-gradient(90deg, #ddd 0%, #ddd 25%, #2196F3 25%, #2196F3 100%); height: 35px; border-radius: 4px; display: flex; align-items: center; justify-content: center; color: white; font-size: 10px; font-weight: bold;">
+                                        摄像头1
+                                    </div>
+                                    <div style="text-align: center; margin-top: 4px; font-size: 10px; color: #666;">
+                                        保留 stitchX 到末尾<br><span style="color: #2196F3;">stitchX: 300</span>
+                                    </div>
+                                </div>
+                                <div style="font-size: 14px; color: #999;">=</div>
+                                <div style="flex: 1.5;">
+                                    <div style="background: linear-gradient(90deg, #4CAF50 0%, #4CAF50 50%, #2196F3 50%, #2196F3 100%); height: 35px; border-radius: 4px; display: flex; align-items: center; justify-content: center; color: white; font-size: 10px; font-weight: bold;">
+                                        拼接结果
+                                    </div>
+                                    <div style="text-align: center; margin-top: 4px; font-size: 10px; color: #666;">无重叠拼接</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 三摄像头示例 -->
+                        <div>
+                            <div style="font-size: 11px; color: #666; margin-bottom: 6px;">三个摄像头时：</div>
+                            <div style="display: flex; align-items: center; gap: 4px;">
+                                <div style="flex: 1;">
+                                    <div style="background: linear-gradient(90deg, #FF9800 0%, #FF9800 60%, #ddd 60%, #ddd 100%); height: 30px; border-radius: 4px; display: flex; align-items: center; justify-content: center; color: white; font-size: 9px; font-weight: bold;">
+                                        摄像头0
+                                    </div>
+                                    <div style="text-align: center; margin-top: 3px; font-size: 9px; color: #666;">
+                                        stitchX: 700
+                                    </div>
+                                </div>
+                                <div style="font-size: 12px; color: #999;">+</div>
+                                <div style="flex: 1;">
+                                    <div style="background: linear-gradient(90deg, #ddd 0%, #ddd 20%, #4CAF50 20%, #4CAF50 80%, #ddd 80%, #ddd 100%); height: 30px; border-radius: 4px; display: flex; align-items: center; justify-content: center; color: white; font-size: 9px; font-weight: bold;">
+                                        摄像头1
+                                    </div>
+                                    <div style="text-align: center; margin-top: 3px; font-size: 9px; color: #666;">
+                                        两边都切<br>stitchX: 256
+                                    </div>
+                                </div>
+                                <div style="font-size: 12px; color: #999;">+</div>
+                                <div style="flex: 1;">
+                                    <div style="background: linear-gradient(90deg, #ddd 0%, #ddd 25%, #2196F3 25%, #2196F3 100%); height: 30px; border-radius: 4px; display: flex; align-items: center; justify-content: center; color: white; font-size: 9px; font-weight: bold;">
+                                        摄像头2
+                                    </div>
+                                    <div style="text-align: center; margin-top: 3px; font-size: 9px; color: #666;">
+                                        stitchX: 320
+                                    </div>
+                                </div>
+                                <div style="font-size: 12px; color: #999;">=</div>
+                                <div style="flex: 1.2;">
+                                    <div style="background: linear-gradient(90deg, #FF9800 0%, #FF9800 33%, #4CAF50 33%, #4CAF50 66%, #2196F3 66%, #2196F3 100%); height: 30px; border-radius: 4px; display: flex; align-items: center; justify-content: center; color: white; font-size: 9px; font-weight: bold;">
+                                        三段拼接
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style="margin-top: 12px; padding: 8px; background: #fff3cd; border-radius: 4px; font-size: 10px; color: #856404;">
+                            💡 <strong>核心概念：</strong>每个摄像头输入的是完整画面，但只保留 <code style="background: #fff; padding: 1px 4px; border-radius: 3px;">stitchX</code> 指定的那一部分。<br>
+                            • <strong>边缘摄像头</strong>（0和最后一个）：只切一边，保留大部分<br>
+                            • <strong>中间摄像头</strong>：两边都切，只保留中间重叠区域
+                        </div>
                     </div>
 
                     <div id="cameraConfigsContainer">
@@ -907,6 +974,7 @@
             </div>
         </div>
         <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeSystemConfigModal()">取消</button>
             <button class="btn btn-secondary" onclick="resetCurrentConfig()">重置</button>
             <button class="btn btn-success" onclick="saveCurrentConfig()">保存配置</button>
         </div>
@@ -922,10 +990,9 @@
     let inspectionStartTime = null; // 检测开始时间
 
     // 拼接配置相关
-    let currentStrategy = 'simple';
+    let currentStrategy = 'manual';  // 固定使用 manual 模式
     let manualConfigs = {};
     let cameraCount = 2;
-    let isManualModeAvailable = false;
     let isPreviewMode = false;
 
     // Canvas 拼接相关
@@ -1035,35 +1102,64 @@
     function stitchImagesOnCanvas(images) {
         if (!offscreenCtx || images.length === 0) return;
 
-        // 根据策略设置画布尺寸
-        let canvasWidth, canvasHeight;
+        const totalCameras = images.length;
 
-        if (currentStrategy === 'manual' && Object.keys(manualConfigs).length > 0) {
-            // 手动模式：根据参数计算画布大小
-            let totalWidth = 0;
-            let maxHeight = 0;
+        // 只有1个摄像头时，直接显示原图，不进行拼接
+        if (totalCameras === 1) {
+            const img = images[0];
+            const canvasWidth = img.naturalWidth;
+            const canvasHeight = img.naturalHeight;
 
-            images.forEach((img, index) => {
-                const config = manualConfigs[index] || {
-                    offset: [0, 0],
-                    scale: 1.0
-                };
-                // 使用 naturalWidth/Height 获取图像的实际尺寸
-                const scaledWidth = img.naturalWidth * config.scale;
-                const scaledHeight = img.naturalHeight * config.scale;
-                const overlapWidth = config.overlapWidth || 0;
+            if (canvasWidth !== lastCanvasWidth || canvasHeight !== lastCanvasHeight) {
+                offscreenCanvas.width = canvasWidth;
+                offscreenCanvas.height = canvasHeight;
+                panoramaCanvas.width = canvasWidth;
+                panoramaCanvas.height = canvasHeight;
+                lastCanvasWidth = canvasWidth;
+                lastCanvasHeight = canvasHeight;
+            }
 
-                totalWidth += scaledWidth - overlapWidth;
-                maxHeight = Math.max(maxHeight, scaledHeight + Math.abs(config.offset[1]));
-            });
-
-            canvasWidth = Math.round(totalWidth);
-            canvasHeight = Math.round(maxHeight);
-        } else {
-            // Simple/Auto 模式：简单水平拼接
-            canvasWidth = images.reduce((sum, img) => sum + img.naturalWidth, 0);
-            canvasHeight = Math.max(...images.map(img => img.naturalHeight));
+            offscreenCtx.fillStyle = '#000';
+            offscreenCtx.fillRect(0, 0, canvasWidth, canvasHeight);
+            offscreenCtx.drawImage(img, 0, 0);
+            // 复制到主 Canvas 显示
+            panoramaCtx.drawImage(offscreenCanvas, 0, 0);
+            return;
         }
+
+        // 阶段一：计算统一的目标高度（取所有摄像头的最小 h 值）
+        let targetHeight = Infinity;
+        const configs = [];
+
+        images.forEach((img, index) => {
+            const config = manualConfigs[index] || {
+                x1: 0,
+                x2: img.naturalWidth,
+                y: 0,
+                h: img.naturalHeight
+            };
+            configs.push(config);
+            if (config.h > 0 && config.h < targetHeight) {
+                targetHeight = config.h;
+            }
+        });
+
+        if (targetHeight === Infinity) {
+            targetHeight = images[0].naturalHeight;
+        }
+
+        // 阶段二：计算切片后的画布尺寸
+        let totalWidth = 0;
+
+        images.forEach((img, index) => {
+            const config = configs[index];
+            // 每个摄像头保留 [x1, x2) 列
+            const sliceWidth = config.x2 - config.x1;
+            totalWidth += sliceWidth;
+        });
+
+        const canvasWidth = totalWidth;
+        const canvasHeight = targetHeight;
 
         // 只有尺寸真正变化时才调整 Canvas（避免频繁重置）
         if (canvasWidth !== lastCanvasWidth || canvasHeight !== lastCanvasHeight) {
@@ -1079,34 +1175,27 @@
         offscreenCtx.fillStyle = '#000';
         offscreenCtx.fillRect(0, 0, canvasWidth, canvasHeight);
 
-        // 绘制图像
+        // 阶段三：绘制图像（所有图像使用相同的目标高度）
         let offsetX = 0;
 
         images.forEach((img, index) => {
-            let drawX, drawY, drawWidth, drawHeight;
+            const config = configs[index];
 
-            if (currentStrategy === 'manual' && manualConfigs[index]) {
-                const config = manualConfigs[index];
-                drawWidth = img.naturalWidth * config.scale;
-                drawHeight = img.naturalHeight * config.scale;
-                drawX = offsetX + config.offset[0];
-                drawY = (canvasHeight - drawHeight) / 2 + config.offset[1];
+            // 每个摄像头保留 [x1, x2) 列，[y, y+h) 行
+            const srcX = config.x1;
+            const srcY = config.y;
+            const srcWidth = config.x2 - config.x1;
+            // 使用目标高度，但确保不超过图像边界
+            const srcHeight = Math.min(targetHeight, img.naturalHeight - config.y);
 
-                const overlapWidth = config.overlapWidth || 0;
-                offsetX += drawWidth - overlapWidth;
-            } else {
-                drawWidth = img.naturalWidth;
-                drawHeight = img.naturalHeight;
-                drawX = offsetX;
-                drawY = (canvasHeight - img.naturalHeight) / 2;
-                offsetX += img.naturalWidth;
-            }
-
-            // 绘制到离屏 Canvas
+            // 绘制到离屏 Canvas（使用切片和统一的高度）
             try {
-                offscreenCtx.drawImage(img, drawX, drawY, drawWidth, drawHeight);
+                offscreenCtx.drawImage(img, srcX, srcY, srcWidth, srcHeight, offsetX, 0, srcWidth, targetHeight);
+                if (index !== totalCameras - 1) {
+                    offsetX += srcWidth;
+                }
             } catch(e) {
-                // 忽略绘制错误
+                console.error('Failed to draw image for camera', index, e);
             }
         });
 
@@ -2029,11 +2118,9 @@
             const res = await fetch(`${API_BASE}/api/stitch/config`);
             const data = await res.json();
             if(data.status === 'success') {
-                currentStrategy = data.data.currentStrategy;
                 const strategyEl = document.getElementById('currentStrategy');
-
-                strategyEl.textContent = currentStrategy.toUpperCase();
-                document.getElementById('stitchStatus').classList.toggle('manual', currentStrategy === 'manual');
+                strategyEl.textContent = 'MANUAL';
+                document.getElementById('stitchStatus').classList.add('manual');
             }
         } catch(e) {}
     }
@@ -2046,38 +2133,13 @@
         currentTab = 'stitch';
         switchTab('stitch');
 
-        try {
-            const res = await fetch(`${API_BASE}/api/stitch/strategy`);
-            const data = await res.json();
-            if(data.status === 'success') {
-                currentStrategy = data.data.strategy;
-                updateStrategyUI();
-            }
-        } catch(e) {}
+        // 加载手动配置
+        loadManualConfigs();
     }
 
     function closeSystemConfigModal() {
         document.getElementById('systemConfigModal').style.display = 'none';
         isPreviewMode = false;
-    }
-
-    function selectStrategy(strategy) {
-        currentStrategy = strategy;
-        updateStrategyUI();
-    }
-
-    function updateStrategyUI() {
-        document.querySelectorAll('.strategy-option').forEach(el => {
-            el.classList.toggle('active', el.dataset.strategy === currentStrategy);
-        });
-
-        const manualSection = document.getElementById('manualConfigSection');
-        if(currentStrategy === 'manual') {
-            manualSection.style.display = 'block';
-            loadManualConfigs();
-        } else {
-            manualSection.style.display = 'none';
-        }
     }
 
     async function loadManualConfigs() {
@@ -2096,11 +2158,10 @@
 
         cameras.forEach(cam => {
             const config = manualConfigs[cam.index] || {
-                offset: cam.offset || [0, 0],
-                scale: cam.scale || 1.0,
-                rotation: cam.rotation || 0,
-                flip: cam.flip || [false, false],
-                overlapWidth: cam.overlapWidth || 100
+                x1: cam.x1 !== undefined ? cam.x1 : 0,
+                x2: cam.x2 !== undefined ? cam.x2 : 5472,
+                y: cam.y !== undefined ? cam.y : 0,
+                h: cam.h !== undefined ? cam.h : 3648
             };
             manualConfigs[cam.index] = config;
 
@@ -2110,36 +2171,40 @@
                 <div class="camera-title">摄像头 ${cam.index}</div>
                 <div class="param-grid">
                     <div class="param-item">
-                        <label>X 偏移</label>
+                        <label>🔪 左切割线 (x1)</label>
                         <div class="range-wrapper">
-                            <input type="range" min="-2000" max="2000" value="${config.offset[0]}"
-                                oninput="updateParam(${cam.index}, 'offset', [parseInt(this.value), manualConfigs[${cam.index}].offset[1]]); updateRangeDisplay(this)">
-                            <span class="range-value">${config.offset[0]}</span>
+                            <input type="range" min="0" max="6000" value="${config.x1}"
+                                oninput="updateParam(${cam.index}, 'x1', parseInt(this.value)); updateRangeDisplay(this)">
+                            <span class="range-value">${config.x1}</span>
                         </div>
+                        <small style="color: #999; font-size: 10px;">保留从 x1 到右侧的区域（左边界）</small>
                     </div>
                     <div class="param-item">
-                        <label>Y 偏移</label>
+                        <label>🔪 右切割线 (x2)</label>
                         <div class="range-wrapper">
-                            <input type="range" min="-2000" max="2000" value="${config.offset[1]}"
-                                oninput="updateParam(${cam.index}, 'offset', [manualConfigs[${cam.index}].offset[0], parseInt(this.value)]); updateRangeDisplay(this)">
-                            <span class="range-value">${config.offset[1]}</span>
+                            <input type="range" min="0" max="6000" value="${config.x2}"
+                                oninput="updateParam(${cam.index}, 'x2', parseInt(this.value)); updateRangeDisplay(this)">
+                            <span class="range-value">${config.x2}</span>
                         </div>
+                        <small style="color: #999; font-size: 10px;">保留从左侧到 x2 的区域（右边界）</small>
                     </div>
                     <div class="param-item">
-                        <label>缩放</label>
+                        <label>⬇️ 起始行 (y)</label>
                         <div class="range-wrapper">
-                            <input type="range" min="0.5" max="1.5" step="0.01" value="${config.scale}"
-                                oninput="updateParam(${cam.index}, 'scale', parseFloat(this.value)); updateRangeDisplay(this)">
-                            <span class="range-value">${config.scale.toFixed(2)}</span>
+                            <input type="range" min="0" max="4000" value="${config.y}"
+                                oninput="updateParam(${cam.index}, 'y', parseInt(this.value)); updateRangeDisplay(this)">
+                            <span class="range-value">${config.y}</span>
                         </div>
+                        <small style="color: #999; font-size: 10px;">从顶部开始裁切的行数（处理上下偏移）</small>
                     </div>
                     <div class="param-item">
-                        <label>重叠宽度</label>
+                        <label="📏 截取高度 (h)</label>
                         <div class="range-wrapper">
-                            <input type="range" min="0" max="300" value="${config.overlapWidth}"
-                                oninput="updateParam(${cam.index}, 'overlapWidth', parseInt(this.value)); updateRangeDisplay(this)">
-                            <span class="range-value">${config.overlapWidth}</span>
+                            <input type="range" min="100" max="4000" value="${config.h}"
+                                oninput="updateParam(${cam.index}, 'h', parseInt(this.value)); updateRangeDisplay(this)">
+                            <span class="range-value">${config.h}</span>
                         </div>
+                        <small style="color: #999; font-size: 10px;">从起始行开始向下截取的像素数</small>
                     </div>
                 </div>
             `;
@@ -2156,11 +2221,10 @@
     function updateParam(cameraIndex, param, value) {
         if(!manualConfigs[cameraIndex]) {
             manualConfigs[cameraIndex] = {
-                offset: [0, 0],
-                scale: 1.0,
-                rotation: 0,
-                flip: [false, false],
-                overlapWidth: 100
+                x1: 0,
+                x2: 5472,
+                y: 0,
+                h: 3648
             };
         }
         manualConfigs[cameraIndex][param] = value;
@@ -2168,44 +2232,25 @@
 
     async function saveStitchConfig() {
         try {
-            const strategyRes = await fetch(`${API_BASE}/api/stitch/strategy`, {
+            const configs = Object.entries(manualConfigs).map(([index, config]) => ({
+                index: parseInt(index),
+                x1: config.x1,
+                x2: config.x2,
+                y: config.y,
+                h: config.h
+            }));
+
+            const res = await fetch(`${API_BASE}/api/stitch/manual/batch`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ strategy: currentStrategy })
+                body: JSON.stringify({ cameras: configs })
             });
 
-            const strategyData = await strategyRes.json();
-            if(strategyData.status !== 'success') {
-                showToast(strategyData.message, 'error');
-                return;
-            }
-
-            if(currentStrategy === 'manual') {
-                const configs = Object.entries(manualConfigs).map(([index, config]) => ({
-                    index: parseInt(index),
-                    offset: config.offset.map(v => typeof v === 'number' ? v : parseInt(v)),
-                    scale: config.scale,
-                    rotation: config.rotation,
-                    flip: config.flip,
-                    overlapWidth: config.overlapWidth
-                }));
-
-                const res = await fetch(`${API_BASE}/api/stitch/manual/batch`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ cameras: configs })
-                });
-
-                const data = await res.json();
-                if(data.status === 'success') {
-                    showToast('拼接配置已保存');
-                    updateStitchStatus();
-                } else {
-                    showToast(data.message, 'error');
-                }
+            const data = await res.json();
+            if(data.status === 'success') {
+                showToast('拼接配置已保存');
             } else {
-                showToast('拼接策略已切换');
-                updateStitchStatus();
+                showToast(data.message, 'error');
             }
         } catch(e) {
             showToast('保存失败: ' + e.message, 'error');

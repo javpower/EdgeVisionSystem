@@ -11,41 +11,29 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 手动拼接策略 (V4 最终完整版)
- * * 功能特性：
- * 1. 智能去黑边：自动识别每张图的有效内容区域。
- * 2. 垂直自适应裁切：自动计算所有图片的公共高度交集，切除因拼接错位产生的上下阶梯黑边。
- * 3. 矩阵加速：使用 OpenCV 底层矩阵运算替代循环，高性能融合。
- * 4. 完整的配置管理：支持运行时动态调整参数。
+ * 手动拼接策略 (V6 通用版 - 每个摄像头支持左右切割)
+ * <p>
+ * 核心特性：
+ * 1. 基于标定坐标直接对图像矩阵进行切片操作
+ * 2. 支持任意数量的摄像头拼接
+ * 3. 每个摄像头都有独立的左右切割参数
+ * 4. 完全通用，适用于各种摄像头布局
+ * <p>
+ * 参数说明：
+ * - x1: 左切割线位置（保留从 x1 到右侧的区域）
+ * - x2: 右切割线位置（保留从左侧到 x2 的区域）
+ * - y: 截取起始 Y 坐标
+ * - h: 截取高度
+ * <p>
+ * 拼接原理：
+ * 每个摄像头保留 [y, y+h] 行，[x1, x2) 列
+ * 所有切片后的图像水平拼接
  */
 public class ManualStitchStrategy implements StitchStrategy {
     private static final Logger logger = LoggerFactory.getLogger(ManualStitchStrategy.class);
 
     // 线程安全的配置存储
     private final Map<Integer, CameraConfig> cameraConfigs = new ConcurrentHashMap<>();
-
-    // 黑色背景阈值 (建议 20-40，根据现场光照调整)
-    private static final int BLACK_THRESHOLD = 30;
-    // 默认重叠宽度
-    private static final int DEFAULT_OVERLAP_WIDTH = 100;
-
-    // 缓存融合遮罩，避免每帧重复计算
-    private Mat cachedMask = null;
-    private int cachedMaskWidth = -1;
-    private int cachedMaskHeight = -1;
-
-    // 内部类：存储预处理帧及位置信息
-    private static class ProcessedFrame {
-        Mat image;
-        Rect globalRect;    // 在无限画布上的绝对坐标
-        int overlapWidth;
-
-        ProcessedFrame(Mat image, Rect globalRect, int overlapWidth) {
-            this.image = image;
-            this.globalRect = globalRect;
-            this.overlapWidth = overlapWidth;
-        }
-    }
 
     public ManualStitchStrategy() {
         // 默认构造
@@ -65,322 +53,172 @@ public class ManualStitchStrategy implements StitchStrategy {
             throw new IllegalArgumentException("Frames cannot be null or empty");
         }
 
-        // 即使只有一张图，也执行去黑边逻辑
+        // 即使只有一张图，也返回原图
         if (frames.size() == 1) {
-            return findAndCropContent(frames.get(0));
+            return cropFrame(frames.get(0), 0);
         }
 
-        List<ProcessedFrame> processedList = new ArrayList<>();
-
-        // 全局画布边界
-        int minGlobalX = Integer.MAX_VALUE;
-        int maxGlobalX = Integer.MIN_VALUE;
-
-        // [关键] 垂直有效区域计算 (Vertical Intersection)
-        // validTopY: 所有图片中，起始Y坐标最大的那个（向下压）
-        // validBottomY: 所有图片中，结束Y坐标最小的那个（向上收）
-        int validTopY = Integer.MIN_VALUE;
-        int validBottomY = Integer.MAX_VALUE;
-
-        int currentXCursor = 0;
-
         try {
-            // =========================================================
-            // 阶段一：预处理、坐标计算与交集范围确定
-            // =========================================================
+            // 阶段一：计算统一的目标高度（取所有摄像头的最小 h 值）
+            int targetHeight = Integer.MAX_VALUE;
             for (int i = 0; i < frames.size(); i++) {
-                Mat rawFrame = frames.get(i);
                 CameraConfig config = cameraConfigs.getOrDefault(i, new CameraConfig(i));
-
-                // 1. 智能裁切内容 (去掉四周无效黑边)
-                Mat contentFrame = findAndCropContent(rawFrame);
-                if (contentFrame.empty()) {
-                    contentFrame.release();
-                    continue; // 跳过无效帧
-                }
-
-                // 2. 变换 (旋转/缩放/翻转)
-                Mat transformedFrame = applyTransform(contentFrame, config);
-                contentFrame.release();
-
-                // 3. 计算坐标
-                int overlap = (i == 0) ? 0 : getOverlapWidth(i);
-                int userOffsetX = (config.offset != null && config.offset.length > 0) ? config.offset[0] : 0;
-                int userOffsetY = (config.offset != null && config.offset.length > 1) ? config.offset[1] : 0;
-
-                // X轴游标逻辑：减去重叠区
-                if (i > 0) currentXCursor -= overlap;
-
-                int absX = currentXCursor + userOffsetX;
-                int absY = userOffsetY; // 这里的 absY 是相对于画布原点的偏移
-
-                int w = transformedFrame.cols();
-                int h = transformedFrame.rows();
-
-                Rect rect = new Rect(absX, absY, w, h);
-                processedList.add(new ProcessedFrame(transformedFrame, rect, overlap));
-
-                // 更新画布总宽度的边界
-                minGlobalX = Math.min(minGlobalX, absX);
-                maxGlobalX = Math.max(maxGlobalX, absX + w);
-
-                // [关键] 更新垂直有效区域 (交集逻辑)
-                if (i == 0) {
-                    validTopY = absY;
-                    validBottomY = absY + h;
-                } else {
-                    // 取交集：顶边取最大值(舍弃上方空白)，底边取最小值(舍弃下方空白)
-                    validTopY = Math.max(validTopY, absY);
-                    validBottomY = Math.min(validBottomY, absY + h);
-                }
-
-                currentXCursor += w;
-            }
-
-            if (processedList.isEmpty()) {
-                return new Mat(100, 100, frames.get(0).type(), new Scalar(0));
-            }
-
-            // =========================================================
-            // 阶段二：校验交集区域
-            // =========================================================
-            // 如果偏移量过大导致两张图在Y轴完全没交集，回退到保留所有内容
-            if (validTopY >= validBottomY) {
-                logger.warn("Vertical intersection is empty. Fallback to full bounding box.");
-                validTopY = Integer.MAX_VALUE;
-                validBottomY = Integer.MIN_VALUE;
-                for (ProcessedFrame pf : processedList) {
-                    validTopY = Math.min(validTopY, pf.globalRect.y);
-                    validBottomY = Math.max(validBottomY, pf.globalRect.y + pf.globalRect.height);
+                int h = config.h;
+                if (h > 0 && h < targetHeight) {
+                    targetHeight = h;
                 }
             }
 
-            // =========================================================
-            // 阶段三：合成画布 (只建立有效高度的画布)
-            // =========================================================
-            int canvasW = maxGlobalX - minGlobalX;
-            int canvasH = validBottomY - validTopY;
-
-            if (canvasW <= 0 || canvasH <= 0) return new Mat();
-
-            Size canvasSize = new Size(canvasW, canvasH);
-            Mat result = Mat.zeros(canvasSize, frames.get(0).type());
-
-            // =========================================================
-            // 阶段四：放置与裁切
-            // =========================================================
-            for (ProcessedFrame pf : processedList) {
-                // 计算相对于“交集画布”的坐标
-                int relX = pf.globalRect.x - minGlobalX;
-                int relY = pf.globalRect.y - validTopY;
-
-                // 调用裁切放置方法：只把落在 canvasH 范围内的部分画上去
-                placeClippedImage(result, pf.image, relX, relY, pf.overlapWidth);
+            // 如果没有有效的 h 值，使用第一帧的高度
+            if (targetHeight == Integer.MAX_VALUE) {
+                targetHeight = frames.get(0).rows();
             }
+
+            logger.debug("Target height for stitching: {}", targetHeight);
+
+            // 阶段二：切片处理（所有图像使用相同的目标高度）
+            List<Mat> slicedParts = new ArrayList<>();
+
+            for (int i = 0; i < frames.size(); i++) {
+                Mat frame = frames.get(i);
+                Mat cropped = cropFrameWithHeight(frame, i, targetHeight);
+                if (!cropped.empty()) {
+                    slicedParts.add(cropped);
+                }
+            }
+
+            if (slicedParts.isEmpty()) {
+                logger.warn("No valid frames after cropping");
+                return new Mat();
+            }
+
+            // 阶段三：直接水平拼接
+            Mat result = new Mat();
+            Core.hconcat(slicedParts, result);
+
+            // 清理临时 Mat
+            for (Mat mat : slicedParts) {
+                mat.release();
+            }
+
+            logger.debug("Stitched {} frames into result: {}x{}",
+                frames.size(), result.cols(), result.rows());
 
             return result;
 
         } catch (Exception e) {
             logger.error("Stitch process failed", e);
             return new Mat();
-        } finally {
-            // 资源清理
-            for (ProcessedFrame pf : processedList) {
-                if (pf.image != null) pf.image.release();
-            }
         }
     }
 
     /**
-     * 放置图像，自动裁切掉超出画布高度的部分 (解决阶梯黑边)
+     * 对单帧进行切片处理（使用指定的目标高度）
+     * <p>
+     * 每个摄像头保留 [y, y+h] 行，[x1, x2) 列
+     *
+     * @param frame         原始图像帧
+     * @param cameraIndex   当前摄像头索引
+     * @param targetHeight  目标高度（确保所有切片高度一致）
+     * @return 切片后的图像
      */
-    private void placeClippedImage(Mat canvas, Mat image, int relX, int relY, int overlapWidth) {
-        // 计算在画布上的有效绘制区域 (Y轴交集)
-        int startY_Canvas = Math.max(0, relY);
-        int endY_Canvas = Math.min(canvas.rows(), relY + image.rows());
+    private Mat cropFrameWithHeight(Mat frame, int cameraIndex, int targetHeight) {
+        CameraConfig config = cameraConfigs.getOrDefault(cameraIndex, new CameraConfig(cameraIndex));
 
-        int drawH = endY_Canvas - startY_Canvas;
-        int drawW = Math.min(image.cols(), canvas.cols() - relX);
+        int x1 = config.x1;
+        int x2 = config.x2;
+        int startY = config.y;
 
-        if (drawH <= 0 || drawW <= 0) return;
-
-        // 计算源图像的起始 Y (如果 relY < 0，说明图像上半部分被切掉了)
-        int srcOffsetY = (relY < 0) ? -relY : 0;
-
-        Rect srcRect = new Rect(0, srcOffsetY, drawW, drawH);
-        Rect canvasRect = new Rect(relX, startY_Canvas, drawW, drawH);
-
-        Mat srcRoi = image.submat(srcRect);
-        Mat canvasRoi = canvas.submat(canvasRect);
-
-        // 融合逻辑
-        if (overlapWidth <= 0 || relX == 0) {
-            srcRoi.copyTo(canvasRoi);
-        } else {
-            // 分离融合区与实体区
-            int blendW = Math.min(overlapWidth, drawW);
-            int solidW = drawW - blendW;
-
-            // 1. 融合区
-            if (blendW > 0) {
-                Mat cBlend = canvasRoi.submat(new Rect(0, 0, blendW, drawH));
-                Mat sBlend = srcRoi.submat(new Rect(0, 0, blendW, drawH));
-                blendRegionVectorized(cBlend, sBlend, blendW, drawH);
-                cBlend.release();
-                sBlend.release();
-            }
-            // 2. 实体区
-            if (solidW > 0) {
-                Mat cSolid = canvasRoi.submat(new Rect(blendW, 0, solidW, drawH));
-                Mat sSolid = srcRoi.submat(new Rect(blendW, 0, solidW, drawH));
-                sSolid.copyTo(cSolid);
-                cSolid.release();
-                sSolid.release();
-            }
+        // 边界检查
+        if (x1 < 0 || x1 >= frame.cols()) {
+            logger.warn("Invalid x1 {} for camera {}, frame width: {}",
+                x1, cameraIndex, frame.cols());
+            return new Mat();
         }
 
-        srcRoi.release();
-        canvasRoi.release();
-    }
-
-    /**
-     * 寻找并裁切非黑色区域
-     */
-    private Mat findAndCropContent(Mat src) {
-        Mat gray = new Mat();
-        Mat mask = new Mat();
-        Mat points = new Mat();
-        try {
-            if (src.channels() > 1) {
-                Imgproc.cvtColor(src, gray, Imgproc.COLOR_BGR2GRAY);
-            } else {
-                src.copyTo(gray);
-            }
-
-            Imgproc.threshold(gray, mask, BLACK_THRESHOLD, 255, Imgproc.THRESH_BINARY);
-            Core.findNonZero(mask, points);
-
-            if (points.empty()) return new Mat();
-
-            Rect roi = Imgproc.boundingRect(points);
-            // 适当保留 Padding
-            int padding = 2;
-            roi.x = Math.max(0, roi.x - padding);
-            roi.y = Math.max(0, roi.y - padding);
-            roi.width = Math.min(src.cols() - roi.x, roi.width + padding * 2);
-            roi.height = Math.min(src.rows() - roi.y, roi.height + padding * 2);
-
-            return src.submat(roi).clone();
-        } finally {
-            gray.release(); mask.release(); points.release();
+        if (x2 <= x1 || x2 > frame.cols()) {
+            logger.warn("Invalid x2 {} for camera {}, frame width: {}, x1={}",
+                x2, cameraIndex, frame.cols(), x1);
+            return new Mat();
         }
-    }
 
-    /**
-     * 矩阵化线性融合 (高性能版)
-     */
-    private void blendRegionVectorized(Mat bgRoi, Mat fgRoi, int width, int height) {
-        if (cachedMask == null || cachedMaskWidth != width || cachedMaskHeight != height) {
-            createLinearBlendMask(width, height, bgRoi.type());
+        // 使用目标高度，但确保不超过图像边界
+        int height = Math.min(targetHeight, frame.rows() - startY);
+        if (height <= 0) {
+            logger.warn("Invalid height for camera {}, startY={}, targetHeight={}, frame rows={}",
+                cameraIndex, startY, targetHeight, frame.rows());
+            return new Mat();
         }
-        Mat bgFloat = new Mat();
-        Mat fgFloat = new Mat();
-        Mat resultFloat = new Mat();
-        Mat ones = null;
-        Mat inverseMask = new Mat();
-        Mat part1 = new Mat();
-        Mat part2 = new Mat();
 
         try {
-            bgRoi.convertTo(bgFloat, CvType.CV_32F);
-            fgRoi.convertTo(fgFloat, CvType.CV_32F);
+            // 每个摄像头都保留 [x1, x2) 列
+            int roiWidth = x2 - x1;
+            Rect roi = new Rect(x1, startY, roiWidth, height);
 
-            // part1 = FG * Mask
-            Core.multiply(fgFloat, cachedMask, part1);
+            logger.debug("Camera {}: crop region - x={}, y={}, w={}, h={}",
+                cameraIndex, roi.x, roi.y, roi.width, roi.height);
 
-            // part2 = BG * (1 - Mask)
-            ones = new Mat(cachedMask.size(), cachedMask.type(), new Scalar(1.0));
-            if (bgRoi.channels() > 1) {
-                ones.setTo(new Scalar(1.0, 1.0, 1.0));
+            return new Mat(frame, roi).clone();
+
+        } catch (Exception e) {
+            logger.error("Failed to crop frame for camera {}", cameraIndex, e);
+            return new Mat();
+        }
+    }
+
+    /**
+     * 对单帧进行切片处理
+     */
+    private Mat cropFrame(Mat frame, int cameraIndex) {
+        CameraConfig config = cameraConfigs.getOrDefault(cameraIndex, new CameraConfig(cameraIndex));
+
+        int x1 = config.x1;
+        int x2 = config.x2;
+        int startY = config.y;
+        int height = config.h;
+
+        // 边界检查
+        if (x1 < 0 || x1 >= frame.cols()) {
+            logger.warn("Invalid x1 {} for camera {}, frame width: {}",
+                x1, cameraIndex, frame.cols());
+            return new Mat();
+        }
+
+        if (x2 <= x1 || x2 > frame.cols()) {
+            logger.warn("Invalid x2 {} for camera {}, frame width: {}, x1={}",
+                x2, cameraIndex, frame.cols(), x1);
+            return new Mat();
+        }
+
+        if (startY < 0 || startY >= frame.rows()) {
+            logger.warn("Invalid startY {} for camera {}, frame height: {}",
+                startY, cameraIndex, frame.rows());
+            return new Mat();
+        }
+
+        if (height <= 0 || startY + height > frame.rows()) {
+            // 自动调整高度
+            height = frame.rows() - startY;
+            if (height <= 0) {
+                logger.warn("Invalid height for camera {}, auto-adjust failed", cameraIndex);
+                return new Mat();
             }
-            Core.subtract(ones, cachedMask, inverseMask);
-            Core.multiply(bgFloat, inverseMask, part2);
-
-            Core.add(part1, part2, resultFloat);
-            resultFloat.convertTo(bgRoi, bgRoi.type());
-        } finally {
-            if (ones != null) ones.release();
-            bgFloat.release(); fgFloat.release(); resultFloat.release();
-            inverseMask.release(); part1.release(); part2.release();
-        }
-    }
-
-    /**
-     * 创建融合遮罩
-     */
-    private void createLinearBlendMask(int width, int height, int type) {
-        if (cachedMask != null) cachedMask.release();
-        cachedMaskWidth = width;
-        cachedMaskHeight = height;
-
-        float[] rowData = new float[width];
-        for (int x = 0; x < width; x++) rowData[x] = (float) x / width;
-
-        Mat rowMat = new Mat(1, width, CvType.CV_32F);
-        rowMat.put(0, 0, rowData);
-
-        Mat single = new Mat();
-        Core.repeat(rowMat, height, 1, single);
-        rowMat.release();
-
-        int channels = CvType.channels(type);
-        if (channels > 1) {
-            List<Mat> list = new ArrayList<>();
-            for (int i = 0; i < channels; i++) list.add(single);
-            cachedMask = new Mat();
-            Core.merge(list, cachedMask);
-            single.release();
-        } else {
-            cachedMask = single;
-        }
-    }
-
-    /**
-     * 应用变换 (含包围盒修正)
-     */
-    private Mat applyTransform(Mat src, CameraConfig config) {
-        Mat result = src.clone();
-
-        if (config.flip != null && config.flip.length >= 2) {
-            if (config.flip[0]) Core.flip(result, result, 1);
-            if (config.flip[1]) Core.flip(result, result, 0);
         }
 
-        if (config.rotation != 0 || config.scale != 1.0) {
-            Point center = new Point(result.cols() / 2.0, result.rows() / 2.0);
-            Rect bbox = new RotatedRect(center, result.size(), config.rotation).boundingRect();
+        try {
+            // 每个摄像头都保留 [x1, x2) 列
+            int roiWidth = x2 - x1;
+            Rect roi = new Rect(x1, startY, roiWidth, height);
 
-            double nw = bbox.width * config.scale;
-            double nh = bbox.height * config.scale;
+            logger.debug("Camera {}: crop region - x={}, y={}, w={}, h={}",
+                cameraIndex, roi.x, roi.y, roi.width, roi.height);
 
-            Mat M = Imgproc.getRotationMatrix2D(center, config.rotation, config.scale);
-            M.put(0, 2, M.get(0, 2)[0] + (nw/2.0) - center.x);
-            M.put(1, 2, M.get(1, 2)[0] + (nh/2.0) - center.y);
+            return new Mat(frame, roi).clone();
 
-            Mat dst = new Mat();
-            Imgproc.warpAffine(result, dst, M, new Size(Math.ceil(nw), Math.ceil(nh)),
-                    Imgproc.INTER_LINEAR, Core.BORDER_CONSTANT, new Scalar(0));
-
-            result.release();
-            M.release();
-            result = dst;
+        } catch (Exception e) {
+            logger.error("Failed to crop frame for camera {}", cameraIndex, e);
+            return new Mat();
         }
-        return result;
-    }
-
-    private int getOverlapWidth(int i) {
-        CameraConfig c = cameraConfigs.get(i);
-        return (c != null && c.overlapWidth > 0) ? c.overlapWidth : DEFAULT_OVERLAP_WIDTH;
     }
 
     // =========================================================
@@ -400,8 +238,8 @@ public class ManualStitchStrategy implements StitchStrategy {
     public void updateCameraConfig(CameraConfig config) {
         if (config != null) {
             cameraConfigs.put(config.index, config);
-            // 配置变更，清理缓存强制下次重新计算
-            cachedMaskWidth = -1;
+            logger.info("Updated config for camera {}: x1={}, x2={}, y={}, h={}",
+                config.index, config.x1, config.x2, config.y, config.h);
         }
     }
 
@@ -422,7 +260,7 @@ public class ManualStitchStrategy implements StitchStrategy {
                 cameraConfigs.put(config.index, config);
             }
         }
-        cachedMaskWidth = -1;
+        logger.info("Set configs for {} cameras", configs != null ? configs.size() : 0);
     }
 
     /**
@@ -431,23 +269,76 @@ public class ManualStitchStrategy implements StitchStrategy {
     public void resetToDefault(int cameraCount) {
         cameraConfigs.clear();
         for (int i = 0; i < cameraCount; i++) {
-            cameraConfigs.put(i, new CameraConfig(i));
+            cameraConfigs.put(i, new CameraConfig(i, cameraCount));
         }
-        cachedMaskWidth = -1;
+        logger.info("Reset to default config for {} cameras", cameraCount);
     }
 
     // =========================================================
     // 配置实体类
     // =========================================================
+
+    /**
+     * 摄像头拼接配置（通用版）
+     * <p>
+     * 参数说明：
+     * - index: 摄像头索引
+     * - x1: 左切割线位置（保留从 x1 到右侧的区域）
+     * - x2: 右切割线位置（保留从左侧到 x2 的区域）
+     * - y: 截取起始 Y 坐标
+     * - h: 截取高度
+     * <p>
+     * 默认值策略（假设图像宽度5472，高度3648）：
+     * - 第一个摄像头 (index=0)：x1=0, x2=4000
+     * - 中间摄像头 (0 < index < N-1)：x1=1200, x2=4200
+     * - 最后一个摄像头 (index=N-1)：x1=1600, x2=5472
+     */
     public static class CameraConfig {
         public int index;
-        public int[] offset = {0, 0};
-        public double scale = 1.0;
-        public double rotation = 0;
-        public boolean[] flip = {false, false};
-        public int overlapWidth = DEFAULT_OVERLAP_WIDTH;
+        public int x1 = 0;           // 左切割线位置
+        public int x2 = 5472;        // 右切割线位置
+        public int y = 0;            // 截取起始 Y 坐标
+        public int h = 3648;         // 截取高度
 
-        public CameraConfig() {}
-        public CameraConfig(int i) { this.index = i; }
+        public CameraConfig() {
+            this.index = 0;
+        }
+
+        public CameraConfig(int index) {
+            this.index = index;
+            this.x1 = 0;
+            this.x2 = 5472;
+            this.y = 0;
+            this.h = 3648;
+        }
+
+        /**
+         * 根据摄像头索引和总数创建默认配置
+         * @param index 摄像头索引
+         * @param totalCameras 摄像头总数
+         */
+        public CameraConfig(int index, int totalCameras) {
+            this.index = index;
+            this.y = 0;
+            this.h = 3648;
+
+            if (totalCameras == 1) {
+                // 只有一个摄像头，保留全部
+                this.x1 = 0;
+                this.x2 = 5472;
+            } else if (index == 0) {
+                // 第一个摄像头：保留左侧大部分
+                this.x1 = 0;
+                this.x2 = 4000;
+            } else if (index == totalCameras - 1) {
+                // 最后一个摄像头：保留右侧大部分
+                this.x1 = 1600;
+                this.x2 = 5472;
+            } else {
+                // 中间摄像头：两边都切，保留中间部分
+                this.x1 = 1200;
+                this.x2 = 4200;
+            }
+        }
     }
 }

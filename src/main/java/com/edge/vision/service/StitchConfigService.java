@@ -18,12 +18,22 @@ import java.nio.file.Paths;
 import java.util.*;
 
 /**
- * 拼接配置服务
+ * 拼接配置服务 (V6 通用版 - 每个摄像头支持左右切割)
  * 负责拼接参数的持久化和运行时管理
- *
+ * <p>
  * 配置说明：
- * - yml 文件：只配置拼接策略 (simple/auto/manual)
- * - data/stitch-config.json：手动拼接参数配置（仅在 manual 模式下使用）
+ * - yml 文件：只配置拼接策略 (simple/manual，移除 auto)
+ * - data/stitch-config.json：手动拼接参数配置 (x1, x2, y, h)
+ * <p>
+ * 参数说明：
+ * - x1: 左切割线位置（保留从 x1 到右侧的区域）
+ * - x2: 右切割线位置（保留从左侧到 x2 的区域）
+ * - y: 截取起始 Y 坐标
+ * - h: 截取高度
+ * <p>
+ * 拼接原理：
+ * 每个摄像头保留 [y, y+h] 行，[x1, x2) 列
+ * 所有切片后的图像水平拼接
  */
 @Service
 public class StitchConfigService {
@@ -45,7 +55,7 @@ public class StitchConfigService {
     private Path configFilePath;
 
     // 默认拼接策略
-    private String currentStrategy = "simple";
+    private String currentStrategy = "manual";
 
     @PostConstruct
     public void init() {
@@ -69,7 +79,11 @@ public class StitchConfigService {
             currentStrategy = yamlConfig.getStitching().getStrategy();
         }
 
-        logger.info("StitchConfigService initialized with strategy: {}, config file: {}", currentStrategy, configFilePath);
+        // 主动创建策略实例以加载配置文件
+        currentStitchStrategy = createStitchStrategy();
+
+        logger.info("StitchConfigService initialized with strategy: {}, config file: {}",
+            currentStrategy, configFilePath);
     }
 
     @PreDestroy
@@ -88,11 +102,11 @@ public class StitchConfigService {
     }
 
     /**
-     * 设置拼接策略
+     * 设置拼接策略（移除 auto 选项）
      */
     public synchronized void setStrategy(String strategy) {
-        if (!Arrays.asList("simple", "auto", "manual").contains(strategy)) {
-            throw new IllegalArgumentException("Invalid strategy: " + strategy);
+        if (!Arrays.asList("simple", "manual").contains(strategy)) {
+            throw new IllegalArgumentException("Invalid strategy: " + strategy + ". Only 'simple' and 'manual' are supported.");
         }
 
         // 如果从 manual 切换到其他策略，先保存配置
@@ -117,16 +131,13 @@ public class StitchConfigService {
     }
 
     /**
-     * 创建拼接策略实例
+     * 创建拼接策略实例（移除 auto）
      */
     private Object createStitchStrategy() {
         switch (currentStrategy) {
             case "simple":
                 boolean enableBlend = yamlConfig.getStitching() != null && yamlConfig.getStitching().isEnableBlend();
                 return new com.edge.vision.core.stitcher.SimpleStitchStrategy(enableBlend);
-
-            case "auto":
-                return new com.edge.vision.core.stitcher.AutoStitchStrategy();
 
             case "manual":
                 ManualStitchStrategy manualStrategy = new ManualStitchStrategy();
@@ -156,11 +167,10 @@ public class StitchConfigService {
                         manualStrategy.getAllCameraConfigs().entrySet()) {
                     Map<String, Object> cameraConfig = new HashMap<>();
                     cameraConfig.put("index", entry.getValue().index);
-                    cameraConfig.put("offset", entry.getValue().offset);
-                    cameraConfig.put("scale", entry.getValue().scale);
-                    cameraConfig.put("rotation", entry.getValue().rotation);
-                    cameraConfig.put("flip", entry.getValue().flip);
-                    cameraConfig.put("overlapWidth", entry.getValue().overlapWidth);
+                    cameraConfig.put("x1", entry.getValue().x1);
+                    cameraConfig.put("x2", entry.getValue().x2);
+                    cameraConfig.put("y", entry.getValue().y);
+                    cameraConfig.put("h", entry.getValue().h);
                     cameras.add(cameraConfig);
                 }
                 config.put("cameras", cameras);
@@ -171,7 +181,7 @@ public class StitchConfigService {
     }
 
     /**
-     * 更新手动拼接配置
+     * 更新手动拼接配置（通用版 - 支持 x1, x2）
      */
     public synchronized void updateManualConfig(int cameraIndex, Map<String, Object> params) {
         if (!"manual".equals(currentStrategy)) {
@@ -183,21 +193,18 @@ public class StitchConfigService {
             ManualStitchStrategy manualStrategy = (ManualStitchStrategy) strategy;
             ManualStitchStrategy.CameraConfig config = manualStrategy.getCameraConfig(cameraIndex);
 
-            // 更新配置
-            if (params.containsKey("offset")) {
-                config.offset = parseIntArrayValue(params.get("offset"));
+            // 更新配置（x1, x2, y, h）
+            if (params.containsKey("x1")) {
+                config.x1 = getNumberValue(params.get("x1")).intValue();
             }
-            if (params.containsKey("scale")) {
-                config.scale = getNumberValue(params.get("scale")).doubleValue();
+            if (params.containsKey("x2")) {
+                config.x2 = getNumberValue(params.get("x2")).intValue();
             }
-            if (params.containsKey("rotation")) {
-                config.rotation = getNumberValue(params.get("rotation")).doubleValue();
+            if (params.containsKey("y")) {
+                config.y = getNumberValue(params.get("y")).intValue();
             }
-            if (params.containsKey("flip")) {
-                config.flip = parseBooleanArrayValue(params.get("flip"));
-            }
-            if (params.containsKey("overlapWidth")) {
-                config.overlapWidth = getNumberValue(params.get("overlapWidth")).intValue();
+            if (params.containsKey("h")) {
+                config.h = getNumberValue(params.get("h")).intValue();
             }
 
             manualStrategy.updateCameraConfig(config);
@@ -205,12 +212,13 @@ public class StitchConfigService {
             // 持久化配置到 JSON 文件
             savePersistedConfig();
 
-            logger.info("Updated manual config for camera {}: {}", cameraIndex, params);
+            logger.info("Updated manual config for camera {}: x1={}, x2={}, y={}, h={}",
+                cameraIndex, config.x1, config.x2, config.y, config.h);
         }
     }
 
     /**
-     * 批量更新手动拼接配置
+     * 批量更新手动拼接配置（通用版 - 支持 x1, x2）
      */
     public synchronized void updateManualConfigBatch(List<Map<String, Object>> cameraConfigs) {
         if (!"manual".equals(currentStrategy)) {
@@ -226,20 +234,17 @@ public class StitchConfigService {
                 ManualStitchStrategy.CameraConfig config = new ManualStitchStrategy.CameraConfig();
                 config.index = getNumberValue(params.get("index")).intValue();
 
-                if (params.containsKey("offset")) {
-                    config.offset = parseIntArrayValue(params.get("offset"));
+                if (params.containsKey("x1")) {
+                    config.x1 = getNumberValue(params.get("x1")).intValue();
                 }
-                if (params.containsKey("scale")) {
-                    config.scale = getNumberValue(params.get("scale")).doubleValue();
+                if (params.containsKey("x2")) {
+                    config.x2 = getNumberValue(params.get("x2")).intValue();
                 }
-                if (params.containsKey("rotation")) {
-                    config.rotation = getNumberValue(params.get("rotation")).doubleValue();
+                if (params.containsKey("y")) {
+                    config.y = getNumberValue(params.get("y")).intValue();
                 }
-                if (params.containsKey("flip")) {
-                    config.flip = parseBooleanArrayValue(params.get("flip"));
-                }
-                if (params.containsKey("overlapWidth")) {
-                    config.overlapWidth = getNumberValue(params.get("overlapWidth")).intValue();
+                if (params.containsKey("h")) {
+                    config.h = getNumberValue(params.get("h")).intValue();
                 }
 
                 configs.add(config);
@@ -261,8 +266,8 @@ public class StitchConfigService {
         Object strategy = getStitchStrategy();
         if (strategy instanceof ManualStitchStrategy) {
             ManualStitchStrategy manualStrategy = (ManualStitchStrategy) strategy;
-            int cameraCount = cameraService.getCameraCount();
-            manualStrategy.resetToDefault(cameraCount > 0 ? cameraCount : 2);
+            int cameraCount = getCameraCountSafe();
+            manualStrategy.resetToDefault(cameraCount > 1 ? cameraCount : 2);
 
             // 持久化配置到 JSON 文件
             savePersistedConfig();
@@ -272,7 +277,7 @@ public class StitchConfigService {
     }
 
     /**
-     * 从 JSON 文件加载手动拼接配置
+     * 从 JSON 文件加载手动拼接配置（通用版 - 支持 x1, x2）
      */
     private void loadManualConfigFromJson(ManualStitchStrategy strategy) {
         if (Files.exists(configFilePath)) {
@@ -288,36 +293,58 @@ public class StitchConfigService {
                     for (Map<String, Object> params : cameraConfigs) {
                         ManualStitchStrategy.CameraConfig cfg = new ManualStitchStrategy.CameraConfig();
                         cfg.index = ((Number) params.get("index")).intValue();
-                        cfg.offset = parseIntArray(params.get("offset"));
-                        cfg.scale = ((Number) params.get("scale")).doubleValue();
-                        cfg.rotation = ((Number) params.get("rotation")).doubleValue();
-                        cfg.flip = parseBooleanArray(params.get("flip"));
-                        cfg.overlapWidth = ((Number) params.get("overlapWidth")).intValue();
+
+                        // 读取通用参数 (x1, x2, y, h)
+                        if (params.containsKey("x1")) {
+                            cfg.x1 = ((Number) params.get("x1")).intValue();
+                        }
+                        if (params.containsKey("x2")) {
+                            cfg.x2 = ((Number) params.get("x2")).intValue();
+                        }
+                        if (params.containsKey("y")) {
+                            cfg.y = ((Number) params.get("y")).intValue();
+                        }
+                        if (params.containsKey("h")) {
+                            cfg.h = ((Number) params.get("h")).intValue();
+                        }
+
                         configs.add(cfg);
                     }
                     strategy.setAllCameraConfigs(configs);
                     logger.info("Loaded manual config from JSON for {} cameras", configs.size());
                 } else {
                     // 文件存在但没有配置，使用默认值
-                    int cameraCount = cameraService.getCameraCount();
-                    strategy.resetToDefault(cameraCount > 0 ? cameraCount : 2);
+                    int cameraCount = getCameraCountSafe();
+                    strategy.resetToDefault(cameraCount > 1 ? cameraCount : 2);
                     logger.info("No manual config found in JSON, using defaults");
                 }
             } catch (IOException e) {
                 logger.warn("Failed to load manual config from JSON: {}, using defaults", e.getMessage());
-                int cameraCount = cameraService.getCameraCount();
-                strategy.resetToDefault(cameraCount > 0 ? cameraCount : 2);
+                int cameraCount = getCameraCountSafe();
+                strategy.resetToDefault(cameraCount > 1 ? cameraCount : 2);
             }
         } else {
             // 文件不存在，使用默认值
-            int cameraCount = cameraService.getCameraCount();
-            strategy.resetToDefault(cameraCount > 0 ? cameraCount : 2);
+            int cameraCount = getCameraCountSafe();
+            strategy.resetToDefault(cameraCount > 1 ? cameraCount : 2);
             logger.info("Manual config file not found, using defaults");
         }
     }
 
     /**
-     * 保存手动拼接配置到 JSON 文件
+     * 安全地获取摄像头数量，处理 @Lazy 可能导致的未初始化情况
+     */
+    private int getCameraCountSafe() {
+        try {
+            return cameraService.getCameraCount();
+        } catch (Exception e) {
+            logger.debug("CameraService not ready yet, using default camera count: {}", e.getMessage());
+            return 2; // 默认返回2个摄像头
+        }
+    }
+
+    /**
+     * 保存手动拼接配置到 JSON 文件（通用版 - 支持 x1, x2）
      */
     private void savePersistedConfig() {
         try {
@@ -330,19 +357,18 @@ public class StitchConfigService {
             ObjectMapper mapper = new ObjectMapper();
 
             Map<String, Object> configToSave = new HashMap<>();
-            configToSave.put("version", "1.0");
-            configToSave.put("description", "Manual stitch configuration for multiple cameras");
+            configToSave.put("version", "3.0");
+            configToSave.put("description", "Universal manual stitch configuration - each camera with left/right crop parameters");
             configToSave.put("updatedAt", System.currentTimeMillis());
 
             List<Map<String, Object>> cameraConfigs = new ArrayList<>();
             for (ManualStitchStrategy.CameraConfig cfg : manualStrategy.getAllCameraConfigs().values()) {
                 Map<String, Object> cfgMap = new HashMap<>();
                 cfgMap.put("index", cfg.index);
-                cfgMap.put("offset", cfg.offset);
-                cfgMap.put("scale", cfg.scale);
-                cfgMap.put("rotation", cfg.rotation);
-                cfgMap.put("flip", cfg.flip);
-                cfgMap.put("overlapWidth", cfg.overlapWidth);
+                cfgMap.put("x1", cfg.x1);
+                cfgMap.put("x2", cfg.x2);
+                cfgMap.put("y", cfg.y);
+                cfgMap.put("h", cfg.h);
                 cameraConfigs.add(cfgMap);
             }
             configToSave.put("cameras", cameraConfigs);
@@ -361,7 +387,7 @@ public class StitchConfigService {
     public Map<String, Object> getAllConfigs() {
         Map<String, Object> result = new HashMap<>();
         result.put("currentStrategy", currentStrategy);
-        result.put("availableStrategies", Arrays.asList("simple", "auto", "manual"));
+        result.put("availableStrategies", Arrays.asList("simple", "manual"));
         result.put("configFilePath", configFilePath.toString());
 
         if (yamlConfig.getStitching() != null) {
@@ -370,52 +396,6 @@ public class StitchConfigService {
         }
 
         return result;
-    }
-
-    // 辅助方法：解析 int 数组
-    private int[] parseIntArray(Object value) {
-        if (value instanceof int[]) {
-            return (int[]) value;
-        }
-        if (value instanceof List) {
-            List<?> list = (List<?>) value;
-            int[] result = new int[list.size()];
-            for (int i = 0; i < list.size(); i++) {
-                Object item = list.get(i);
-                if (item instanceof Number) {
-                    result[i] = ((Number) item).intValue();
-                } else if (item instanceof String) {
-                    result[i] = Integer.parseInt((String) item);
-                } else {
-                    result[i] = 0;
-                }
-            }
-            return result;
-        }
-        return new int[]{0, 0};
-    }
-
-    // 辅助方法：解析 boolean 数组
-    private boolean[] parseBooleanArray(Object value) {
-        if (value instanceof boolean[]) {
-            return (boolean[]) value;
-        }
-        if (value instanceof List) {
-            List<?> list = (List<?>) value;
-            boolean[] result = new boolean[list.size()];
-            for (int i = 0; i < list.size(); i++) {
-                Object item = list.get(i);
-                if (item instanceof Boolean) {
-                    result[i] = (Boolean) item;
-                } else if (item instanceof String) {
-                    result[i] = Boolean.parseBoolean((String) item);
-                } else {
-                    result[i] = Boolean.TRUE.equals(item);
-                }
-            }
-            return result;
-        }
-        return new boolean[]{false, false};
     }
 
     // 辅助方法：从任意类型获取 Number 值（处理字符串数字）
@@ -427,51 +407,5 @@ public class StitchConfigService {
             return Double.parseDouble((String) value);
         }
         return 0;
-    }
-
-    // 辅助方法：解析 int 数组（增强版，处理字符串和 ArrayList）
-    private int[] parseIntArrayValue(Object value) {
-        if (value instanceof int[]) {
-            return (int[]) value;
-        }
-        if (value instanceof List) {
-            List<?> list = (List<?>) value;
-            int[] result = new int[list.size()];
-            for (int i = 0; i < list.size(); i++) {
-                Object item = list.get(i);
-                if (item instanceof Number) {
-                    result[i] = ((Number) item).intValue();
-                } else if (item instanceof String) {
-                    result[i] = Integer.parseInt((String) item);
-                } else {
-                    result[i] = 0;
-                }
-            }
-            return result;
-        }
-        return new int[]{0, 0};
-    }
-
-    // 辅助方法：解析 boolean 数组（增强版）
-    private boolean[] parseBooleanArrayValue(Object value) {
-        if (value instanceof boolean[]) {
-            return (boolean[]) value;
-        }
-        if (value instanceof List) {
-            List<?> list = (List<?>) value;
-            boolean[] result = new boolean[list.size()];
-            for (int i = 0; i < list.size(); i++) {
-                Object item = list.get(i);
-                if (item instanceof Boolean) {
-                    result[i] = (Boolean) item;
-                } else if (item instanceof String) {
-                    result[i] = Boolean.parseBoolean((String) item);
-                } else {
-                    result[i] = false;
-                }
-            }
-            return result;
-        }
-        return new boolean[]{false, false};
     }
 }

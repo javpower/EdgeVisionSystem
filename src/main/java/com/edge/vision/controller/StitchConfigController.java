@@ -22,13 +22,15 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 拼接配置控制器
- *
+ * 拼接配置控制器 (V6 通用版 - 每个摄像头支持左右切割)
+ * <p>
  * 提供拼接策略配置和手动拼接参数调节的 API
+ * 移除了 auto 策略，只保留 simple 和 manual
+ * manual 模式使用通用的数组切片方法，每个摄像头支持独立的左右切割参数
  */
 @RestController
 @RequestMapping("/api/stitch")
-@Tag(name = "拼接配置", description = "拼接策略切换和手动拼接参数调节，配置自动持久化到 data/stitch-config.json")
+@Tag(name = "拼接配置", description = "拼接策略切换和手动拼接参数调节（通用版：基于数组切片，每个摄像头支持左右切割），配置自动持久化到 data/stitch-config.json")
 public class StitchConfigController {
     private static final Logger logger = LoggerFactory.getLogger(StitchConfigController.class);
 
@@ -47,7 +49,7 @@ public class StitchConfigController {
                     **返回字段说明**：
                     | 字段 | 类型 | 说明 |
                     |------|------|------|
-                    | currentStrategy | string | 当前拼接策略：simple/auto/manual |
+                    | currentStrategy | string | 当前拼接策略：simple/manual |
                     | availableStrategies | array | 可用的拼接策略列表 |
                     | blendWidth | number | 融合区域宽度（像素）|
                     | enableBlend | boolean | 是否启用融合 |
@@ -66,7 +68,7 @@ public class StitchConfigController {
                                               "status": "success",
                                               "data": {
                                                 "currentStrategy": "manual",
-                                                "availableStrategies": ["simple", "auto", "manual"],
+                                                "availableStrategies": ["simple", "manual"],
                                                 "blendWidth": 100,
                                                 "enableBlend": true,
                                                 "configFilePath": "/path/to/data/stitch-config.json"
@@ -106,8 +108,7 @@ public class StitchConfigController {
                     | 策略 | 说明 | 适用场景 |
                     |------|------|----------|
                     | simple | 简单水平拼接，支持边缘融合 | 摄像头位置固定，无需对齐 |
-                    | auto | 自动特征点检测拼接 | 摄像头位置不固定，需要自动对齐 |
-                    | manual | 手动调节拼接参数 | 需要精确控制拼接效果 |
+                    | manual | 手动调节拼接参数（数组切片） | 需要精确控制拼接效果 |
                     """
     )
     @ApiResponses(value = {
@@ -122,7 +123,7 @@ public class StitchConfigController {
                                               "status": "success",
                                               "data": {
                                                 "strategy": "manual",
-                                                "available": ["simple", "auto", "manual"]
+                                                "available": ["simple", "manual"]
                                               }
                                             }
                                             """
@@ -137,7 +138,7 @@ public class StitchConfigController {
             response.put("status", "success");
             Map<String, Object> data = new HashMap<>();
             data.put("strategy", strategy);
-            data.put("available", List.of("simple", "auto", "manual"));
+            data.put("available", List.of("simple", "manual"));
             response.put("data", data);
             return ResponseEntity.ok(response);
         } catch (Exception e) {
@@ -162,8 +163,7 @@ public class StitchConfigController {
                     | 策略 | 说明 | 速度 | 效果 |
                     |------|------|------|------|
                     | simple | 简单水平拼接 | 快 | 一般 |
-                    | auto | 自动特征点检测 | 慢 | 好 |
-                    | manual | 手动调节参数 | 快 | 可调 |
+                    | manual | 手动调节参数（数组切片）| 快 | 可调 |
 
                     **切换到 manual 模式后**：
                     - 自动加载 `data/stitch-config.json` 中的配置
@@ -266,7 +266,7 @@ public class StitchConfigController {
      */
     @GetMapping("/manual")
     @Operation(
-            summary = "获取手动拼接配置",
+            summary = "获取手动拼接配置（通用版）",
             description = """
                     获取当前手动拼接模式的配置参数。
 
@@ -275,18 +275,20 @@ public class StitchConfigController {
                     | 参数 | 类型 | 说明 |
                     |------|------|------|
                     | index | number | 摄像头索引（从0开始）|
-                    | offset | number[] | 位置偏移 [x, y]，单位像素 |
-                    | scale | number | 缩放比例，1.0为原始大小 |
-                    | rotation | number | 旋转角度，单位度，正数为顺时针 |
-                    | flip | boolean[] | 是否翻转 [水平, 垂直] |
-                    | overlapWidth | number | 重叠区域宽度（像素）|
+                    | x1 | number | 左切割线位置（保留从 x1 到右侧的区域）|
+                    | x2 | number | 右切割线位置（保留从左侧到 x2 的区域）|
+                    | y | number | 截取起始 Y 坐标 |
+                    | h | number | 截取高度 |
+
+                    **拼接原理**：
+                    每个摄像头保留 [y, y+h] 行，[x1, x2) 列
+                    所有切片后的图像水平拼接
 
                     **典型值参考**：
-                    - offset: [0, 0] → 不偏移
-                    - scale: 1.0 → 原始大小，0.9 → 缩小到90%
-                    - rotation: 0 → 不旋转，90 → 顺时针旋转90度
-                    - flip: [false, false] → 不翻转
-                    - overlapWidth: 100 → 100像素重叠融合
+                    - 假设原始图像 5472x3648
+                    - 摄像头1：x1=0, x2=4000, y=0, h=3648 → 保留左 73%
+                    - 摄像头2：x1=1600, x2=5472, y=0, h=3648 → 保留右 73%
+                    - 摄像头3：x1=1200, x2=4200, y=0, h=3648 → 保留中间部分
                     """
     )
     @ApiResponses(value = {
@@ -304,19 +306,24 @@ public class StitchConfigController {
                                                 "cameras": [
                                                   {
                                                     "index": 0,
-                                                    "offset": [0, 0],
-                                                    "scale": 1.0,
-                                                    "rotation": 0,
-                                                    "flip": [false, false],
-                                                    "overlapWidth": 100
+                                                    "x1": 0,
+                                                    "x2": 4000,
+                                                    "y": 0,
+                                                    "h": 3648
                                                   },
                                                   {
                                                     "index": 1,
-                                                    "offset": [10, 0],
-                                                    "scale": 0.95,
-                                                    "rotation": 0,
-                                                    "flip": [false, false],
-                                                    "overlapWidth": 120
+                                                    "x1": 1600,
+                                                    "x2": 5472,
+                                                    "y": 0,
+                                                    "h": 3648
+                                                  },
+                                                  {
+                                                    "index": 2,
+                                                    "x1": 1200,
+                                                    "x2": 4200,
+                                                    "y": 0,
+                                                    "h": 3648
                                                   }
                                                 ]
                                               }
@@ -346,7 +353,7 @@ public class StitchConfigController {
      */
     @PostMapping("/manual/{cameraIndex}")
     @Operation(
-            summary = "更新单个摄像头配置",
+            summary = "更新单个摄像头配置（通用版）",
             description = """
                     更新指定摄像头的手动拼接参数。
 
@@ -354,19 +361,21 @@ public class StitchConfigController {
 
                     | 参数 | 类型 | 说明 | 默认值 |
                     |------|------|------|--------|
-                    | offset | number[] | 位置偏移 [x, y]，单位像素 | [0, 0] |
-                    | scale | number | 缩放比例，1.0为原始大小 | 1.0 |
-                    | rotation | number | 旋转角度，单位度 | 0 |
-                    | flip | boolean[] | 是否翻转 [水平, 垂直] | [false, false] |
-                    | overlapWidth | number | 重叠区域宽度（像素）| 100 |
+                    | x1 | number | 左切割线位置（像素）| 0 |
+                    | x2 | number | 右切割线位置（像素）| 5472 |
+                    | y | number | 截取起始 Y 坐标（像素）| 0 |
+                    | h | number | 截取高度（像素）| 3648 |
 
                     **使用场景**：
 
-                    1. **调整垂直对齐**：设置 offset [0, 10] 让第二个摄像头下移10像素
-                    2. **缩放调整**：设置 scale 0.9 让第二个摄像头缩小到90%
-                    3. **旋转校正**：设置 rotation 5 顺时针旋转5度
-                    4. **镜像翻转**：设置 flip [true, false] 水平翻转
-                    5. **重叠融合**：设置 overlapWidth 150 增加150像素重叠融合
+                    1. **调整切割位置**：
+                       - 摄像头1：x1=0, x2=4000 保留左侧
+                       - 摄像头2：x1=1600, x2=5472 保留右侧
+                       - 摄像头3：x1=1200, x2=4200 保留中间
+
+                    2. **处理上下偏移**：
+                       - 设置 y=10 从第 10 行开始截取
+                       - 设置 h=3600 截取 3600 像素高度
 
                     **注意**：修改后自动保存到 `data/stitch-config.json`
                     """
@@ -379,19 +388,20 @@ public class StitchConfigController {
                     schema = @Schema(implementation = ManualConfigRequest.class),
                     examples = {
                             @ExampleObject(
-                                    name = "调整偏移",
+                                    name = "调整切割位置",
                                     value = """
                                             {
-                                              "offset": [10, 20]
+                                              "x1": 0,
+                                              "x2": 4000
                                             }
                                             """
                             ),
                             @ExampleObject(
-                                    name = "缩放和旋转",
+                                    name = "处理上下偏移",
                                     value = """
                                             {
-                                              "scale": 0.9,
-                                              "rotation": 5
+                                              "y": 10,
+                                              "h": 3600
                                             }
                                             """
                             ),
@@ -399,11 +409,10 @@ public class StitchConfigController {
                                     name = "完整配置",
                                     value = """
                                             {
-                                              "offset": [0, 0],
-                                              "scale": 1.0,
-                                              "rotation": 0,
-                                              "flip": [false, false],
-                                              "overlapWidth": 100
+                                              "x1": 0,
+                                              "x2": 4000,
+                                              "y": 0,
+                                              "h": 3648
                                             }
                                             """
                             )
@@ -481,7 +490,7 @@ public class StitchConfigController {
      */
     @PostMapping("/manual/batch")
     @Operation(
-            summary = "批量更新摄像头配置",
+            summary = "批量更新摄像头配置（通用版）",
             description = """
                     一次性更新多个摄像头的拼接参数。
 
@@ -494,8 +503,8 @@ public class StitchConfigController {
                     ```json
                     {
                       "cameras": [
-                        { "index": 0, "offset": [0, 0], ... },
-                        { "index": 1, "offset": [10, 0], ... }
+                        { "index": 0, "x1": 0, "x2": 4000, "y": 0, "h": 3648 },
+                        { "index": 1, "x1": 1600, "x2": 5472, "y": 0, "h": 3648 }
                       ]
                     }
                     ```
@@ -513,19 +522,17 @@ public class StitchConfigController {
                                       "cameras": [
                                         {
                                           "index": 0,
-                                          "offset": [0, 0],
-                                          "scale": 1.0,
-                                          "rotation": 0,
-                                          "flip": [false, false],
-                                          "overlapWidth": 100
+                                          "x1": 0,
+                                          "x2": 4000,
+                                          "y": 0,
+                                          "h": 3648
                                         },
                                         {
                                           "index": 1,
-                                          "offset": [10, 0],
-                                          "scale": 0.95,
-                                          "rotation": 0,
-                                          "flip": [false, false],
-                                          "overlapWidth": 120
+                                          "x1": 1600,
+                                          "x2": 5472,
+                                          "y": 0,
+                                          "h": 3648
                                         }
                                       ]
                                     }
@@ -596,12 +603,12 @@ public class StitchConfigController {
             description = """
                     将所有摄像头的手动拼接参数重置为默认值。
 
-                    **默认值**：
-                    - offset: [0, 0]
-                    - scale: 1.0
-                    - rotation: 0
-                    - flip: [false, false]
-                    - overlapWidth: 100
+                    **默认值**（假设图像宽度5472，高度3648）：
+                    - 第一个摄像头 (index=0)：x1=0, x2=4000
+                    - 中间摄像头：x1=1200, x2=4200
+                    - 最后一个摄像头：x1=1600, x2=5472
+                    - y: 0
+                    - h: 3648
 
                     **使用场景**：
                     - 配置混乱时重新开始
@@ -669,15 +676,13 @@ public class StitchConfigController {
                                               "data": {
                                                 "strategies": {
                                                   "simple": "简单水平拼接 - 适用于摄像头位置固定的场景",
-                                                  "auto": "自动拼接 - 使用特征点检测自动对齐和融合",
-                                                  "manual": "手动拼接 - 支持前端手动调节拼接参数"
+                                                  "manual": "手动拼接（数组切片）- 每个摄像头支持独立的左右切割参数"
                                                 },
                                                 "manualParams": {
-                                                  "offset": "位置偏移 [x, y] - 单位像素，正数向右/下偏移",
-                                                  "scale": "缩放比例 - 1.0 为原始大小，大于1放大，小于1缩小",
-                                                  "rotation": "旋转角度 - 单位度，正数为顺时针旋转",
-                                                  "flip": "翻转 [水平, 垂直] - true 表示翻转",
-                                                  "overlapWidth": "重叠区域宽度 - 单位像素，影响融合效果"
+                                                  "x1": "左切割线位置 - 保留从 x1 到右侧的区域",
+                                                  "x2": "右切割线位置 - 保留从左侧到 x2 的区域",
+                                                  "y": "截取起始 Y 坐标 - 从哪一行开始截取",
+                                                  "h": "截取高度 - 截取多少行"
                                                 },
                                                 "examples": [...]
                                               }
@@ -694,35 +699,35 @@ public class StitchConfigController {
 
             Map<String, String> strategies = new HashMap<>();
             strategies.put("simple", "简单水平拼接 - 适用于摄像头位置固定的场景");
-            strategies.put("auto", "自动拼接 - 使用特征点检测自动对齐和融合");
-            strategies.put("manual", "手动拼接 - 支持前端手动调节拼接参数");
+            strategies.put("manual", "手动拼接（数组切片）- 每个摄像头支持独立的左右切割参数");
             data.put("strategies", strategies);
 
-            Map<String, Object> manualParams = new HashMap<>();
-            manualParams.put("offset", "位置偏移 [x, y] - 单位像素，正数向右/下偏移");
-            manualParams.put("scale", "缩放比例 - 1.0 为原始大小，大于1放大，小于1缩小");
-            manualParams.put("rotation", "旋转角度 - 单位度，正数为顺时针旋转");
-            manualParams.put("flip", "翻转 [水平, 垂直] - true 表示翻转");
-            manualParams.put("overlapWidth", "重叠区域宽度 - 单位像素，影响融合效果");
+            Map<String, String> manualParams = new HashMap<>();
+            manualParams.put("x1", "左切割线位置 - 保留从 x1 到右侧的区域");
+            manualParams.put("x2", "右切割线位置 - 保留从左侧到 x2 的区域");
+            manualParams.put("y", "截取起始 Y 坐标 - 从哪一行开始截取");
+            manualParams.put("h", "截取高度 - 截取多少行");
             data.put("manualParams", manualParams);
 
             List<Map<String, Object>> examples = new ArrayList<>();
+
             Map<String, Object> example1 = new HashMap<>();
-            example1.put("description", "两个摄像头水平拼接，无重叠");
+            example1.put("description", "两个摄像头拼接，原始图像 5472x3648，各保留 73% 后拼接");
             example1.put("config", Map.of(
                     "cameras", List.of(
-                            Map.of("index", 0, "offset", new int[]{0, 0}, "scale", 1.0, "rotation", 0, "flip", new boolean[]{false, false}, "overlapWidth", 0),
-                            Map.of("index", 1, "offset", new int[]{0, 0}, "scale", 1.0, "rotation", 0, "flip", new boolean[]{false, false}, "overlapWidth", 0)
+                            Map.of("index", 0, "x1", 0, "x2", 4000, "y", 0, "h", 3648),
+                            Map.of("index", 1, "x1", 1600, "x2", 5472, "y", 0, "h", 3648)
                     )
             ));
             examples.add(example1);
 
             Map<String, Object> example2 = new HashMap<>();
-            example2.put("description", "两个摄像头拼接，带100像素重叠融合");
+            example2.put("description", "三个摄像头拼接，中间摄像头保留中间部分");
             example2.put("config", Map.of(
                     "cameras", List.of(
-                            Map.of("index", 0, "offset", new int[]{0, 0}, "scale", 1.0, "rotation", 0, "flip", new boolean[]{false, false}, "overlapWidth", 100),
-                            Map.of("index", 1, "offset", new int[]{0, 0}, "scale", 1.0, "rotation", 0, "flip", new boolean[]{false, false}, "overlapWidth", 100)
+                            Map.of("index", 0, "x1", 0, "x2", 3800, "y", 0, "h", 3648),
+                            Map.of("index", 1, "x1", 1200, "x2", 4200, "y", 0, "h", 3648),
+                            Map.of("index", 2, "x1", 1600, "x2", 5472, "y", 0, "h", 3648)
                     )
             ));
             examples.add(example2);
@@ -744,26 +749,23 @@ public class StitchConfigController {
 
     @Schema(description = "设置拼接策略请求")
     public static class SetStrategyRequest {
-        @Schema(description = "拼接策略", example = "manual", allowableValues = {"simple", "auto", "manual"})
+        @Schema(description = "拼接策略", example = "manual", allowableValues = {"simple", "manual"})
         public String strategy;
     }
 
-    @Schema(description = "手动拼接配置请求")
+    @Schema(description = "手动拼接配置请求（通用版）")
     public static class ManualConfigRequest {
-        @Schema(description = "位置偏移 [x, y]", example = "[0, 10]")
-        public int[] offset;
+        @Schema(description = "左切割线位置（像素）", example = "0")
+        public int x1;
 
-        @Schema(description = "缩放比例", example = "0.95")
-        public double scale;
+        @Schema(description = "右切割线位置（像素）", example = "5472")
+        public int x2;
 
-        @Schema(description = "旋转角度（度）", example = "5")
-        public double rotation;
+        @Schema(description = "截取起始 Y 坐标（像素）", example = "0")
+        public int y;
 
-        @Schema(description = "是否翻转 [水平, 垂直]", example = "[false, false]")
-        public boolean[] flip;
-
-        @Schema(description = "重叠区域宽度（像素）", example = "100")
-        public int overlapWidth;
+        @Schema(description = "截取高度（像素）", example = "3648")
+        public int h;
     }
 
     @Schema(description = "批量手动拼接配置请求")
