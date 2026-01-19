@@ -297,6 +297,18 @@ jobs:
     runs-on: ${{ matrix.os }}
     name: Build GPU (${{ matrix.os }})
 
+    # NOTE: This build uses onnxruntime 1.23.2 which only supports CUDA 12.x, NOT CUDA 13.x
+    # If the deployment machine already has CUDA 13.x (for other applications),
+    # install CUDA 12.x alongside it to a separate directory. The run scripts are
+    # configured to automatically detect and prefer CUDA 12.x over CUDA 13.x.
+    #
+    # Windows: Install to "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.x"
+    # Linux: Install to "/usr/local/cuda-12.x"
+    #
+    # The run scripts will:
+    # 1. First check for CUDA 12.x directories
+    # 2. Then check for CUDA 13.x directories (with warning)
+    # 3. Set environment variables to ensure onnxruntime uses CUDA 12.x
     strategy:
       fail-fast: false
       matrix:
@@ -498,16 +510,19 @@ jobs:
         set "CUDA_PATH="
         set "CUDNN_PATH="
 
-        REM Check common CUDA paths (check v13 first, then v12, then v11)
-        if exist "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.*\bin\cudart64*.dll" (
-            for /f "delims=" %%i in ('dir /b /ad "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.*" 2^>nul') do (
+        REM Check common CUDA paths (PRIORITIZE CUDA 12.x for onnxruntime 1.23.2 compatibility)
+        REM onnxruntime 1.23.2 only supports CUDA 12.x, not CUDA 13.x
+        if exist "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.*\bin\cudart64*.dll" (
+            for /f "delims=" %%i in ('dir /b /ad "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.*" 2^>nul') do (
                 set "CUDA_PATH=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\%%i"
                 goto :found_cuda
             )
         )
-        if exist "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.*\bin\cudart64*.dll" (
-            for /f "delims=" %%i in ('dir /b /ad "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.*" 2^>nul') do (
+        if exist "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.*\bin\cudart64*.dll" (
+            for /f "delims=" %%i in ('dir /b /ad "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.*" 2^>nul') do (
                 set "CUDA_PATH=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\%%i"
+                echo WARNING: Found CUDA 13.x, but onnxruntime 1.23.2 only supports CUDA 12.x
+                echo Please install CUDA 12.x alongside CUDA 13.x for this application
                 goto :found_cuda
             )
         )
@@ -592,7 +607,11 @@ jobs:
         echo.
         echo Please install cuDNN:
         echo https://developer.nvidia.com/cudnn
-        echo Download version matching your CUDA (13.x, 12.x or 11.x)
+        echo Download version matching CUDA 12.x
+        echo.
+        echo NOTE: CUDA 12.x can coexist with CUDA 13.x on the same machine.
+        echo Install CUDA 12.x to: C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.x
+        echo This application will automatically detect and use CUDA 12.x.
         echo.
 
         :cudnn_done
@@ -600,6 +619,15 @@ jobs:
         echo Starting application...
         echo ========================================
         echo.
+
+        REM Set environment variable to prefer CUDA 12.x (onnxruntime 1.23.2 compatibility)
+        if defined CUDA_PATH (
+            echo Using CUDA: !CUDA_PATH!
+            set "CUDA_PATH_=!CUDA_PATH!"
+        )
+
+        REM Set JAVA_TOOL_OPTIONS to specify CUDA path
+        set "JAVA_TOOL_OPTIONS=-Dai.cuda.path=!CUDA_PATH!"
 
         jre\bin\java.exe -jar edge-vision.jar --spring.config.additional-location=application.yml
 
@@ -611,9 +639,9 @@ jobs:
             echo.
             echo Troubleshooting:
             echo 1. Ensure NVIDIA GPU is installed
-            echo 2. Install CUDA Toolkit: https://developer.nvidia.com/cuda-downloads
-            echo 3. Install cuDNN: https://developer.nvidia.com/cudnn
-            echo    (Match cuDNN version to your CUDA: 13.x, 12.x or 11.x)
+            echo 2. Install CUDA Toolkit 12.x: https://developer.nvidia.com/cuda-downloads
+            echo    (onnxruntime 1.23.2 requires CUDA 12.x, not 13.x)
+            echo 3. Install cuDNN for CUDA 12.x: https://developer.nvidia.com/cudnn
             echo 4. Check application.log for details
             echo.
         )
@@ -659,10 +687,16 @@ jobs:
             export PATH="$CUDA_PATH/bin:$PATH"
         fi
 
-        for cuda_ver in 13 12 11; do
+        for cuda_ver in 12 13 11; do
             if [ -d "/usr/local/cuda-${cuda_ver}" ]; then
                 CUDA_PATH="/usr/local/cuda-${cuda_ver}"
-                echo "Found CUDA ${cuda_ver}: $CUDA_PATH"
+                if [ "$cuda_ver" = "13" ]; then
+                    echo "Found CUDA ${cuda_ver}: $CUDA_PATH"
+                    echo "WARNING: onnxruntime 1.23.2 only supports CUDA 12.x, not CUDA 13.x"
+                    echo "Please install CUDA 12.x alongside CUDA 13.x"
+                else
+                    echo "Found CUDA ${cuda_ver}: $CUDA_PATH"
+                fi
                 export LD_LIBRARY_PATH="$CUDA_PATH/lib64:$LD_LIBRARY_PATH"
                 export PATH="$CUDA_PATH/bin:$PATH"
                 break
@@ -671,7 +705,8 @@ jobs:
 
         # Auto-detect and copy cuDNN if not in app directory
         if [ ! -f "$DIR/libcudnn.so" ] && [ ! -f "$DIR/libcudnn.so.9" ]; then
-            for lib_dir in /usr/local/cuda/lib64 /usr/local/cuda-13*/lib64 /usr/local/cuda-12*/lib64 /usr/local/cuda-11*/lib64 /usr/lib/x86_64-linux-gnu; do
+            # Prioritize cuDNN from CUDA 12.x directories
+            for lib_dir in /usr/local/cuda-12*/lib64 /usr/local/cuda/lib64 /usr/local/cuda-13*/lib64 /usr/local/cuda-11*/lib64 /usr/lib/x86_64-linux-gnu; do
                 if [ -d "$lib_dir" ] && ls "$lib_dir"/libcudnn*so* 2>/dev/null | head -1 > /dev/null; then
                     CUDNN_PATH="$lib_dir"
                     echo "Found cuDNN in: $CUDNN_PATH"
@@ -698,10 +733,14 @@ jobs:
 
         if [ -z "$CUDNN_PATH" ] && [ ! -f "$DIR/libcudnn.so" ] && [ ! -f "$DIR/libcudnn.so.9" ]; then
             echo "WARNING: cuDNN not found"
-            echo "Install cuDNN: https://developer.nvidia.com/cudnn"
-            echo "After downloading, extract and copy to /usr/local/cuda:"
-            echo "  sudo cp -R include/* /usr/local/cuda/include"
-            echo "  sudo cp -R lib64/* /usr/local/cuda/lib64"
+            echo "Install cuDNN for CUDA 12.x: https://developer.nvidia.com/cudnn"
+            echo "After downloading, extract and copy to /usr/local/cuda-12.x:"
+            echo "  sudo mkdir -p /usr/local/cuda-12.x"
+            echo "  sudo cp -R include/* /usr/local/cuda-12.x/include"
+            echo "  sudo cp -R lib64/* /usr/local/cuda-12.x/lib64"
+            echo ""
+            echo "NOTE: CUDA 12.x (/usr/local/cuda-12.x) can coexist with CUDA 13.x"
+            echo "This application will automatically detect and use CUDA 12.x"
             echo ""
         fi
 
@@ -709,6 +748,15 @@ jobs:
         echo "Starting application..."
         echo "========================================"
         echo ""
+
+        # Set environment variable to prefer CUDA 12.x (onnxruntime 1.23.2 compatibility)
+        if [ -n "$CUDA_PATH" ]; then
+            echo "Using CUDA: $CUDA_PATH"
+            export CUDA_PATH_="$CUDA_PATH"
+        fi
+
+        # Set JAVA_TOOL_OPTIONS to specify CUDA path
+        export JAVA_TOOL_OPTIONS="-Dai.cuda.path=$CUDA_PATH"
 
         exec "$DIR/jre/bin/java" -jar edge-vision.jar --spring.config.additional-location=application.yml
         EOF
