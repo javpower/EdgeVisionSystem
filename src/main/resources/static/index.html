@@ -1562,7 +1562,22 @@
             const height = y2 - y1;
 
             const isSelected = i === selectedIndex;
-            const color = getDefectTypeColor(det.label);
+
+            // 根据模板比对结果确定颜色
+            const detCenterX = det.centerX || det.bbox[0] + (det.bbox[2] - det.bbox[0]) / 2;
+            const detCenterY = det.centerY || det.bbox[1] + (det.bbox[3] - det.bbox[1]) / 2;
+            const compStatus = getComparisonStatus(detCenterX, detCenterY);
+
+            let color;
+            if (compStatus === 'PASSED') {
+                color = '#52c41a'; // 绿色 - 合格
+            } else if (compStatus === 'DEVIATION') {
+                color = '#faad14'; // 黄色 - 偏差
+            } else if (compStatus === 'EXTRA') {
+                color = '#ff4d4f'; // 红色 - 错检
+            } else {
+                color = getDefectTypeColor(det.label); // 未比对，使用缺陷类型颜色
+            }
 
             // 绘制矩形框
             canvasCtx.strokeStyle = isSelected ? '#FFFFFF' : color;
@@ -1580,6 +1595,43 @@
             canvasCtx.fillStyle = isSelected ? '#000000' : '#000000';
             canvasCtx.fillText(labelText, x1 + 4, y1 - 6);
         });
+    }
+
+    // 获取检测对象的比对状态
+    function getComparisonStatus(x, y) {
+        if (!templateComparisonsData || templateComparisonsData.length === 0) {
+            return null;
+        }
+
+        // 找到距离最近的比对结果
+        let nearestComp = null;
+        let minDist = Infinity;
+
+        templateComparisonsData.forEach(comp => {
+            const compX = comp.detectedPosition?.x ?? comp.detected_position?.x;
+            const compY = comp.detectedPosition?.y ?? comp.detected_position?.y;
+
+            if (compX != null && compY != null) {
+                const dist = Math.sqrt(Math.pow(x - compX, 2) + Math.pow(y - compY, 2));
+                if (dist < minDist) {
+                    minDist = dist;
+                    nearestComp = comp;
+                }
+            }
+        });
+
+        // 如果距离太远（超过50像素），认为没有对应的比对结果
+        if (minDist > 50) {
+            return null;
+        }
+
+        const status = nearestComp?.status;
+        if (status === 'MISSING') return 'MISSING';
+        if (status === 'EXTRA') return 'EXTRA';
+        if (status === 'DEVIATION_EXCEEDED') return 'DEVIATION';
+        if (nearestComp?.withinTolerance) return 'PASSED';
+
+        return null;
     }
 
     // 绘制模板比对结果（漏检和错检标注）
@@ -1603,7 +1655,7 @@
                     drawExtraAnnotation(canvasCtx, detX, detY, featureName);
                 }
             } else if (comp.withinTolerance) {
-                // 合格：蓝色小方块标记（不明显）
+                // 合格：绿色小方块标记
                 if (detX != null && detY != null) {
                     drawPassedAnnotation(canvasCtx, detX, detY);
                 }
@@ -1667,10 +1719,10 @@
         ctx.fillText('错检', x - size, y - size - 8);
     }
 
-    // 绘制合格标注（蓝色小方块）
+    // 绘制合格标注（绿色小方块）
     function drawPassedAnnotation(ctx, x, y) {
         const size = 6;
-        ctx.fillStyle = '#00BFFF'; // 深天蓝
+        ctx.fillStyle = '#52c41a'; // 绿色（合格）
         ctx.fillRect(x - size, y - size, size * 2, size * 2);
     }
 
@@ -1789,7 +1841,22 @@
             const height = y2 - y1;
 
             const isSelected = i === selectedIndex;
-            const color = getDefectTypeColor(det.label);
+
+            // 根据模板比对结果确定颜色
+            const detCenterX = det.centerX || det.bbox[0] + (det.bbox[2] - det.bbox[0]) / 2;
+            const detCenterY = det.centerY || det.bbox[1] + (det.bbox[3] - det.bbox[1]) / 2;
+            const compStatus = getComparisonStatus(detCenterX, detCenterY);
+
+            let color;
+            if (compStatus === 'PASSED') {
+                color = '#52c41a'; // 绿色 - 合格
+            } else if (compStatus === 'DEVIATION') {
+                color = '#faad14'; // 黄色 - 偏差
+            } else if (compStatus === 'EXTRA') {
+                color = '#ff4d4f'; // 红色 - 错检
+            } else {
+                color = getDefectTypeColor(det.label); // 未比对，使用缺陷类型颜色
+            }
 
             // 绘制矩形框
             ctx.strokeStyle = isSelected ? '#FFFFFF' : color;
@@ -1827,7 +1894,7 @@
                         drawExtraAnnotation(ctx, detX, detY, featureName);
                     }
                 } else if (comp.withinTolerance) {
-                    // 合格：蓝色小方块标记（不明显）
+                    // 合格：绿色小方块标记
                     if (detX != null && detY != null) {
                         drawPassedAnnotation(ctx, detX, detY);
                     }

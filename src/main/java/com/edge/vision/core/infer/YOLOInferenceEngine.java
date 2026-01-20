@@ -148,6 +148,8 @@ public class YOLOInferenceEngine extends InferEngineTemplate {
                         getLabelName(classId),
                         classId,
                         new float[]{x1, y1, x2, y2},
+                        (x1 + x2) / 2,
+                        (y1 + y2) / 2,
                         bbox[4]
                 ));
             }

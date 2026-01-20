@@ -32,8 +32,13 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.awt.*;
+import java.awt.color.ColorSpace;
+import java.awt.image.BufferedImage;
+import java.awt.image.DataBufferByte;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -408,8 +413,9 @@ public class InspectController {
 
             // 绘制检测结果（包含模板比对结果）
             // 注释：前端使用 index.html 绘制，后端绘制代码保留备用
-//            Mat resultMat = drawInspectionResults(stitchedMat.clone(), detailDetections, evaluationResult);
-            String resultImageBase64 = matToBase64(stitchedMat);
+            Mat resultMat = drawInspectionResults(stitchedMat.clone(), detailDetections, evaluationResult);
+            String resultImageBase64 = matToBase64(stitchedMat.clone());
+            String resultImageBase642 = matToBase64(resultMat);
 
             // 构建结果
             ConfirmResponse.ConfirmData data = new ConfirmResponse.ConfirmData();
@@ -470,13 +476,13 @@ public class InspectController {
             }
             inspectionEntity.setMeta(meta);
 
-            dataManager.saveRecord(inspectionEntity, resultImageBase64);
+            dataManager.saveRecord(inspectionEntity, resultImageBase642);
 
             response.put("status", "success");
             response.put("data", data);
 
             stitchedMat.release();
-//            resultMat.release();  // 注释：后端绘制已禁用，前端使用 index.html 绘制
+            resultMat.release();  // 注释：后端绘制已禁用，前端使用 index.html 绘制
 
             return ResponseEntity.ok(response);
 
@@ -807,10 +813,10 @@ public class InspectController {
         Imgproc.line(image, cross1, cross2, red, 2);
         Imgproc.line(image, cross3, cross4, red, 2);
 
-        // 绘制文字标签
+        // 绘制文字标签（使用中文绘制）
         String label = "漏检: " + comp.getFeatureName();
         Point textPos = new Point(x - size, y - size - 10);
-        Imgproc.putText(image, label, textPos, Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, red, 2);
+        drawChineseText(image, label, textPos, red, 14);
     }
 
     /**
@@ -838,14 +844,14 @@ public class InspectController {
         Point center = new Point(x, y);
         Imgproc.circle(image, center, size + 5, red, 2);
 
-        // 绘制文字标签
+        // 绘制文字标签（使用中文绘制）
         String label = "错检";
         Point textPos = new Point(x - size, y - size - 10);
-        Imgproc.putText(image, label, textPos, Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, red, 2);
+        drawChineseText(image, label, textPos, red, 14);
     }
 
     /**
-     * 绘制合格标注（蓝色小框）
+     * 绘制合格标注（绿色小框）
      */
     private void drawPassedAnnotation(Mat image, QualityStandardService.QualityEvaluationResult.TemplateComparison comp) {
         if (comp.getDetectedPosition() == null) return;
@@ -853,13 +859,13 @@ public class InspectController {
         double x = comp.getDetectedPosition().x;
         double y = comp.getDetectedPosition().y;
 
-        Scalar blue = new Scalar(255, 150, 0);
+        Scalar green = new Scalar(0, 255, 0); // 绿色（合格）
         int size = 8;
 
-        // 绘制蓝色小方块标记
+        // 绘制绿色小方块标记
         Point p1 = new Point(x - size, y - size);
         Point p2 = new Point(x + size, y + size);
-        Imgproc.rectangle(image, p1, p2, blue, -1); // 填充
+        Imgproc.rectangle(image, p1, p2, green, -1); // 填充
     }
 
     /**
@@ -930,6 +936,67 @@ public class InspectController {
     }
 
     /**
+     * 在 Mat 上绘制中文文字（使用 Graphics2D）
+     * OpenCV 的 putText 不支持中文，需要用 Java 的 Graphics2D
+     */
+    private void drawChineseText(Mat mat, String text, org.opencv.core.Point pos,
+                                  org.opencv.core.Scalar color, double fontSize) {
+        try {
+            // 将 Mat 转换为 BufferedImage
+            BufferedImage image = matToBufferedImage(mat);
+
+            Graphics2D g2d = image.createGraphics();
+            g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2d.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+
+            // OpenCV Scalar 是 BGR 格式，需要转换为 RGB
+            java.awt.Color awtColor = new java.awt.Color(
+                (int) color.val[2],  // R
+                (int) color.val[1],  // G
+                (int) color.val[0]   // B
+            );
+
+            g2d.setColor(awtColor);
+            g2d.setFont(new Font("Microsoft YaHei", Font.PLAIN, (int) fontSize));
+            g2d.drawString(text, (int) pos.x, (int) pos.y);
+            g2d.dispose();
+
+            // 将 BufferedImage 转换回 Mat
+            bufferedImageToMat(image, mat);
+        } catch (Exception e) {
+            logger.warn("Failed to draw Chinese text: {}", e.getMessage());
+            // 降级到英文
+            Imgproc.putText(mat, text, pos, Imgproc.FONT_HERSHEY_SIMPLEX,
+                fontSize / 20, color, 1);
+        }
+    }
+
+    /**
+     * Mat 转换为 BufferedImage
+     */
+    private BufferedImage matToBufferedImage(Mat mat) {
+        int type = BufferedImage.TYPE_3BYTE_BGR;
+        if (mat.channels() == 1) {
+            type = BufferedImage.TYPE_BYTE_GRAY;
+        } else if (mat.channels() == 4) {
+            type = BufferedImage.TYPE_4BYTE_ABGR;
+        }
+
+        BufferedImage image = new BufferedImage(mat.cols(), mat.rows(), type);
+        byte[] data = ((DataBufferByte) image.getRaster().getDataBuffer()).getData();
+        mat.get(0, 0, data);
+        return image;
+    }
+
+    /**
+     * BufferedImage 转换回 Mat（覆盖原 Mat）
+     */
+    private void bufferedImageToMat(BufferedImage image, Mat mat) {
+        byte[] data = ((DataBufferByte) image.getRaster().getDataBuffer()).getData();
+        mat.put(0, 0, data);
+    }
+
+    /**
      * 在左上角绘制整体结果
      */
     private void drawOverallResult(Mat image, QualityStandardService.QualityEvaluationResult evaluationResult) {
@@ -968,15 +1035,15 @@ public class InspectController {
         // 绘制边框
         Imgproc.rectangle(image, bg1, bg2, color, 2);
 
-        // 绘制文字
+        // 绘制文字（使用 Graphics2D 支持中文）
         int y = 30;
-        Imgproc.putText(image, "检测结果: " + statusText, new Point(20, y),
-                Imgproc.FONT_HERSHEY_SIMPLEX, 0.7, color, 2);
+        String resultText = evaluationResult.isPassed() ? "检测结果: 合格" : "检测结果: 不合格";
+        drawChineseText(image, resultText, new Point(20, y), color, 16);
 
         y += 25;
-        Imgproc.putText(image, String.format("通过: %d  漏检: %d  偏差: %d  错检: %d",
-                passed, missing, deviation, extra),
-                new Point(20, y), Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, new Scalar(0, 0, 0), 1);
+        String statsText = String.format("通过: %d  漏检: %d  偏差: %d  错检: %d",
+                passed, missing, deviation, extra);
+        drawChineseText(image, statsText, new Point(20, y), new Scalar(0, 0, 0), 14);
 
         // 绘制消息
         if (evaluationResult.getMessage() != null) {
@@ -985,8 +1052,7 @@ public class InspectController {
             if (msg.length() > 30) {
                 msg = msg.substring(0, 30) + "...";
             }
-            Imgproc.putText(image, msg, new Point(20, y),
-                    Imgproc.FONT_HERSHEY_SIMPLEX, 0.4, new Scalar(100, 100, 100), 1);
+            drawChineseText(image, msg, new Point(20, y), new Scalar(100, 100, 100), 12);
         }
     }
 

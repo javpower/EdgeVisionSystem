@@ -15,11 +15,12 @@ import java.util.*;
 /**
  * 基于坐标的直接匹配器（支持平移和旋转校正）
  * <p>
- * 改进策略：
- * 1. 先用所有点计算全局平移（中位数法）
- * 2. 应用变换后再进行精确匹配
+ * 迭代优化策略：
+ * 1. 粗略估计：用质心法计算初始变换（对漏检/多检鲁棒）
+ * 2. 贪心匹配：应用变换，找出可靠的匹配对
+ * 3. 精确计算：只用可靠的匹配对重新计算偏移
  * <p>
- * 这样可以避免贪心匹配在密集特征时出错的问题
+ * 这样即使有漏检/多检导致质心偏移，第二步能找到准确匹配，第三步基于可靠对重新计算。
  */
 @Component
 public class CoordinateBasedMatcher {
@@ -54,7 +55,7 @@ public class CoordinateBasedMatcher {
         // 按类别分组检测对象
         Map<Integer, List<DetectedObject>> detectedByClass = groupDetectedByClass(detectedObjects);
 
-        // ========== 步骤1：基于所有点计算全局变换（使用中位数法） ==========
+        // ========== 步骤1：基于所有点计算全局变换（迭代优化法） ==========
         AffineTransform transform = calculateTransformFromAllPoints(template, detectedObjects);
 
         if (transform != null) {
@@ -188,28 +189,26 @@ public class CoordinateBasedMatcher {
     }
 
     /**
-     * 基于质心偏移计算全局变换
+     * 迭代优化法计算全局变换
      * <p>
-     * 对每个类别分别计算模板质心和检测质心，得到该类别的偏移向量。
-     * 然后根据各类别的检测点数量进行加权平均，得到全局平移向量。
+     * 三步策略：
+     * 1. 粗略估计：用质心法计算初始变换（对漏检/多检鲁棒）
+     * 2. 贪心匹配：应用变换，找出可靠的匹配对
+     * 3. 精确计算：只用可靠的匹配对重新计算偏移
      * <p>
-     * 这种方法的优点：
-     * 1. 对多余检测点和离群点更鲁棒
-     * 2. 不需要一一对应，即使检测点数量和模板点数量不同也能工作
-     * 3. 整体偏移估计更准确
+     * 这样即使有漏检/多检导致质心偏移，第二步能找到准确匹配，第三步基于可靠对重新计算。
      */
     private AffineTransform calculateTransformFromAllPoints(Template template, List<DetectedObject> detectedObjects) {
-        // 按类别分组模板特征
-        Map<Integer, List<Point>> templatePositionsByClass = new HashMap<>();
+        // 按类别分组
+        Map<Integer, List<TemplateFeature>> templateFeaturesByClass = new HashMap<>();
         for (TemplateFeature feature : template.getFeatures()) {
             if (feature.isRequired()) {
-                templatePositionsByClass
+                templateFeaturesByClass
                     .computeIfAbsent(feature.getClassId(), k -> new ArrayList<>())
-                    .add(feature.getPosition());
+                    .add(feature);
             }
         }
 
-        // 按类别分组检测对象
         Map<Integer, List<DetectedObject>> detectedByClass = new HashMap<>();
         for (DetectedObject obj : detectedObjects) {
             detectedByClass
@@ -226,7 +225,61 @@ public class CoordinateBasedMatcher {
             return null;
         }
 
-        // 对每个类别，计算质心偏移
+        // ========== 第一步：粗略估计（质心法） ==========
+        AffineTransform initialTransform = calculateRoughTransformByCentroid(
+            templateFeaturesByClass, detectedByClass);
+
+        if (initialTransform == null) {
+            logger.warn("质心法无法计算变换，尝试使用零变换");
+            initialTransform = new AffineTransform(0, 0, 0);
+        }
+
+        logger.info("第一步-粗略变换: {}", initialTransform);
+
+        // ========== 第二步：贪心匹配，找出可靠的匹配对 ==========
+        List<MatchPair> reliablePairs = findReliableMatchPairs(
+            templateFeaturesByClass, detectedByClass, initialTransform);
+
+        logger.info("第二步-找到 {} 个可靠匹配对", reliablePairs.size());
+
+        // ========== 第三步：用可靠匹配对重新计算精确偏移 ==========
+        if (reliablePairs.isEmpty()) {
+            logger.warn("没有找到任何可靠匹配对，使用粗略变换");
+            return initialTransform;
+        }
+
+        // 计算可靠匹配对的平均偏移
+        List<Double> refinedTxList = new ArrayList<>();
+        List<Double> refinedTyList = new ArrayList<>();
+
+        for (MatchPair pair : reliablePairs) {
+            double tx = pair.detectedPos.x - pair.templatePos.x;
+            double ty = pair.detectedPos.y - pair.templatePos.y;
+            refinedTxList.add(tx);
+            refinedTyList.add(ty);
+        }
+
+        // 使用中位数（更鲁棒）
+        double refinedTx = median(refinedTxList);
+        double refinedTy = median(refinedTyList);
+
+        AffineTransform finalTransform = new AffineTransform(refinedTx, refinedTy, 0.0);
+
+        logger.info("第三步-精确变换: 基于 {} 个可靠匹配对, tx={}, ty={} (初始: tx={}, ty={})",
+            reliablePairs.size(),
+            String.format("%.2f", refinedTx), String.format("%.2f", refinedTy),
+            String.format("%.2f", initialTransform.tx), String.format("%.2f", initialTransform.ty));
+
+        return finalTransform;
+    }
+
+    /**
+     * 第一步：用质心法计算粗略变换
+     */
+    private AffineTransform calculateRoughTransformByCentroid(
+            Map<Integer, List<TemplateFeature>> templateFeaturesByClass,
+            Map<Integer, List<DetectedObject>> detectedByClass) {
+
         double totalWeight = 0.0;
         double weightedTx = 0.0;
         double weightedTy = 0.0;
@@ -234,22 +287,22 @@ public class CoordinateBasedMatcher {
         for (Map.Entry<Integer, List<DetectedObject>> entry : detectedByClass.entrySet()) {
             int classId = entry.getKey();
             List<DetectedObject> classDetected = entry.getValue();
-            List<Point> classTemplatePositions = templatePositionsByClass.get(classId);
+            List<TemplateFeature> classTemplateFeatures = templateFeaturesByClass.get(classId);
 
-            if (classTemplatePositions == null || classTemplatePositions.isEmpty()) {
-                continue;  // 模板中没有这个类别，跳过
+            if (classTemplateFeatures == null || classTemplateFeatures.isEmpty()) {
+                continue;
             }
 
-            // 计算该类别的模板质心
+            // 计算模板质心
             double templateCx = 0.0, templateCy = 0.0;
-            for (Point p : classTemplatePositions) {
-                templateCx += p.x;
-                templateCy += p.y;
+            for (TemplateFeature f : classTemplateFeatures) {
+                templateCx += f.getPosition().x;
+                templateCy += f.getPosition().y;
             }
-            templateCx /= classTemplatePositions.size();
-            templateCy /= classTemplatePositions.size();
+            templateCx /= classTemplateFeatures.size();
+            templateCy /= classTemplateFeatures.size();
 
-            // 计算该类别的检测质心
+            // 计算检测质心
             double detectedCx = 0.0, detectedCy = 0.0;
             for (DetectedObject obj : classDetected) {
                 detectedCx += obj.getCenter().x;
@@ -258,18 +311,15 @@ public class CoordinateBasedMatcher {
             detectedCx /= classDetected.size();
             detectedCy /= classDetected.size();
 
-            // 该类别的偏移向量
             double classTx = detectedCx - templateCx;
             double classTy = detectedCy - templateCy;
-
-            // 权重 = 该类别的检测点数量（检测点多的类别影响更大）
             double weight = classDetected.size();
 
             weightedTx += classTx * weight;
             weightedTy += classTy * weight;
             totalWeight += weight;
 
-            logger.debug("类别{} 偏移: 模板质心({},{}) -> 检测质心({,{}}), t=({},{})",
+            logger.debug("类别{} 质心偏移: 模板({},{}) -> 检测({,{}}), t=({},{})",
                 classId,
                 (int)templateCx, (int)templateCy,
                 (int)detectedCx, (int)detectedCy,
@@ -277,18 +327,79 @@ public class CoordinateBasedMatcher {
         }
 
         if (totalWeight == 0) {
-            logger.warn("没有找到任何有效的类别对应关系，无法计算变换");
             return null;
         }
 
-        // 加权平均得到全局平移
-        double tx = weightedTx / totalWeight;
-        double ty = weightedTy / totalWeight;
+        return new AffineTransform(weightedTx / totalWeight, weightedTy / totalWeight, 0.0);
+    }
 
-        logger.info("质心偏移法计算全局变换: tx={}, ty={}, weight={}",
-            String.format("%.2f", tx), String.format("%.2f", ty), (int)totalWeight);
+    /**
+     * 第二步：应用粗略变换，找出可靠的匹配对
+     */
+    private List<MatchPair> findReliableMatchPairs(
+            Map<Integer, List<TemplateFeature>> templateFeaturesByClass,
+            Map<Integer, List<DetectedObject>> detectedByClass,
+            AffineTransform initialTransform) {
 
-        return new AffineTransform(tx, ty, 0.0);
+        List<MatchPair> pairs = new ArrayList<>();
+        Set<DetectedObject> matched = new HashSet<>();
+
+        for (Map.Entry<Integer, List<TemplateFeature>> entry : templateFeaturesByClass.entrySet()) {
+            int classId = entry.getKey();
+            List<TemplateFeature> classTemplateFeatures = entry.getValue();
+            List<DetectedObject> classDetected = detectedByClass.get(classId);
+
+            if (classDetected == null || classDetected.isEmpty()) {
+                continue;
+            }
+
+            // 贪心匹配：为每个模板特征找最近的未匹配检测点
+            for (TemplateFeature feature : classTemplateFeatures) {
+                Point featurePos = feature.getPosition();
+
+                DetectedObject nearest = null;
+                double minDistance = Double.MAX_VALUE;
+
+                for (DetectedObject obj : classDetected) {
+                    if (matched.contains(obj)) {
+                        continue;
+                    }
+
+                    // 应用逆向变换，将检测点变换到模板坐标系
+                    Point transformedDetectedPos = initialTransform.applyInverse(obj.getCenter());
+
+                    double dx = transformedDetectedPos.x - featurePos.x;
+                    double dy = transformedDetectedPos.y - featurePos.y;
+                    double distance = Math.sqrt(dx * dx + dy * dy);
+
+                    if (distance < minDistance) {
+                        minDistance = distance;
+                        nearest = obj;
+                    }
+                }
+
+                // 使用较宽松的阈值（2倍）来收集候选
+                if (nearest != null && minDistance < matchDistanceThreshold * 2) {
+                    pairs.add(new MatchPair(featurePos, nearest.getCenter()));
+                    matched.add(nearest);
+                }
+            }
+        }
+
+        return pairs;
+    }
+
+    /**
+     * 匹配对：模板位置 + 检测位置
+     */
+    private static class MatchPair {
+        final Point templatePos;
+        final Point detectedPos;
+
+        MatchPair(Point templatePos, Point detectedPos) {
+            this.templatePos = templatePos;
+            this.detectedPos = detectedPos;
+        }
     }
 
     /**

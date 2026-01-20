@@ -6,7 +6,7 @@ edge-vision:
 
   cameras:
     # 本地摄像头[0, 1] 或 视频流["rtsp://..."] 或视频["/Volumes/.mp4"] 或 MVS 摄像头["mvs:0"]
-    sources: ["/Volumes/macEx/训练/视频/EKS.mp4"] # CX756601
+    sources: ["/Volumes/macEx/训练/视频/CX756601.mp4"] # CX756601，"/Volumes/macEx/训练/视频/EKS.mp4"
   # 图像拼接配置
   stitching:
     # 拼接策略: simple（简单拼接）, auto（自动拼接）, manual（手动拼接）
@@ -31,8 +31,12 @@ edge-vision:
 
   # 质检配置
   inspection:
-    # 最大匹配距离（像素，相对坐标）- 用于查找最近的匹配
-    max-match-distance: 200.0
+    # 匹配策略: topology（拓扑图匹配）, coordinate（坐标直接匹配）
+    # topology: 支持旋转/平移/尺度变化，适合复杂场景
+    # coordinate: 一对一关系明确，错检漏检一目了然
+    match-strategy: coordinate
+    # 最大匹配距离（像素，相对坐标）- 用于坐标匹配时查找最近的匹配
+    max-match-distance: 300.0
     # 是否将未在模板中定义的检测对象视为错检（默认false）
     # true=严格模式，检测到模板中不存在的特征会报错
     # false=宽松模式，只验证模板中定义的特征是否存在

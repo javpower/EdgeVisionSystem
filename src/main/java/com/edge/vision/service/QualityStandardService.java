@@ -197,13 +197,15 @@ public class QualityStandardService {
                 String label = obj.getClassName() != null ? obj.getClassName() : "class_" + obj.getClassId();
                 int classId = obj.getClassId();
                 float confidence = (float) obj.getConfidence();
+                float centerX = (float) obj.getCenter().x;
+                float centerY = (float) obj.getCenter().y;
                 float[] bbox = new float[]{
                     (float) (obj.getCenter().x - obj.getWidth() / 2),
                     (float) (obj.getCenter().y - obj.getHeight() / 2),
                     (float) (obj.getCenter().x + obj.getWidth() / 2),
                     (float) (obj.getCenter().y + obj.getHeight() / 2)
                 };
-                return new Detection(label, classId, bbox, confidence);
+                return new Detection(label, classId, bbox, centerX, centerY, confidence);
             })
             .collect(Collectors.toList());
     }

@@ -47,8 +47,12 @@ public class InspectionRepository {
             try {
                 Files.createDirectories(dataDir);
                 Files.createDirectories(recordsDir);
+                // 验证目录确实创建成功
+                if (!Files.exists(recordsDir)) {
+                    throw new RuntimeException("Failed to create records directory: " + recordsDir.toAbsolutePath());
+                }
             } catch (IOException e) {
-                throw new RuntimeException("Failed to initialize data store", e);
+                throw new RuntimeException("Failed to initialize data store at: " + recordsDir.toAbsolutePath(), e);
             }
         }
     }
@@ -79,6 +83,9 @@ public class InspectionRepository {
                     ? entity.getTimestamp().toLocalDate()
                     : LocalDate.now();
             Path targetFile = getRecordsFileForDate(date);
+
+            // 确保目录存在（防止运行时目录被删除）
+            Files.createDirectories(recordsDir);
 
             String json = gson.toJson(entity);
             try (BufferedWriter writer = Files.newBufferedWriter(targetFile,
@@ -301,42 +308,44 @@ public class InspectionRepository {
             return;
         }
 
-        LocalDate date = entity.getTimestamp() != null
-                ? entity.getTimestamp().toLocalDate()
-                : LocalDate.now();
-        Path targetFile = getRecordsFileForDate(date);
-
-        if (!Files.exists(targetFile)) {
-            appendToFile(entity);
-            return;
-        }
-
-        List<String> lines;
         try {
-            lines = Files.readAllLines(targetFile);
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to read records file", e);
-        }
+            LocalDate date = entity.getTimestamp() != null
+                    ? entity.getTimestamp().toLocalDate()
+                    : LocalDate.now();
+            Path targetFile = getRecordsFileForDate(date);
 
-        try (BufferedWriter writer = Files.newBufferedWriter(targetFile)) {
-            boolean found = false;
-            for (String line : lines) {
-                if (line.trim().isEmpty()) {
-                    continue;
+            if (!Files.exists(targetFile)) {
+                appendToFile(entity);
+                return;
+            }
+
+            List<String> lines;
+            try {
+                lines = Files.readAllLines(targetFile);
+            } catch (IOException e) {
+                throw new RuntimeException("Failed to read records file", e);
+            }
+
+            try (BufferedWriter writer = Files.newBufferedWriter(targetFile)) {
+                boolean found = false;
+                for (String line : lines) {
+                    if (line.trim().isEmpty()) {
+                        continue;
+                    }
+                    InspectionEntity existing = gson.fromJson(line, InspectionEntity.class);
+                    if (existing != null && entity.getId().equals(existing.getId())) {
+                        writer.write(gson.toJson(entity));
+                        writer.newLine();
+                        found = true;
+                    } else {
+                        writer.write(line);
+                        writer.newLine();
+                    }
                 }
-                InspectionEntity existing = gson.fromJson(line, InspectionEntity.class);
-                if (existing != null && entity.getId().equals(existing.getId())) {
+                if (!found) {
                     writer.write(gson.toJson(entity));
                     writer.newLine();
-                    found = true;
-                } else {
-                    writer.write(line);
-                    writer.newLine();
                 }
-            }
-            if (!found) {
-                writer.write(gson.toJson(entity));
-                writer.newLine();
             }
         } catch (IOException e) {
             throw new RuntimeException("Failed to rewrite records file", e);
@@ -357,32 +366,34 @@ public class InspectionRepository {
             return;
         }
 
-        InspectionEntity entity = entityOpt.get();
-        LocalDate date = entity.getTimestamp() != null
-                ? entity.getTimestamp().toLocalDate()
-                : LocalDate.now();
-        Path targetFile = getRecordsFileForDate(date);
-
-        if (!Files.exists(targetFile)) {
-            return;
-        }
-
-        List<String> lines;
         try {
-            lines = Files.readAllLines(targetFile);
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to read records file", e);
-        }
+            InspectionEntity entity = entityOpt.get();
+            LocalDate date = entity.getTimestamp() != null
+                    ? entity.getTimestamp().toLocalDate()
+                    : LocalDate.now();
+            Path targetFile = getRecordsFileForDate(date);
 
-        try (BufferedWriter writer = Files.newBufferedWriter(targetFile)) {
-            for (String line : lines) {
-                if (line.trim().isEmpty()) {
-                    continue;
-                }
-                InspectionEntity existing = gson.fromJson(line, InspectionEntity.class);
-                if (existing == null || !id.equals(existing.getId())) {
-                    writer.write(line);
-                    writer.newLine();
+            if (!Files.exists(targetFile)) {
+                return;
+            }
+
+            List<String> lines;
+            try {
+                lines = Files.readAllLines(targetFile);
+            } catch (IOException e) {
+                throw new RuntimeException("Failed to read records file", e);
+            }
+
+            try (BufferedWriter writer = Files.newBufferedWriter(targetFile)) {
+                for (String line : lines) {
+                    if (line.trim().isEmpty()) {
+                        continue;
+                    }
+                    InspectionEntity existing = gson.fromJson(line, InspectionEntity.class);
+                    if (existing == null || !id.equals(existing.getId())) {
+                        writer.write(line);
+                        writer.newLine();
+                    }
                 }
             }
         } catch (IOException e) {
