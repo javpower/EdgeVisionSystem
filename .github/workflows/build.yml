@@ -506,6 +506,11 @@ jobs:
         REM Add current directory to PATH first (for manually copied DLLs)
         set "PATH=%~dp0;%PATH%"
 
+        REM Add MVS camera SDK library path to PATH (for MVS dependent DLLs)
+        if exist "%~dp0mvs\lib\win64" (
+            set "PATH=%~dp0mvs\lib\win64;!PATH!"
+        )
+
         REM Auto-detect CUDA installation
         set "CUDA_PATH="
         set "CUDNN_PATH="
