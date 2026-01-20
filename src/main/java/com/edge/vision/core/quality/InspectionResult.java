@@ -13,10 +13,12 @@ public class InspectionResult {
     private List<FeatureComparison> comparisons;
     private long processingTimeMs;
     private String message;
+    private MatchStrategy matchStrategy;  // 匹配方式
 
     public InspectionResult() {
         this.comparisons = new ArrayList<>();
         this.passed = true;
+        this.matchStrategy = MatchStrategy.TOPOLOGY;  // 默认使用拓扑匹配
     }
 
     public InspectionResult(String templateId) {
@@ -112,6 +114,9 @@ public class InspectionResult {
 
     public String getMessage() { return message; }
     public void setMessage(String message) { this.message = message; }
+
+    public MatchStrategy getMatchStrategy() { return matchStrategy; }
+    public void setMatchStrategy(MatchStrategy matchStrategy) { this.matchStrategy = matchStrategy; }
 
     @Override
     public String toString() {

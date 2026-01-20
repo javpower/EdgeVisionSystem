@@ -1,5 +1,6 @@
 package com.edge.vision.config;
 
+import com.edge.vision.core.quality.MatchStrategy;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
@@ -55,6 +56,10 @@ public class YamlConfig {
 
     @Data
     public static class InspectionConfig {
+        // 匹配策略：topology（拓扑图匹配）或 coordinate（坐标直接匹配）
+        private MatchStrategy matchStrategy = MatchStrategy.TOPOLOGY;
+        // 最大匹配距离（像素），用于坐标匹配时查找最近的匹配
+        private double maxMatchDistance = 300.0;
         // 是否将未在模板中定义的检测对象视为错检
         private boolean treatExtraAsError = false;
         // 默认容差值（像素），用于创建模板时的初始值

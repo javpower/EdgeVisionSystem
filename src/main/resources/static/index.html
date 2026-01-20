@@ -1450,9 +1450,16 @@
             </div>
         `;
 
+        // 保存模板比对结果到全局变量，供绘制使用
+        templateComparisonsData = data.analysis.templateComparisons || [];
+
         // 绘制检测框
         setTimeout(() => {
             drawBBoxes(details);
+            // 如果有模板比对结果，绘制漏检和错检标注
+            if (templateComparisonsData.length > 0) {
+                drawTemplateComparisons(templateComparisonsData);
+            }
         }, 100);
 
         const statusTag = document.getElementById('status-tag');
@@ -1502,6 +1509,7 @@
     let bboxesData = [];
     let canvasCtx = null;
     let selectedIndex = -1;
+    let templateComparisonsData = [];  // 模板比对结果数据
 
     // 缺陷类型颜色映射
     const defectTypeColors = {};
@@ -1572,6 +1580,106 @@
             canvasCtx.fillStyle = isSelected ? '#000000' : '#000000';
             canvasCtx.fillText(labelText, x1 + 4, y1 - 6);
         });
+    }
+
+    // 绘制模板比对结果（漏检和错检标注）
+    function drawTemplateComparisons(comparisons) {
+        if (!canvasCtx) return;
+
+        comparisons.forEach((comp, i) => {
+            const detX = comp.detectedPosition?.x ?? comp.detected_position?.x;
+            const detY = comp.detectedPosition?.y ?? comp.detected_position?.y;
+            const status = comp.status;
+            const featureName = comp.featureName || comp.feature_name || 'unknown';
+
+            if (status === 'MISSING') {
+                // 漏检：红色虚线框 + 十字 + 文字
+                if (detX != null && detY != null) {
+                    drawMissingAnnotation(canvasCtx, detX, detY, featureName);
+                }
+            } else if (status === 'EXTRA') {
+                // 错检：红色X + 圆圈 + 文字
+                if (detX != null && detY != null) {
+                    drawExtraAnnotation(canvasCtx, detX, detY, featureName);
+                }
+            } else if (comp.withinTolerance) {
+                // 合格：蓝色小方块标记（不明显）
+                if (detX != null && detY != null) {
+                    drawPassedAnnotation(canvasCtx, detX, detY);
+                }
+            } else if (status === 'DEVIATION_EXCEEDED' || (!comp.withinTolerance && status !== 'MISSING' && status !== 'EXTRA')) {
+                // 偏差过大：黄色空心框
+                if (detX != null && detY != null) {
+                    drawDeviationAnnotation(canvasCtx, detX, detY);
+                }
+            }
+        });
+    }
+
+    // 绘制漏检标注（红色虚线框 + 十字）
+    function drawMissingAnnotation(ctx, x, y, label) {
+        const size = 30;
+
+        // 绘制红色虚线框
+        ctx.strokeStyle = '#FF0000';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([8, 4]); // 虚线模式
+        ctx.strokeRect(x - size, y - size, size * 2, size * 2);
+        ctx.setLineDash([]); // 重置为实线
+
+        // 绘制中心十字
+        ctx.beginPath();
+        ctx.moveTo(x - 10, y);
+        ctx.lineTo(x + 10, y);
+        ctx.moveTo(x, y - 10);
+        ctx.lineTo(x, y + 10);
+        ctx.stroke();
+
+        // 绘制文字标签
+        ctx.fillStyle = '#FF0000';
+        ctx.font = 'bold 14px Arial';
+        const text = `漏检: ${label}`;
+        ctx.fillText(text, x - size, y - size - 8);
+    }
+
+    // 绘制错检标注（红色X + 圆圈）
+    function drawExtraAnnotation(ctx, x, y, label) {
+        const size = 25;
+
+        // 绘制红色X
+        ctx.strokeStyle = '#FF0000';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(x - size, y - size);
+        ctx.lineTo(x + size, y + size);
+        ctx.moveTo(x + size, y - size);
+        ctx.lineTo(x - size, y + size);
+        ctx.stroke();
+
+        // 绘制外圈
+        ctx.beginPath();
+        ctx.arc(x, y, size + 5, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // 绘制文字标签
+        ctx.fillStyle = '#FF0000';
+        ctx.font = 'bold 14px Arial';
+        ctx.fillText('错检', x - size, y - size - 8);
+    }
+
+    // 绘制合格标注（蓝色小方块）
+    function drawPassedAnnotation(ctx, x, y) {
+        const size = 6;
+        ctx.fillStyle = '#00BFFF'; // 深天蓝
+        ctx.fillRect(x - size, y - size, size * 2, size * 2);
+    }
+
+    // 绘制偏差标注（黄色空心框）
+    function drawDeviationAnnotation(ctx, x, y) {
+        const size = 10;
+        ctx.strokeStyle = '#FFFF00'; // 黄色
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x - size, y - size, size * 2, size * 2);
     }
 
     function highlightBBox(index) {
@@ -1662,7 +1770,7 @@
 
     function drawPreviewBBoxes(img) {
         const canvas = document.getElementById('previewCanvas');
-        if (!canvas || !bboxesData.length) return;
+        if (!canvas) return;
 
         // 设置 canvas 尺寸与图片原始尺寸一致
         canvas.width = img.naturalWidth;
@@ -1672,6 +1780,7 @@
 
         const ctx = canvas.getContext('2d');
 
+        // 绘制检测框
         bboxesData.forEach((det, i) => {
             if (!det.bbox || det.bbox.length < 4) return;
 
@@ -1698,6 +1807,38 @@
             ctx.fillStyle = isSelected ? '#000000' : '#000000';
             ctx.fillText(labelText, x1 + 5, y1 - 7);
         });
+
+        // 绘制模板比对结果（漏检和错检标注）
+        if (templateComparisonsData.length > 0) {
+            templateComparisonsData.forEach((comp, i) => {
+                const detX = comp.detectedPosition?.x ?? comp.detected_position?.x;
+                const detY = comp.detectedPosition?.y ?? comp.detected_position?.y;
+                const status = comp.status;
+                const featureName = comp.featureName || comp.feature_name || 'unknown';
+
+                if (status === 'MISSING') {
+                    // 漏检：红色虚线框 + 十字 + 文字
+                    if (detX != null && detY != null) {
+                        drawMissingAnnotation(ctx, detX, detY, featureName);
+                    }
+                } else if (status === 'EXTRA') {
+                    // 错检：红色X + 圆圈 + 文字
+                    if (detX != null && detY != null) {
+                        drawExtraAnnotation(ctx, detX, detY, featureName);
+                    }
+                } else if (comp.withinTolerance) {
+                    // 合格：蓝色小方块标记（不明显）
+                    if (detX != null && detY != null) {
+                        drawPassedAnnotation(ctx, detX, detY);
+                    }
+                } else if (status === 'DEVIATION_EXCEEDED' || (!comp.withinTolerance && status !== 'MISSING' && status !== 'EXTRA')) {
+                    // 偏差过大：黄色空心框
+                    if (detX != null && detY != null) {
+                        drawDeviationAnnotation(ctx, detX, detY);
+                    }
+                }
+            });
+        }
     }
 
     function closeImagePreview() {

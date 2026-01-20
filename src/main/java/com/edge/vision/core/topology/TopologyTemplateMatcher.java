@@ -97,6 +97,7 @@ public class TopologyTemplateMatcher {
 
         // 6. 设置处理时间和消息
         result.setProcessingTimeMs(System.currentTimeMillis() - startTime);
+        result.setMatchStrategy(com.edge.vision.core.quality.MatchStrategy.TOPOLOGY);
         setResultMessage(result, matchResult);
 
         logger.info("拓扑图匹配完成: {}", result.getMessage());

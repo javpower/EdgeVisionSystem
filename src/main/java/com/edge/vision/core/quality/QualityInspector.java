@@ -1,7 +1,9 @@
 package com.edge.vision.core.quality;
 
+import com.edge.vision.config.YamlConfig;
 import com.edge.vision.core.template.model.DetectedObject;
 import com.edge.vision.core.template.model.Template;
+import com.edge.vision.core.topology.CoordinateBasedMatcher;
 import com.edge.vision.core.topology.TopologyTemplateMatcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,13 +15,9 @@ import java.util.List;
 /**
  * 质量检测器
  * <p>
- * 基于拓扑图匹配的高精度特征一一对应方案
- * <p>
- * 核心特性：
- * - 完全兼容旋转、平移、尺度变化
- * - 基于拓扑关系（相对角度、相对距离比）
- * - 使用匈牙利算法进行全局最优匹配
- * - 针对重复特征匹配精度高
+ * 支持两种匹配策略：
+ * 1. 拓扑图匹配（topology）：基于拓扑关系（相对角度、相对距离比），使用匈牙利算法进行全局最优匹配
+ * 2. 坐标直接匹配（coordinate）：每个模板特征找最近的检测点，一对一关系明确
  */
 @Component
 public class QualityInspector {
@@ -30,6 +28,12 @@ public class QualityInspector {
 
     @Autowired
     private TopologyTemplateMatcher topologyTemplateMatcher;
+
+    @Autowired
+    private CoordinateBasedMatcher coordinateBasedMatcher;
+
+    @Autowired
+    private YamlConfig yamlConfig;
 
     /**
      * 执行质量检测（使用当前模板）
@@ -46,18 +50,48 @@ public class QualityInspector {
     }
 
     /**
-     * 执行质量检测
+     * 执行质量检测（使用配置的匹配策略）
      *
      * @param template        模板
      * @param detectedObjects YOLO 检测到的对象列表
      * @return 检测结果
      */
     public InspectionResult inspect(Template template, List<DetectedObject> detectedObjects) {
-        logger.info("Starting topology-based quality inspection with template: {}", template.getTemplateId());
+        // 从配置获取匹配策略
+        MatchStrategy strategy = yamlConfig.getInspection().getMatchStrategy();
+        if (strategy == null) {
+            strategy = MatchStrategy.TOPOLOGY;  // 默认使用拓扑匹配
+        }
+
+        return inspect(template, detectedObjects, strategy);
+    }
+
+    /**
+     * 使用指定策略执行质量检测
+     *
+     * @param template        模板
+     * @param detectedObjects YOLO 检测到的对象列表
+     * @param strategy        匹配策略
+     * @return 检测结果
+     */
+    public InspectionResult inspect(Template template, List<DetectedObject> detectedObjects, MatchStrategy strategy) {
+        logger.info("Starting quality inspection with strategy: {}", strategy);
+
+        // 配置匹配器参数
+        configureMatchers();
 
         try {
-            // 直接使用拓扑匹配器（无需坐标转换，拓扑匹配天然支持旋转/平移/尺度）
-            InspectionResult result = topologyTemplateMatcher.match(template, detectedObjects);
+            InspectionResult result;
+
+            if (strategy == MatchStrategy.COORDINATE) {
+                // 使用坐标直接匹配
+                result = coordinateBasedMatcher.match(template, detectedObjects);
+                result.setMatchStrategy(MatchStrategy.COORDINATE);
+            } else {
+                // 使用拓扑图匹配（默认）
+                result = topologyTemplateMatcher.match(template, detectedObjects);
+                result.setMatchStrategy(MatchStrategy.TOPOLOGY);
+            }
 
             logger.info("Inspection completed: {}", result.getMessage());
             return result;
@@ -66,6 +100,20 @@ public class QualityInspector {
             logger.error("Error during inspection", e);
             return createErrorResult(template, "检测过程出错: " + e.getMessage());
         }
+    }
+
+    /**
+     * 从配置中设置匹配器参数
+     */
+    private void configureMatchers() {
+        YamlConfig.InspectionConfig config = yamlConfig.getInspection();
+
+        // 配置坐标匹配器
+        coordinateBasedMatcher.setMatchDistanceThreshold(config.getMaxMatchDistance());
+        coordinateBasedMatcher.setTreatExtraAsError(config.isTreatExtraAsError());
+
+        // 配置拓扑匹配器
+        topologyTemplateMatcher.setTreatExtraAsError(config.isTreatExtraAsError());
     }
 
     /**
@@ -90,5 +138,12 @@ public class QualityInspector {
      */
     public TopologyTemplateMatcher getTopologyTemplateMatcher() {
         return topologyTemplateMatcher;
+    }
+
+    /**
+     * 获取坐标匹配器
+     */
+    public CoordinateBasedMatcher getCoordinateBasedMatcher() {
+        return coordinateBasedMatcher;
     }
 }

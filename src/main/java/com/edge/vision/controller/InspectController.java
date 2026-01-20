@@ -2,6 +2,7 @@ package com.edge.vision.controller;
 
 import com.edge.vision.config.YamlConfig;
 import com.edge.vision.core.infer.YOLOInferenceEngine;
+import com.edge.vision.core.quality.FeatureComparison;
 import com.edge.vision.core.template.model.DetectedObject;
 import com.edge.vision.model.*;
 import com.edge.vision.service.CameraService;
@@ -17,6 +18,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
+import org.opencv.core.Core;
 import org.opencv.core.Mat;
 import org.opencv.core.MatOfByte;
 import org.opencv.core.Point;
@@ -383,8 +385,30 @@ public class InspectController {
             Mat stitchedMat = base64ToMat(preCheckData.getStitchedImage());
             List<Detection> detailDetections = detailInferenceEngine.predict(stitchedMat);
 
-            // 绘制检测结果
-//            Mat resultMat = drawDetections(stitchedMat.clone(), detailDetections);
+            // 根据质量检测标准判断 PASS/FAIL
+            // 首先尝试使用新的模板比对模式（如果配置了模板）
+            QualityStandardService.QualityEvaluationResult evaluationResult = null;
+            List<DetectedObject> detectedObjects = convertDetectionsToDetectedObjects(detailDetections);
+
+            try {
+                // 尝试使用模板比对模式
+                evaluationResult = qualityStandardService.evaluateWithTemplate(
+                    request.getConfirmedPartName(), detectedObjects);
+
+                // 如果返回了模板比对结果，说明使用了新模式
+                if (evaluationResult.getTemplateComparisons() != null &&
+                    !evaluationResult.getTemplateComparisons().isEmpty()) {
+                    logger.info("Using template-based evaluation for part type: {}",
+                        request.getConfirmedPartName());
+                }
+            } catch (Exception e) {
+                logger.warn("Template-based evaluation failed, falling back to traditional: {}",
+                    e.getMessage());
+            }
+
+            // 绘制检测结果（包含模板比对结果）
+            // 注释：前端使用 index.html 绘制，后端绘制代码保留备用
+//            Mat resultMat = drawInspectionResults(stitchedMat.clone(), detailDetections, evaluationResult);
             String resultImageBase64 = matToBase64(stitchedMat);
 
             // 构建结果
@@ -400,31 +424,13 @@ public class InspectController {
             analysis.setDefectCount(detailDetections.size());
             analysis.setDetails(detailDetections);
 
-            // 根据质量检测标准判断 PASS/FAIL
-            // 首先尝试使用新的模板比对模式（如果配置了模板）
-            QualityStandardService.QualityEvaluationResult evaluationResult=null;
-            List<DetectedObject> detectedObjects = convertDetectionsToDetectedObjects(detailDetections);
-
-            try {
-                // 尝试使用模板比对模式
-                evaluationResult = qualityStandardService.evaluateWithTemplate(
-                    request.getConfirmedPartName(), detectedObjects);
-
-                // 如果返回了模板比对结果，说明使用了新模式
-                if (evaluationResult.getTemplateComparisons() != null &&
-                    !evaluationResult.getTemplateComparisons().isEmpty()) {
-                    logger.info("Using template-based evaluation for part type: {}",
-                        request.getConfirmedPartName());
-
-                    // 将模板比对结果添加到 analysis 中
-                    analysis.setTemplateComparisons(evaluationResult.getTemplateComparisons());
-                }
-            } catch (Exception e) {
-                logger.warn("Template-based evaluation failed, falling back to traditional: {}",
-                    e.getMessage());
+            // 将模板比对结果添加到 analysis 中
+            if (evaluationResult != null && evaluationResult.getTemplateComparisons() != null &&
+                !evaluationResult.getTemplateComparisons().isEmpty()) {
+                analysis.setTemplateComparisons(evaluationResult.getTemplateComparisons());
             }
 
-            analysis.setQualityStatus(evaluationResult==null||!evaluationResult.isPassed() ? "FAIL" : "PASS");
+            analysis.setQualityStatus(evaluationResult == null || !evaluationResult.isPassed() ? "FAIL" : "PASS");
             data.setAnalysis(analysis);
 
             data.setDeviceId(config.getSystem().getDeviceId());
@@ -470,7 +476,7 @@ public class InspectController {
             response.put("data", data);
 
             stitchedMat.release();
-//            resultMat.release();
+//            resultMat.release();  // 注释：后端绘制已禁用，前端使用 index.html 绘制
 
             return ResponseEntity.ok(response);
 
@@ -715,6 +721,273 @@ public class InspectController {
             }
         }
         return image;
+    }
+
+    /**
+     * 绘制质检结果（包含模板比对结果）
+     *
+     * @param image 原始图像
+     * @param detections 检测结果
+     * @param evaluationResult 模板比对结果
+     * @return 绘制后的图像
+     */
+    private Mat drawInspectionResults(Mat image, List<Detection> detections,
+                                      QualityStandardService.QualityEvaluationResult evaluationResult) {
+        // 1. 先绘制所有检测结果（绿色框）
+        for (Detection detection : detections) {
+            float[] bbox = detection.getBbox();
+            if (bbox != null && bbox.length >= 4) {
+                Point p1 = new Point(bbox[0], bbox[1]);
+                Point p2 = new Point(bbox[2], bbox[3]);
+                Imgproc.rectangle(image, p1, p2, new Scalar(0, 255, 0), 2);
+
+                String label = String.format("%s: %.2f", detection.getLabel(), detection.getConfidence());
+                double textY = Math.max(bbox[1] - 5, 15);
+                Imgproc.putText(image, label, new Point(bbox[0], textY),
+                        Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, new Scalar(0, 255, 0), 2);
+            }
+        }
+
+        // 2. 如果有模板比对结果，绘制漏检和错检
+        if (evaluationResult != null && evaluationResult.getTemplateComparisons() != null) {
+            for (QualityStandardService.QualityEvaluationResult.TemplateComparison comp : evaluationResult.getTemplateComparisons()) {
+                switch (comp.getStatus()) {
+                    case MISSING:
+                        // 漏检：红色虚线框 + 文字
+                        drawMissingAnnotation(image, comp);
+                        break;
+                    case EXTRA:
+                        // 错检：红色X + 文字
+                        drawExtraAnnotation(image, comp);
+                        break;
+                    case PASSED:
+                        // 合格：蓝色小框标记
+                        drawPassedAnnotation(image, comp);
+                        break;
+                    case DEVIATION_EXCEEDED:
+                        // 偏差过大：黄色小框标记
+                        drawDeviationAnnotation(image, comp);
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+
+        // 3. 在左上角绘制整体结果
+        drawOverallResult(image, evaluationResult);
+
+        return image;
+    }
+
+    /**
+     * 绘制漏检标注（红色虚线框）
+     */
+    private void drawMissingAnnotation(Mat image, QualityStandardService.QualityEvaluationResult.TemplateComparison comp) {
+        if (comp.getDetectedPosition() == null) return;
+
+        // 位置（已经是检测图坐标）
+        double x = comp.getDetectedPosition().x;
+        double y = comp.getDetectedPosition().y;
+
+        // 绘制红色虚线框（表示这里应该有特征）
+        Scalar red = new Scalar(0, 0, 255);
+        int size = 30; // 框的大小
+        Point p1 = new Point(x - size, y - size);
+        Point p2 = new Point(x + size, y + size);
+
+        // 绘制虚线框
+        drawDashedRectangle(image, p1, p2, red, 2);
+
+        // 绘制中心十字
+        Point cross1 = new Point(x - 10, y);
+        Point cross2 = new Point(x + 10, y);
+        Point cross3 = new Point(x, y - 10);
+        Point cross4 = new Point(x, y + 10);
+        Imgproc.line(image, cross1, cross2, red, 2);
+        Imgproc.line(image, cross3, cross4, red, 2);
+
+        // 绘制文字标签
+        String label = "漏检: " + comp.getFeatureName();
+        Point textPos = new Point(x - size, y - size - 10);
+        Imgproc.putText(image, label, textPos, Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, red, 2);
+    }
+
+    /**
+     * 绘制错检标注（红色X）
+     */
+    private void drawExtraAnnotation(Mat image, QualityStandardService.QualityEvaluationResult.TemplateComparison comp) {
+        if (comp.getDetectedPosition() == null) return;
+
+        double x = comp.getDetectedPosition().x;
+        double y = comp.getDetectedPosition().y;
+
+        Scalar red = new Scalar(0, 0, 255);
+        int size = 25;
+
+        // 绘制红色X
+        Point p1 = new Point(x - size, y - size);
+        Point p2 = new Point(x + size, y + size);
+        Point p3 = new Point(x + size, y - size);
+        Point p4 = new Point(x - size, y + size);
+
+        Imgproc.line(image, p1, p2, red, 3);
+        Imgproc.line(image, p3, p4, red, 3);
+
+        // 绘制外圈
+        Point center = new Point(x, y);
+        Imgproc.circle(image, center, size + 5, red, 2);
+
+        // 绘制文字标签
+        String label = "错检";
+        Point textPos = new Point(x - size, y - size - 10);
+        Imgproc.putText(image, label, textPos, Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, red, 2);
+    }
+
+    /**
+     * 绘制合格标注（蓝色小框）
+     */
+    private void drawPassedAnnotation(Mat image, QualityStandardService.QualityEvaluationResult.TemplateComparison comp) {
+        if (comp.getDetectedPosition() == null) return;
+
+        double x = comp.getDetectedPosition().x;
+        double y = comp.getDetectedPosition().y;
+
+        Scalar blue = new Scalar(255, 150, 0);
+        int size = 8;
+
+        // 绘制蓝色小方块标记
+        Point p1 = new Point(x - size, y - size);
+        Point p2 = new Point(x + size, y + size);
+        Imgproc.rectangle(image, p1, p2, blue, -1); // 填充
+    }
+
+    /**
+     * 绘制偏差标注（黄色小框）
+     */
+    private void drawDeviationAnnotation(Mat image, QualityStandardService.QualityEvaluationResult.TemplateComparison comp) {
+        if (comp.getDetectedPosition() == null) return;
+
+        double x = comp.getDetectedPosition().x;
+        double y = comp.getDetectedPosition().y;
+
+        Scalar yellow = new Scalar(0, 255, 255);
+        int size = 10;
+
+        // 绘制黄色空心框标记
+        Point p1 = new Point(x - size, y - size);
+        Point p2 = new Point(x + size, y + size);
+        Imgproc.rectangle(image, p1, p2, yellow, 2);
+    }
+
+    /**
+     * 绘制虚线矩形
+     */
+    private void drawDashedRectangle(Mat image, Point p1, Point p2, Scalar color, int thickness) {
+        // 虚线模式：10像素实线，5像素空白
+        int[] dashPattern = {10, 5};
+        int dashIndex = 0;
+        int currentDash = 0;
+
+        // 绘制上边
+        drawDashedLine(image, new Point(p1.x, p1.y), new Point(p2.x, p1.y), color, thickness, dashPattern, dashIndex);
+        // 绘制右边
+        drawDashedLine(image, new Point(p2.x, p1.y), new Point(p2.x, p2.y), color, thickness, dashPattern, 0);
+        // 绘制下边
+        drawDashedLine(image, new Point(p1.x, p2.y), new Point(p2.x, p2.y), color, thickness, dashPattern, 0);
+        // 绘制左边
+        drawDashedLine(image, new Point(p1.x, p1.y), new Point(p1.x, p2.y), color, thickness, dashPattern, 0);
+    }
+
+    /**
+     * 绘制虚线
+     */
+    private void drawDashedLine(Mat image, Point p1, Point p2, Scalar color, int thickness, int[] dashPattern, int dashIndex) {
+        double totalDist = Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
+        int dashCount = (int) (totalDist / 2); // 每2像素一段
+        double dx = (p2.x - p1.x) / dashCount;
+        double dy = (p2.y - p1.y) / dashCount;
+
+        boolean draw = true;
+        int segmentLength = 0;
+        int patternIdx = dashIndex;
+
+        for (int i = 0; i < dashCount; i++) {
+            Point start = new Point(p1.x + dx * i, p1.y + dy * i);
+            Point end = new Point(p1.x + dx * (i + 1), p1.y + dy * (i + 1));
+
+            if (draw) {
+                Imgproc.line(image, start, end, color, thickness);
+            }
+
+            segmentLength++;
+            if (segmentLength >= dashPattern[patternIdx]) {
+                segmentLength = 0;
+                patternIdx = (patternIdx + 1) % dashPattern.length;
+                draw = !draw;
+            }
+        }
+    }
+
+    /**
+     * 在左上角绘制整体结果
+     */
+    private void drawOverallResult(Mat image, QualityStandardService.QualityEvaluationResult evaluationResult) {
+        if (evaluationResult == null) return;
+
+        Scalar color;
+        String statusText;
+
+        if (evaluationResult.isPassed()) {
+            color = new Scalar(0, 255, 0); // 绿色
+            statusText = "PASS";
+        } else {
+            color = new Scalar(0, 0, 255); // 红色
+            statusText = "FAIL";
+        }
+
+        // 手动计算统计信息（QualityEvaluationResult 没有 getSummary 方法）
+        int passed = 0, missing = 0, deviation = 0, extra = 0;
+        if (evaluationResult.getTemplateComparisons() != null) {
+            for (QualityStandardService.QualityEvaluationResult.TemplateComparison comp : evaluationResult.getTemplateComparisons()) {
+                if (comp.isWithinTolerance()) passed++;
+                else if (comp.getStatus() == com.edge.vision.core.quality.FeatureComparison.ComparisonStatus.MISSING) missing++;
+                else if (comp.getStatus() == com.edge.vision.core.quality.FeatureComparison.ComparisonStatus.EXTRA) extra++;
+                else deviation++;
+            }
+        }
+
+        // 绘制半透明背景
+        Point bg1 = new Point(10, 10);
+        Point bg2 = new Point(350, 120);
+        Mat overlay = image.clone();
+        Imgproc.rectangle(overlay, bg1, bg2, new Scalar(200, 200, 200), -1);
+        Core.addWeighted(overlay, 0.5, image, 0.5, 0, image);
+        overlay.release();
+
+        // 绘制边框
+        Imgproc.rectangle(image, bg1, bg2, color, 2);
+
+        // 绘制文字
+        int y = 30;
+        Imgproc.putText(image, "检测结果: " + statusText, new Point(20, y),
+                Imgproc.FONT_HERSHEY_SIMPLEX, 0.7, color, 2);
+
+        y += 25;
+        Imgproc.putText(image, String.format("通过: %d  漏检: %d  偏差: %d  错检: %d",
+                passed, missing, deviation, extra),
+                new Point(20, y), Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, new Scalar(0, 0, 0), 1);
+
+        // 绘制消息
+        if (evaluationResult.getMessage() != null) {
+            y += 20;
+            String msg = evaluationResult.getMessage();
+            if (msg.length() > 30) {
+                msg = msg.substring(0, 30) + "...";
+            }
+            Imgproc.putText(image, msg, new Point(20, y),
+                    Imgproc.FONT_HERSHEY_SIMPLEX, 0.4, new Scalar(100, 100, 100), 1);
+        }
     }
 
     @PreDestroy
