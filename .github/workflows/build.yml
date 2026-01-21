@@ -597,14 +597,16 @@ jobs:
                 copy "!CUDA_PATH!\bin\nvrtc64_*.dll" "%~dp0libs\" >nul 2>&1
                 echo CUDA DLLs copied to libs directory
                 set "PATH=%~dp0libs;!PATH!"
-            ) else (
-                echo WARNING: CUDA not found in default locations
-                echo.
-                echo Please install CUDA Toolkit:
-                echo https://developer.nvidia.com/cuda-downloads
-                echo.
+                goto :check_cudnn
             )
 
+            echo WARNING: CUDA not found in default locations
+            echo.
+            echo Please install CUDA Toolkit:
+            echo https://developer.nvidia.com/cuda-downloads
+            echo.
+
+            :check_cudnn
             REM Check cuDNN in various locations
             if exist "C:\Program Files\NVIDIA\CUDNN\bin\cudnn*.dll" (
                 set "CUDNN_PATH=C:\Program Files\NVIDIA\CUDNN"
@@ -694,7 +696,8 @@ jobs:
         pause
         "@
 
-        # Ensure proper encoding and line endings
+        # Write batch file with proper encoding (ASCII handles Chinese paths correctly in cmd)
+        # Out-File in Windows defaults to CRLF line endings which are required for .bat files
         $batContent | Out-File -FilePath dist\run.bat -Encoding ASCII
         Write-Host "Created run.bat"
 
