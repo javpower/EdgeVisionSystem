@@ -596,16 +596,16 @@ public class InspectController {
     })
     public ResponseEntity<Map<String, Object>> getRecords(
             @Parameter(
-                    description = "开始日期（格式：YYYY-MM-DD）",
-                    example = "2024-01-01"
+                    description = "开始时间（格式：YYYY-MM-DD 或 YYYY-MM-DDTHH:mm:ss）",
+                    example = "2024-01-01T10:30:00"
             )
-            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String startDateTime,
 
             @Parameter(
-                    description = "结束日期（格式：YYYY-MM-DD）",
-                    example = "2024-01-31"
+                    description = "结束时间（格式：YYYY-MM-DD 或 YYYY-MM-DDTHH:mm:ss）",
+                    example = "2024-01-31T18:00:00"
             )
-            @RequestParam(required = false) String endDate,
+            @RequestParam(required = false) String endDateTime,
 
             @Parameter(
                     description = "批次ID",
@@ -628,16 +628,42 @@ public class InspectController {
         Map<String, Object> response = new HashMap<>();
 
         try {
-            // 解析日期参数
-            java.time.LocalDate start = null;
-            java.time.LocalDate end = null;
+            // 解析时间参数 - 支持日期和日期时间格式
+            java.time.LocalDateTime start = null;
+            java.time.LocalDateTime end = null;
 
-            if (startDate != null && !startDate.isEmpty()) {
-                start = java.time.LocalDate.parse(startDate);
+            if (startDateTime != null && !startDateTime.isEmpty()) {
+                try {
+                    // 尝试解析为日期时间格式 (YYYY-MM-DDTHH:mm:ss)
+                    start = java.time.LocalDateTime.parse(startDateTime);
+                } catch (Exception e) {
+                    try {
+                        // 如果失败，尝试解析为日期格式 (YYYY-MM-DD)，并设置为当天开始时间
+                        java.time.LocalDate date = java.time.LocalDate.parse(startDateTime);
+                        start = date.atStartOfDay();
+                    } catch (Exception e2) {
+                        response.put("status", "error");
+                        response.put("message", "Invalid startDateTime format. Use YYYY-MM-DD or YYYY-MM-DDTHH:mm:ss");
+                        return ResponseEntity.badRequest().body(response);
+                    }
+                }
             }
 
-            if (endDate != null && !endDate.isEmpty()) {
-                end = java.time.LocalDate.parse(endDate);
+            if (endDateTime != null && !endDateTime.isEmpty()) {
+                try {
+                    // 尝试解析为日期时间格式 (YYYY-MM-DDTHH:mm:ss)
+                    end = java.time.LocalDateTime.parse(endDateTime);
+                } catch (Exception e) {
+                    try {
+                        // 如果失败，尝试解析为日期格式 (YYYY-MM-DD)，并设置为当天结束时间
+                        java.time.LocalDate date = java.time.LocalDate.parse(endDateTime);
+                        end = date.atTime(23, 59, 59);
+                    } catch (Exception e2) {
+                        response.put("status", "error");
+                        response.put("message", "Invalid endDateTime format. Use YYYY-MM-DD or YYYY-MM-DDTHH:mm:ss");
+                        return ResponseEntity.badRequest().body(response);
+                    }
+                }
             }
 
             // 参数校验
@@ -648,7 +674,7 @@ public class InspectController {
                 pageSize = 20;
             }
 
-            // 查询记录
+            // 查询记录 - 使用支持精确时间的方法
             com.edge.vision.service.DataManager.PageResult pageResult =
                 dataManager.queryRecords(start, end, batchId, page, pageSize);
 

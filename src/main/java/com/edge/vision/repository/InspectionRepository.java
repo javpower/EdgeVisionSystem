@@ -592,4 +592,141 @@ public class InspectionRepository {
         }
         return results;
     }
+
+    /**
+     * 查询指定时间范围内的记录（精确到时分秒）
+     */
+    public List<InspectionEntity> findByTimestampBetween(LocalDateTime start, LocalDateTime end) {
+        if (!saveLocal || !Files.exists(recordsDir)) {
+            return Collections.emptyList();
+        }
+
+        List<InspectionEntity> results = new ArrayList<>();
+
+        LocalDate startDate = start.toLocalDate();
+        LocalDate endDate = end.toLocalDate();
+
+        // 计算需要查询的日期范围
+        LocalDate current = startDate;
+        while (!current.isAfter(endDate)) {
+            Path targetFile = getRecordsFileForDate(current);
+            if (Files.exists(targetFile)) {
+                try (Stream<String> lines = Files.lines(targetFile)) {
+                    List<InspectionEntity> batch = lines
+                            .filter(line -> !line.trim().isEmpty())
+                            .map(line -> {
+                                try {
+                                    return gson.fromJson(line, InspectionEntity.class);
+                                } catch (Exception e) {
+                                    return null;
+                                }
+                            })
+                            .filter(Objects::nonNull)
+                            .filter(entity -> entity.getTimestamp() != null)
+                            .filter(entity -> {
+                                LocalDateTime timestamp = entity.getTimestamp();
+                                // 精确时间过滤：在 start 和 end 之间
+                                return !timestamp.isBefore(start) && !timestamp.isAfter(end);
+                            })
+                            .collect(Collectors.toList());
+                    results.addAll(batch);
+                } catch (IOException e) {
+                    // 跳过读取失败的文件
+                }
+            }
+            current = current.plusDays(1);
+        }
+        return results;
+    }
+
+    /**
+     * 查询指定时间之后的记录（精确到时分秒）
+     */
+    public List<InspectionEntity> findByTimestampAfter(LocalDateTime start) {
+        if (!saveLocal || !Files.exists(recordsDir)) {
+            return Collections.emptyList();
+        }
+
+        List<InspectionEntity> results = new ArrayList<>();
+
+        LocalDate startDate = start.toLocalDate();
+        LocalDate today = LocalDate.now();
+
+        // 查询从 startDate 开始到今天（最多365天）
+        LocalDate current = startDate;
+        int daysSearched = 0;
+        int maxDays = 365;
+
+        while (!current.isAfter(today) && daysSearched < maxDays) {
+            Path targetFile = getRecordsFileForDate(current);
+            if (Files.exists(targetFile)) {
+                try (Stream<String> lines = Files.lines(targetFile)) {
+                    List<InspectionEntity> batch = lines
+                            .filter(line -> !line.trim().isEmpty())
+                            .map(line -> {
+                                try {
+                                    return gson.fromJson(line, InspectionEntity.class);
+                                } catch (Exception e) {
+                                    return null;
+                                }
+                            })
+                            .filter(Objects::nonNull)
+                            .filter(entity -> entity.getTimestamp() != null)
+                            .filter(entity -> !entity.getTimestamp().isBefore(start))
+                            .collect(Collectors.toList());
+                    results.addAll(batch);
+                } catch (IOException e) {
+                    // 跳过读取失败的文件
+                }
+            }
+            current = current.plusDays(1);
+            daysSearched++;
+        }
+        return results;
+    }
+
+    /**
+     * 查询指定时间之前的记录（精确到时分秒）
+     */
+    public List<InspectionEntity> findByTimestampBefore(LocalDateTime end) {
+        if (!saveLocal || !Files.exists(recordsDir)) {
+            return Collections.emptyList();
+        }
+
+        List<InspectionEntity> results = new ArrayList<>();
+
+        LocalDate endDate = end.toLocalDate();
+
+        // 查询从最早记录到 endDate（最多365天）
+        LocalDate current = endDate;
+        int daysSearched = 0;
+        int maxDays = 365;
+
+        while (daysSearched < maxDays) {
+            Path targetFile = getRecordsFileForDate(current);
+            if (Files.exists(targetFile)) {
+                try (Stream<String> lines = Files.lines(targetFile)) {
+                    List<InspectionEntity> batch = lines
+                            .filter(line -> !line.trim().isEmpty())
+                            .map(line -> {
+                                try {
+                                    return gson.fromJson(line, InspectionEntity.class);
+                                } catch (Exception e) {
+                                    return null;
+                                }
+                            })
+                            .filter(Objects::nonNull)
+                            .filter(entity -> entity.getTimestamp() != null)
+                            .filter(entity -> !entity.getTimestamp().isAfter(end))
+                            .collect(Collectors.toList());
+                    results.addAll(batch);
+                } catch (IOException e) {
+                    // 跳过读取失败的文件
+                }
+            }
+            current = current.minusDays(1);
+            daysSearched++;
+        }
+        return results;
+    }
 }

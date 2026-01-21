@@ -21,6 +21,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.concurrent.TimeUnit;
 
@@ -177,9 +178,63 @@ public class DataManager implements ApplicationListener<UploadEvent> {
             }
         }
     }
-    
+
     /**
-     * 查询记录（新版本：支持时间范围和分页）
+     * 查询记录（支持精确时间范围和分页）
+     */
+    public PageResult queryRecords(LocalDateTime startDateTime, LocalDateTime endDateTime,
+                                    String batchId, Integer page, Integer pageSize) {
+        java.util.List<InspectionEntity> results = new java.util.ArrayList<>();
+
+        // 按精确时间范围查询
+        if (startDateTime != null && endDateTime != null) {
+            results.addAll(repository.findByTimestampBetween(startDateTime, endDateTime));
+        } else if (startDateTime != null) {
+            results.addAll(repository.findByTimestampAfter(startDateTime));
+        } else if (endDateTime != null) {
+            results.addAll(repository.findByTimestampBefore(endDateTime));
+        }
+
+        // 按批次ID筛选
+        if (batchId != null) {
+            if (results.isEmpty()) {
+                results.addAll(repository.findByBatchId(batchId));
+            } else {
+                results = results.stream()
+                    .filter(r -> batchId.equals(r.getBatchId()))
+                    .collect(java.util.stream.Collectors.toList());
+            }
+        }
+
+        // 如果没有筛选条件，查询所有
+        if (startDateTime == null && endDateTime == null && batchId == null) {
+            results.addAll(repository.findAll());
+        }
+
+        // 去重
+        java.util.Set<String> seenIds = new java.util.HashSet<>();
+        results.removeIf(e -> !seenIds.add(e.getId()));
+
+        // 按时间倒序排序
+        results.sort((a, b) -> b.getTimestamp().compareTo(a.getTimestamp()));
+
+        int total = results.size();
+
+        // 分页处理
+        if (page != null && pageSize != null && page > 0 && pageSize > 0) {
+            int startIndex = (page - 1) * pageSize;
+            if (startIndex >= total) {
+                return new PageResult(java.util.Collections.emptyList(), total, page, pageSize);
+            }
+            int endIndex = Math.min(startIndex + pageSize, total);
+            results = results.subList(startIndex, endIndex);
+        }
+
+        return new PageResult(results, total, page != null ? page : 1, pageSize != null ? pageSize : total);
+    }
+
+    /**
+     * 查询记录（支持日期范围和分页）
      */
     public PageResult queryRecords(LocalDate startDate, LocalDate endDate, String batchId,
                                     Integer page, Integer pageSize) {
