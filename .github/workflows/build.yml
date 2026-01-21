@@ -656,13 +656,42 @@ jobs:
         )
 
         REM ============================================================
-        REM Step 4: Verify ONNX Runtime GPU libraries
+        REM Step 4: Verify CUDA runtime libraries (NOT onnxruntime - it loads from JAR)
         REM ============================================================
 
-        if not exist "%~dp0libs\onnxruntime_providers_cuda.dll" (
-            echo WARNING: onnxruntime_providers_cuda.dll not found in libs directory
-            echo GPU acceleration may not work properly
+        echo Verifying CUDA runtime libraries...
+        set "MISSING_CUDA=0"
+
+        REM Check for cudart64 DLL (CUDA Runtime)
+        dir /b "%~dp0libs\cudart64_*.dll" >nul 2>&1
+        if errorlevel 1 (
+            echo ERROR: cudart64_*.dll not found in libs directory
+            set "MISSING_CUDA=1"
+        )
+
+        REM Check for cublas64 DLL (CUDA BLAS)
+        dir /b "%~dp0libs\cublas64_*.dll" >nul 2>&1
+        if errorlevel 1 (
+            echo ERROR: cublas64_*.dll not found in libs directory
+            set "MISSING_CUDA=1"
+        )
+
+        if "!MISSING_CUDA!"=="1" (
             echo.
+            echo ========================================
+            echo ERROR: CUDA runtime libraries are missing!
+            echo ========================================
+            echo.
+            echo GPU acceleration requires CUDA 12.x runtime libraries.
+            echo.
+            echo Please either:
+            echo 1. Install CUDA Toolkit 12.x: https://developer.nvidia.com/cuda-downloads
+            echo 2. Copy CUDA DLLs to libs/win64/ before building
+            echo.
+            echo The script will try to continue, but GPU may not work.
+            echo ========================================
+            echo.
+            pause
         )
 
         REM ============================================================
