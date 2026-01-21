@@ -2,6 +2,8 @@ package com.edge.vision.dto;
 
 import com.edge.vision.core.template.model.Template;
 
+import java.util.List;
+
 /**
  * 模板构建响应
  */
@@ -52,6 +54,8 @@ public class TemplateBuildResponse {
         private double toleranceX;
         private double toleranceY;
         private String boundingBox;
+        private List<List<Double>> fourCorners;  // 四角坐标
+        private boolean hasFourCorners;           // 是否配置了四角
 
         public static TemplateInfo from(Template template) {
             TemplateInfo info = new TemplateInfo();
@@ -65,6 +69,16 @@ public class TemplateBuildResponse {
             if (template.getBoundingBox() != null) {
                 info.boundingBox = template.getBoundingBox().toString();
             }
+
+            // 提取四角坐标
+            Object cornersObj = template.getMetadata().get("fourCorners");
+            if (cornersObj instanceof List) {
+                info.fourCorners = (List<List<Double>>) cornersObj;
+                info.hasFourCorners = true;
+            } else {
+                info.hasFourCorners = false;
+            }
+
             return info;
         }
 
@@ -91,5 +105,11 @@ public class TemplateBuildResponse {
 
         public String getBoundingBox() { return boundingBox; }
         public void setBoundingBox(String boundingBox) { this.boundingBox = boundingBox; }
+
+        public List<List<Double>> getFourCorners() { return fourCorners; }
+        public void setFourCorners(List<List<Double>> fourCorners) { this.fourCorners = fourCorners; }
+
+        public boolean isHasFourCorners() { return hasFourCorners; }
+        public void setHasFourCorners(boolean hasFourCorners) { this.hasFourCorners = hasFourCorners; }
     }
 }

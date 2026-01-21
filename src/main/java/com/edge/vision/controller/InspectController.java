@@ -201,8 +201,11 @@ public class InspectController {
             String suggestedType = null;
             int[] imageShape = new int[]{720, 1280, 3};
 
-            // 类型识别逻辑 + 获取实际图像尺寸
+            // 类型识别逻辑 + 获取实际图像尺寸 + 检测工件整体（使用类型识别引擎）
             Mat stitchedMat = base64ToMat(stitchedImageBase64);
+            List<List<Double>> workpieceCorners = null;
+            List<Double> workpieceBbox = null;
+
             if (!stitchedMat.empty()) {
                 imageShape = new int[]{
                         stitchedMat.rows(),
@@ -210,22 +213,49 @@ public class InspectController {
                         stitchedMat.channels()
                 };
                 logger.debug("Actual image shape: [h={}, w={}, c={}]", imageShape[0], imageShape[1], imageShape[2]);
-            }
 
-            if (typeInferenceEngine != null) {
-                try {
-                    List<Detection> typeDetections = typeInferenceEngine.predict(stitchedMat);
-                    if (!typeDetections.isEmpty()) {
-                        Detection bestDetection = typeDetections.stream()
-                                .max(Comparator.comparing(Detection::getConfidence))
-                                .orElse(null);
-                        if (bestDetection != null && bestDetection.getConfidence() > 0.5) {
-                            suggestedType = bestDetection.getLabel();
-                            logger.info("Suggested type: {} (confidence: {})", suggestedType, bestDetection.getConfidence());
+                // 检测工件整体并获取工件类型（使用类型识别引擎）
+                if (typeInferenceEngine != null) {
+                    try {
+                        List<Detection> typeDetections = typeInferenceEngine.predict(stitchedMat);
+                        if (!typeDetections.isEmpty()) {
+                            // 取置信度最高的检测结果作为工件整体
+                            Detection bestDetection = typeDetections.stream()
+                                    .max(Comparator.comparing(Detection::getConfidence))
+                                    .orElse(null);
+
+                            if (bestDetection != null) {
+                                // 获取工件类型
+                                if (bestDetection.getConfidence() > 0.5) {
+                                    suggestedType = bestDetection.getLabel();
+                                    logger.info("Suggested type: {} (confidence: {})", suggestedType, bestDetection.getConfidence());
+                                }
+
+                                // 获取工件整体边界框和四角
+                                float[] bbox = bestDetection.getBbox();
+                                if (bbox != null && bbox.length >= 4) {
+                                    workpieceBbox = new ArrayList<>();
+                                    workpieceBbox.add((double) bbox[0]);
+                                    workpieceBbox.add((double) bbox[1]);
+                                    workpieceBbox.add((double) bbox[2]);
+                                    workpieceBbox.add((double) bbox[3]);
+
+                                    // 计算四角
+                                    workpieceCorners = new ArrayList<>();
+                                    workpieceCorners.add(Arrays.asList((double) bbox[0], (double) bbox[1]));  // TL
+                                    workpieceCorners.add(Arrays.asList((double) bbox[2], (double) bbox[1]));  // TR
+                                    workpieceCorners.add(Arrays.asList((double) bbox[2], (double) bbox[3]));  // BR
+                                    workpieceCorners.add(Arrays.asList((double) bbox[0], (double) bbox[3]));  // BL
+
+                                    logger.info("Detected workpiece: bbox={}, corners={}", workpieceBbox, workpieceCorners);
+                                }
+                            }
                         }
+                    } catch (Exception e) {
+                        logger.warn("Type model detection failed", e);
                     }
-                } catch (Exception e) {
-                    logger.warn("Type detection failed", e);
+                } else {
+                    logger.debug("Type inference engine not available, skipping workpiece detection");
                 }
             }
             stitchedMat.release();
@@ -241,6 +271,8 @@ public class InspectController {
             preCheckResponse.setPreviewImage("data:image/jpeg;base64," + stitchedImageBase64);
             preCheckResponse.setCameraCount(cameraService.getCameraCount());
             preCheckResponse.setImageShape(imageShape);
+            preCheckResponse.setWorkpieceBbox(workpieceBbox);
+            preCheckResponse.setWorkpieceCorners(workpieceCorners);
 
             response.put("status", "success");
             response.put("data", preCheckResponse);
@@ -390,15 +422,15 @@ public class InspectController {
             Mat stitchedMat = base64ToMat(preCheckData.getStitchedImage());
             List<Detection> detailDetections = detailInferenceEngine.predict(stitchedMat);
 
-            // 根据质量检测标准判断 PASS/FAIL
-            // 首先尝试使用新的模板比对模式（如果配置了模板）
+            // 根据配置的 match-strategy 选择匹配方法
             QualityStandardService.QualityEvaluationResult evaluationResult = null;
             List<DetectedObject> detectedObjects = convertDetectionsToDetectedObjects(detailDetections);
 
             try {
-                // 尝试使用模板比对模式
+                // 直接调用 evaluateWithTemplate，内部会根据 match-strategy 选择对应 Matcher
+                // 如果提供了工件四角坐标，将用于四角匹配
                 evaluationResult = qualityStandardService.evaluateWithTemplate(
-                    request.getConfirmedPartName(), detectedObjects);
+                    request.getConfirmedPartName(), detectedObjects, request.getWorkpieceCorners());
 
                 // 如果返回了模板比对结果，说明使用了新模式
                 if (evaluationResult.getTemplateComparisons() != null &&
@@ -407,8 +439,7 @@ public class InspectController {
                         request.getConfirmedPartName());
                 }
             } catch (Exception e) {
-                logger.warn("Template-based evaluation failed, falling back to traditional: {}",
-                    e.getMessage());
+                logger.warn("Template-based evaluation failed: {}", e.getMessage());
             }
 
             // 绘制检测结果（包含模板比对结果）
@@ -714,15 +745,15 @@ public class InspectController {
             float[] bbox = detection.getBbox();
 
             if (bbox != null && bbox.length >= 4) {
-                Point p1 = new Point(bbox[0], bbox[1]);
-                Point p2 = new Point(bbox[2], bbox[3]);
+                org.opencv.core.Point p1 = new org.opencv.core.Point(bbox[0], bbox[1]);
+                org.opencv.core.Point p2 = new org.opencv.core.Point(bbox[2], bbox[3]);
 
                 Imgproc.rectangle(image, p1, p2, new Scalar(0, 255, 0), 2);
 
                 String label = String.format("%s: %.2f", detection.getLabel(), detection.getConfidence());
                 double textY = Math.max(bbox[1] - 5, 15);
 
-                Imgproc.putText(image, label, new Point(bbox[0], textY),
+                Imgproc.putText(image, label, new org.opencv.core.Point(bbox[0], textY),
                         Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, new Scalar(0, 255, 0), 2);
             }
         }
@@ -799,23 +830,23 @@ public class InspectController {
         // 绘制红色虚线框（表示这里应该有特征）
         Scalar red = new Scalar(0, 0, 255);
         int size = 30; // 框的大小
-        Point p1 = new Point(x - size, y - size);
-        Point p2 = new Point(x + size, y + size);
+        org.opencv.core.Point p1 = new org.opencv.core.Point(x - size, y - size);
+        org.opencv.core.Point p2 = new org.opencv.core.Point(x + size, y + size);
 
         // 绘制虚线框
         drawDashedRectangle(image, p1, p2, red, 2);
 
         // 绘制中心十字
-        Point cross1 = new Point(x - 10, y);
-        Point cross2 = new Point(x + 10, y);
-        Point cross3 = new Point(x, y - 10);
-        Point cross4 = new Point(x, y + 10);
+        org.opencv.core.Point cross1 = new org.opencv.core.Point(x - 10, y);
+        org.opencv.core.Point cross2 = new org.opencv.core.Point(x + 10, y);
+        org.opencv.core.Point cross3 = new org.opencv.core.Point(x, y - 10);
+        org.opencv.core.Point cross4 = new org.opencv.core.Point(x, y + 10);
         Imgproc.line(image, cross1, cross2, red, 2);
         Imgproc.line(image, cross3, cross4, red, 2);
 
         // 绘制文字标签（使用中文绘制）
         String label = "漏检: " + comp.getFeatureName();
-        Point textPos = new Point(x - size, y - size - 10);
+        org.opencv.core.Point textPos = new org.opencv.core.Point(x - size, y - size - 10);
         drawChineseText(image, label, textPos, red, 14);
     }
 
@@ -832,21 +863,21 @@ public class InspectController {
         int size = 25;
 
         // 绘制红色X
-        Point p1 = new Point(x - size, y - size);
-        Point p2 = new Point(x + size, y + size);
-        Point p3 = new Point(x + size, y - size);
-        Point p4 = new Point(x - size, y + size);
+        org.opencv.core.Point p1 = new org.opencv.core.Point(x - size, y - size);
+        org.opencv.core.Point p2 = new org.opencv.core.Point(x + size, y + size);
+        org.opencv.core.Point p3 = new org.opencv.core.Point(x + size, y - size);
+        org.opencv.core.Point p4 = new org.opencv.core.Point(x - size, y + size);
 
         Imgproc.line(image, p1, p2, red, 3);
         Imgproc.line(image, p3, p4, red, 3);
 
         // 绘制外圈
-        Point center = new Point(x, y);
+        org.opencv.core.Point center = new org.opencv.core.Point(x, y);
         Imgproc.circle(image, center, size + 5, red, 2);
 
         // 绘制文字标签（使用中文绘制）
         String label = "错检";
-        Point textPos = new Point(x - size, y - size - 10);
+        org.opencv.core.Point textPos = new org.opencv.core.Point(x - size, y - size - 10);
         drawChineseText(image, label, textPos, red, 14);
     }
 
@@ -863,8 +894,8 @@ public class InspectController {
         int size = 8;
 
         // 绘制绿色小方块标记
-        Point p1 = new Point(x - size, y - size);
-        Point p2 = new Point(x + size, y + size);
+        org.opencv.core.Point p1 = new org.opencv.core.Point(x - size, y - size);
+        org.opencv.core.Point p2 = new org.opencv.core.Point(x + size, y + size);
         Imgproc.rectangle(image, p1, p2, green, -1); // 填充
     }
 
@@ -881,34 +912,34 @@ public class InspectController {
         int size = 10;
 
         // 绘制黄色空心框标记
-        Point p1 = new Point(x - size, y - size);
-        Point p2 = new Point(x + size, y + size);
+        org.opencv.core.Point p1 = new org.opencv.core.Point(x - size, y - size);
+        org.opencv.core.Point p2 = new org.opencv.core.Point(x + size, y + size);
         Imgproc.rectangle(image, p1, p2, yellow, 2);
     }
 
     /**
      * 绘制虚线矩形
      */
-    private void drawDashedRectangle(Mat image, Point p1, Point p2, Scalar color, int thickness) {
+    private void drawDashedRectangle(Mat image, org.opencv.core.Point p1, org.opencv.core.Point p2, Scalar color, int thickness) {
         // 虚线模式：10像素实线，5像素空白
         int[] dashPattern = {10, 5};
         int dashIndex = 0;
         int currentDash = 0;
 
         // 绘制上边
-        drawDashedLine(image, new Point(p1.x, p1.y), new Point(p2.x, p1.y), color, thickness, dashPattern, dashIndex);
+        drawDashedLine(image, new org.opencv.core.Point(p1.x, p1.y), new org.opencv.core.Point(p2.x, p1.y), color, thickness, dashPattern, dashIndex);
         // 绘制右边
-        drawDashedLine(image, new Point(p2.x, p1.y), new Point(p2.x, p2.y), color, thickness, dashPattern, 0);
+        drawDashedLine(image, new org.opencv.core.Point(p2.x, p1.y), new org.opencv.core.Point(p2.x, p2.y), color, thickness, dashPattern, 0);
         // 绘制下边
-        drawDashedLine(image, new Point(p1.x, p2.y), new Point(p2.x, p2.y), color, thickness, dashPattern, 0);
+        drawDashedLine(image, new org.opencv.core.Point(p1.x, p2.y), new org.opencv.core.Point(p2.x, p2.y), color, thickness, dashPattern, 0);
         // 绘制左边
-        drawDashedLine(image, new Point(p1.x, p1.y), new Point(p1.x, p2.y), color, thickness, dashPattern, 0);
+        drawDashedLine(image, new org.opencv.core.Point(p1.x, p1.y), new org.opencv.core.Point(p1.x, p2.y), color, thickness, dashPattern, 0);
     }
 
     /**
      * 绘制虚线
      */
-    private void drawDashedLine(Mat image, Point p1, Point p2, Scalar color, int thickness, int[] dashPattern, int dashIndex) {
+    private void drawDashedLine(Mat image, org.opencv.core.Point p1, org.opencv.core.Point p2, Scalar color, int thickness, int[] dashPattern, int dashIndex) {
         double totalDist = Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
         int dashCount = (int) (totalDist / 2); // 每2像素一段
         double dx = (p2.x - p1.x) / dashCount;
@@ -919,8 +950,8 @@ public class InspectController {
         int patternIdx = dashIndex;
 
         for (int i = 0; i < dashCount; i++) {
-            Point start = new Point(p1.x + dx * i, p1.y + dy * i);
-            Point end = new Point(p1.x + dx * (i + 1), p1.y + dy * (i + 1));
+            org.opencv.core.Point start = new org.opencv.core.Point(p1.x + dx * i, p1.y + dy * i);
+            org.opencv.core.Point end = new org.opencv.core.Point(p1.x + dx * (i + 1), p1.y + dy * (i + 1));
 
             if (draw) {
                 Imgproc.line(image, start, end, color, thickness);
@@ -1025,8 +1056,8 @@ public class InspectController {
         }
 
         // 绘制半透明背景
-        Point bg1 = new Point(10, 10);
-        Point bg2 = new Point(350, 120);
+        org.opencv.core.Point bg1 = new org.opencv.core.Point(10, 10);
+        org.opencv.core.Point bg2 = new org.opencv.core.Point(350, 120);
         Mat overlay = image.clone();
         Imgproc.rectangle(overlay, bg1, bg2, new Scalar(200, 200, 200), -1);
         Core.addWeighted(overlay, 0.5, image, 0.5, 0, image);
@@ -1038,12 +1069,12 @@ public class InspectController {
         // 绘制文字（使用 Graphics2D 支持中文）
         int y = 30;
         String resultText = evaluationResult.isPassed() ? "检测结果: 合格" : "检测结果: 不合格";
-        drawChineseText(image, resultText, new Point(20, y), color, 16);
+        drawChineseText(image, resultText, new org.opencv.core.Point(20, y), color, 16);
 
         y += 25;
         String statsText = String.format("通过: %d  漏检: %d  偏差: %d  错检: %d",
                 passed, missing, deviation, extra);
-        drawChineseText(image, statsText, new Point(20, y), new Scalar(0, 0, 0), 14);
+        drawChineseText(image, statsText, new org.opencv.core.Point(20, y), new Scalar(0, 0, 0), 14);
 
         // 绘制消息
         if (evaluationResult.getMessage() != null) {
@@ -1052,7 +1083,7 @@ public class InspectController {
             if (msg.length() > 30) {
                 msg = msg.substring(0, 30) + "...";
             }
-            drawChineseText(image, msg, new Point(20, y), new Scalar(100, 100, 100), 12);
+            drawChineseText(image, msg, new org.opencv.core.Point(20, y), new Scalar(100, 100, 100), 12);
         }
     }
 

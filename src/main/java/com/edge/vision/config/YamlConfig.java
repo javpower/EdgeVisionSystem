@@ -56,7 +56,7 @@ public class YamlConfig {
 
     @Data
     public static class InspectionConfig {
-        // 匹配策略：topology（拓扑图匹配）或 coordinate（坐标直接匹配）
+        // 匹配策略：topology（拓扑图匹配）、coordinate（坐标直接匹配）或 fourcorner（四角匹配）
         private MatchStrategy matchStrategy = MatchStrategy.TOPOLOGY;
         // 最大匹配距离（像素），用于坐标匹配时查找最近的匹配
         private double maxMatchDistance = 300.0;
@@ -65,5 +65,7 @@ public class YamlConfig {
         // 默认容差值（像素），用于创建模板时的初始值
         private double defaultToleranceX = 20.0;
         private double defaultToleranceY = 20.0;
+        // 四角匹配指纹容差，越小越严格
+        private Double fingerprintTolerance = 0.5;
     }
 }

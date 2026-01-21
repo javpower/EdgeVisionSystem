@@ -5,6 +5,8 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
+
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -22,4 +24,10 @@ public class PreCheckResponse {
 
     @JsonProperty("image_shape")
     private int[] imageShape;     // [height, width, channels]
+
+    @JsonProperty("workpiece_bbox")
+    private List<Double> workpieceBbox;  // 工件整体边界框 [x1, y1, x2, y2]
+
+    @JsonProperty("workpiece_corners")
+    private List<List<Double>> workpieceCorners;  // 工件四角 [[x1,y1], [x2,y2], [x3,y3], [x4,y4]]
 }

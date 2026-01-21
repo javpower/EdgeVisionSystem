@@ -59,14 +59,27 @@ public class ManualStitchStrategy implements StitchStrategy {
         }
 
         try {
-            // 阶段一：计算统一的目标高度（取所有摄像头的最小 h 值）
+            // 阶段一：计算统一的目标高度
+            // 需要同时考虑：1. 配置的 h 值，2. 实际图像可用高度 (frame.rows() - startY)
+            // 取所有摄像头中 实际可用高度 的最小值
             int targetHeight = Integer.MAX_VALUE;
             for (int i = 0; i < frames.size(); i++) {
+                Mat frame = frames.get(i);
                 CameraConfig config = cameraConfigs.getOrDefault(i, new CameraConfig(i));
-                int h = config.h;
-                if (h > 0 && h < targetHeight) {
-                    targetHeight = h;
+                int startY = config.y;
+                int configH = config.h;
+
+                // 实际可用高度（不超过图像边界）
+                int availableHeight = frame.rows() - startY;
+                // 两者取最小值
+                int effectiveHeight = Math.min(configH, availableHeight);
+
+                if (effectiveHeight > 0 && effectiveHeight < targetHeight) {
+                    targetHeight = effectiveHeight;
                 }
+
+                logger.debug("Camera {}: config.h={}, availableHeight={}, effectiveHeight={}",
+                    i, configH, availableHeight, effectiveHeight);
             }
 
             // 如果没有有效的 h 值，使用第一帧的高度
@@ -74,7 +87,7 @@ public class ManualStitchStrategy implements StitchStrategy {
                 targetHeight = frames.get(0).rows();
             }
 
-            logger.debug("Target height for stitching: {}", targetHeight);
+            logger.info("Target height for stitching: {}", targetHeight);
 
             // 阶段二：切片处理（所有图像使用相同的目标高度）
             List<Mat> slicedParts = new ArrayList<>();
@@ -83,6 +96,11 @@ public class ManualStitchStrategy implements StitchStrategy {
                 Mat frame = frames.get(i);
                 Mat cropped = cropFrameWithHeight(frame, i, targetHeight);
                 if (!cropped.empty()) {
+                    // 验证高度是否一致
+                    if (cropped.rows() != targetHeight) {
+                        logger.warn("Camera {} cropped height {} != targetHeight {}, this should not happen!",
+                            i, cropped.rows(), targetHeight);
+                    }
                     slicedParts.add(cropped);
                 }
             }
@@ -92,7 +110,21 @@ public class ManualStitchStrategy implements StitchStrategy {
                 return new Mat();
             }
 
-            // 阶段三：直接水平拼接
+            // 阶段三：验证所有切片高度一致后再拼接
+            int firstHeight = slicedParts.get(0).rows();
+            for (int i = 1; i < slicedParts.size(); i++) {
+                if (slicedParts.get(i).rows() != firstHeight) {
+                    logger.error("Height mismatch detected! slice[0].rows()={}, slice[{}].rows()={}",
+                        firstHeight, i, slicedParts.get(i).rows());
+                    // 清理资源
+                    for (Mat mat : slicedParts) {
+                        mat.release();
+                    }
+                    return new Mat();
+                }
+            }
+
+            // 阶段四：直接水平拼接
             Mat result = new Mat();
             Core.hconcat(slicedParts, result);
 

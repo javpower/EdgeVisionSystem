@@ -16,6 +16,10 @@ public class TemplateBuildRequest {
     private boolean includeAuxiliaryAnchors = true;
     private String classNameMapping;  // JSON 格式的类别映射，如 {"0":"螺丝孔","1":"定位孔"}
 
+    // 四角匹配相关
+    private List<List<Double>> fourCorners;  // 工件四个角坐标 [[x1,y1], [x2,y2], [x3,y3], [x4,y4]]
+    private String workpieceBbox;        // 工件边界框（用于从预览中提取四角）
+
     // 用于从检测结果创建模板
     private List<InspectionRequest.DetectedObject> detections;
     private Integer imageWidth;
@@ -58,4 +62,11 @@ public class TemplateBuildRequest {
 
     public Integer getImageHeight() { return imageHeight; }
     public void setImageHeight(Integer imageHeight) { this.imageHeight = imageHeight; }
+
+    // 四角匹配相关 getter/setter
+    public List<List<Double>> getFourCorners() { return fourCorners; }
+    public void setFourCorners(List<List<Double>> fourCorners) { this.fourCorners = fourCorners; }
+
+    public String getWorkpieceBbox() { return workpieceBbox; }
+    public void setWorkpieceBbox(String workpieceBbox) { this.workpieceBbox = workpieceBbox; }
 }

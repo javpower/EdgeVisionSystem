@@ -32,6 +32,15 @@ public class CoordinateBasedMatcher {
     // 是否将未在模板中定义的检测对象视为错检
     private boolean treatExtraAsError = true;
 
+    // 最小可靠匹配对数量（低于此数量拒绝匹配）
+    private int minReliablePairs = 4;
+
+    // 最小内点比例（RANSAC，低于此比例拒绝旋转）
+    private double minInlierRatio = 0.5;
+
+    // 最大允许遮挡率（超过此比例拒绝匹配）
+    private double maxOcclusionRate = 0.7;
+
     /**
      * 执行模板比对（坐标直接匹配版本，支持平移和旋转）
      *
@@ -56,13 +65,49 @@ public class CoordinateBasedMatcher {
         Map<Integer, List<DetectedObject>> detectedByClass = groupDetectedByClass(detectedObjects);
 
         // ========== 步骤1：基于所有点计算全局变换（迭代优化法） ==========
-        AffineTransform transform = calculateTransformFromAllPoints(template, detectedObjects);
+        AffineTransform transform = null;
+        try {
+            transform = calculateTransformFromAllPoints(template, detectedObjects);
 
-        if (transform != null) {
-            logger.info("计算得到全局变换: dx={}, dy={}, angle={}°",
-                String.format("%.2f", transform.tx),
-                String.format("%.2f", transform.ty),
-                String.format("%.2f", transform.angle));
+            if (transform != null) {
+                logger.info("计算得到全局变换: dx={}, dy={}, angle={}°",
+                    String.format("%.2f", transform.tx),
+                    String.format("%.2f", transform.ty),
+                    String.format("%.2f", transform.angle));
+            }
+        } catch (IllegalStateException e) {
+            // 遮挡严重或匹配质量过低，无法进行可靠匹配
+            logger.error("变换计算失败: {}", e.getMessage());
+
+            // 返回失败结果，将所有检测对象标记为错检
+            result.setProcessingTimeMs(System.currentTimeMillis() - startTime);
+            result.setPassed(false);
+            result.setMessage(e.getMessage());
+
+            // 标记所有模板特征为漏检
+            for (TemplateFeature feature : template.getFeatures()) {
+                if (feature.isRequired()) {
+                    result.addComparison(FeatureComparison.missing(feature));
+                }
+            }
+
+            // 标记所有检测对象为错检
+            if (treatExtraAsError) {
+                for (int i = 0; i < detectedObjects.size(); i++) {
+                    DetectedObject obj = detectedObjects.get(i);
+                    FeatureComparison comp = FeatureComparison.extra(
+                        "detected_" + i,
+                        obj.getClassName() != null ? obj.getClassName() : "检测对象",
+                        obj.getCenter(),
+                        obj.getClassId(),
+                        obj.getConfidence()
+                    );
+                    comp.setClassName(obj.getClassName());
+                    result.addComparison(comp);
+                }
+            }
+
+            return result;
         }
 
         // ========== 步骤2：应用逆向变换到所有检测点（变换到模板坐标系） ==========
@@ -238,6 +283,8 @@ public class CoordinateBasedMatcher {
      * 3. 精确计算：只用可靠的匹配对重新计算偏移
      * <p>
      * 这样即使有漏检/多检导致质心偏移，第二步能找到准确匹配，第三步基于可靠对重新计算。
+     *
+     * @throws IllegalStateException 当遮挡严重或匹配质量过低时抛出异常
      */
     private AffineTransform calculateTransformFromAllPoints(Template template, List<DetectedObject> detectedObjects) {
         // 按类别分组
@@ -266,6 +313,18 @@ public class CoordinateBasedMatcher {
             return null;
         }
 
+        // 检查遮挡率
+        double occlusionRate = 1.0 - (double) detectedCount / templateCount;
+        if (occlusionRate > maxOcclusionRate) {
+            throw new IllegalStateException(String.format(
+                "遮挡率过高: %.0f%% (%d/%d 特征被遮挡), 无法进行可靠的模板匹配",
+                occlusionRate * 100, templateCount - detectedCount, templateCount));
+        }
+
+        if (occlusionRate > 0.5) {
+            logger.warn("警告: 遮挡率较高: {:.0f}%, 匹配结果可能不准确", (int)(occlusionRate * 100));
+        }
+
         // ========== 第一步：粗略估计（质心法） ==========
         AffineTransform initialTransform = calculateRoughTransformByCentroid(
             templateFeaturesByClass, detectedByClass);
@@ -282,6 +341,13 @@ public class CoordinateBasedMatcher {
             templateFeaturesByClass, detectedByClass, initialTransform);
 
         logger.info("第二步-找到 {} 个可靠匹配对", reliablePairs.size());
+
+        // 质量检查：确保有足够的可靠匹配对
+        if (reliablePairs.size() < minReliablePairs) {
+            throw new IllegalStateException(String.format(
+                "可靠匹配对不足: %d 个 (最少需要 %d 个), 无法进行精确的模板匹配",
+                reliablePairs.size(), minReliablePairs));
+        }
 
         // ========== 第三步：用可靠匹配对重新计算精确偏移和旋转 ==========
         if (reliablePairs.isEmpty()) {
@@ -559,8 +625,8 @@ public class CoordinateBasedMatcher {
 
         // RANSAC参数
         final int maxIterations = Math.min(100, pairs.size() * 10);
-        final double angleThreshold = Math.toRadians(5.0); // 5度阈值
-        final double minInlierRatio = 0.3; // 至少30%的点是一致的
+        final double angleThreshold = Math.toRadians(3.0); // 3度阈值（更严格）
+        final double requiredInlierRatio = this.minInlierRatio; // 使用配置的内点比例
 
         Random random = new Random(42); // 使用固定种子保证可重复性
         double bestRotation = 0.0;
@@ -627,8 +693,8 @@ public class CoordinateBasedMatcher {
 
         // 检查是否有足够的内点
         double inlierRatio = (double) maxInliers / pairs.size();
-        if (inlierRatio < minInlierRatio) {
-            logger.info("RANSAC: 内点比例不足 (" + String.format("%.1f%%", inlierRatio * 100) + " < " + String.format("%.1f%%", minInlierRatio * 100) + ")，忽略旋转");
+        if (inlierRatio < requiredInlierRatio) {
+            logger.info("RANSAC: 内点比例不足 (" + String.format("%.1f%%", inlierRatio * 100) + " < " + String.format("%.1f%%", requiredInlierRatio * 100) + ")，忽略旋转");
             return 0.0;
         }
 
@@ -1092,6 +1158,30 @@ public class CoordinateBasedMatcher {
 
     public void setTreatExtraAsError(boolean treatExtraAsError) {
         this.treatExtraAsError = treatExtraAsError;
+    }
+
+    public int getMinReliablePairs() {
+        return minReliablePairs;
+    }
+
+    public void setMinReliablePairs(int minReliablePairs) {
+        this.minReliablePairs = minReliablePairs;
+    }
+
+    public double getMinInlierRatio() {
+        return minInlierRatio;
+    }
+
+    public void setMinInlierRatio(double minInlierRatio) {
+        this.minInlierRatio = minInlierRatio;
+    }
+
+    public double getMaxOcclusionRate() {
+        return maxOcclusionRate;
+    }
+
+    public void setMaxOcclusionRate(double maxOcclusionRate) {
+        this.maxOcclusionRate = maxOcclusionRate;
     }
 
     // ============ 内部类 ============

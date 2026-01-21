@@ -53,6 +53,9 @@ public class TemplateController {
     @Autowired
     private YamlConfig yamlConfig;
 
+    // 类型识别引擎（用于检测工件整体）
+    private YOLOInferenceEngine typeInferenceEngine;
+
     // 细节检测引擎（用于一键建模）
     private YOLOInferenceEngine detailInferenceEngine;
 
@@ -181,6 +184,24 @@ public class TemplateController {
             }
 
             // 2. 初始化检测引擎（如果尚未初始化）
+
+            // 2.1 初始化类型识别引擎（可选，用于检测工件整体）
+            if (typeInferenceEngine == null && yamlConfig.getModels().getTypeModel() != null
+                && !yamlConfig.getModels().getTypeModel().isEmpty()) {
+                try {
+                    typeInferenceEngine = new YOLOInferenceEngine(
+                        yamlConfig.getModels().getTypeModel(),
+                        yamlConfig.getModels().getConfThres(),
+                        yamlConfig.getModels().getIouThres(),
+                        yamlConfig.getModels().getDevice()
+                    );
+                    logger.info("Type inference engine initialized for one-click build");
+                } catch (Exception e) {
+                    logger.warn("Failed to initialize type inference engine: {}", e.getMessage());
+                }
+            }
+
+            // 2.2 初始化细节检测引擎（必须，用于检测特征）
             if (detailInferenceEngine == null) {
                 try {
                     detailInferenceEngine = new YOLOInferenceEngine(
@@ -224,6 +245,26 @@ public class TemplateController {
                 imageMat.release();
                 return ResponseEntity.badRequest()
                     .body(TemplateBuildResponse.error("未检测到任何特征，请确保画面中有目标工件"));
+            }
+
+            // 5.5. 使用类型识别引擎检测工件整体（如果配置了）
+            Detection workpieceDetection = null;
+            if (typeInferenceEngine != null) {
+                try {
+                    List<Detection> typeDetections = typeInferenceEngine.predict(imageMat);
+                    if (!typeDetections.isEmpty()) {
+                        // 取置信度最高的检测结果作为工件整体
+                        workpieceDetection = typeDetections.stream()
+                                .max(Comparator.comparing(Detection::getConfidence))
+                                .orElse(null);
+                        if (workpieceDetection != null && workpieceDetection.getConfidence() > 0.5) {
+                            logger.info("Detected workpiece using type model: {} (confidence: {})",
+                                workpieceDetection.getLabel(), workpieceDetection.getConfidence());
+                        }
+                    }
+                } catch (Exception e) {
+                    logger.warn("Type model detection failed", e);
+                }
             }
 
             // 6. 转换为DetectedObject列表（直接使用检测结果中的className）
@@ -301,7 +342,33 @@ public class TemplateController {
             // 9. 关联工件类型
             template.putMetadata("partType", partType);
 
-            // 10. 保存并激活模板
+            // 10. 自动计算工件四角坐标（优先使用类型识别引擎检测的工件整体，否则从细节检测结果中找最大的边界框）
+            List<List<Double>> fourCorners = null;
+            if (workpieceDetection != null) {
+                // 使用类型识别引擎检测的工件整体
+                float[] bbox = workpieceDetection.getBbox();
+                List<Double> bboxList = new ArrayList<>();
+                bboxList.add((double) bbox[0]);
+                bboxList.add((double) bbox[1]);
+                bboxList.add((double) bbox[2]);
+                bboxList.add((double) bbox[3]);
+                fourCorners = calculateCornersFromBbox(bboxList);
+                logger.info("Auto-calculated four corners from type model detection: {}", fourCorners);
+            } else {
+                // 降级：从细节检测结果中找最大的边界框
+                fourCorners = calculateCornersFromDetections(detections);
+                if (fourCorners != null) {
+                    logger.info("Auto-calculated four corners from detail detections (fallback): {}", fourCorners);
+                }
+            }
+
+            if (fourCorners != null) {
+                template.getMetadata().put("fourCorners", fourCorners);
+            } else {
+                logger.info("Could not calculate four corners (no workpiece detection found)");
+            }
+
+            // 11. 保存并激活模板
             templateManager.save(template);
             templateManager.setCurrentTemplate(template);
 
@@ -521,5 +588,89 @@ public class TemplateController {
         byte[] bytes = mob.toArray();
         mob.release();
         return Base64.getEncoder().encodeToString(bytes);
+    }
+
+    /**
+     * 获取角点标签
+     */
+    private String getCornerLabel(int index) {
+        switch (index) {
+            case 0: return "TL";  // Top-Left
+            case 1: return "TR";  // Top-Right
+            case 2: return "BR";  // Bottom-Right
+            case 3: return "BL";  // Bottom-Left
+            default: return "" + index;
+        }
+    }
+
+    /**
+     * 从边界框计算四个角
+     */
+    private List<List<Double>> calculateCornersFromBbox(List<Double> bbox) {
+        double x1 = bbox.get(0);
+        double y1 = bbox.get(1);
+        double x2 = bbox.get(2);
+        double y2 = bbox.get(3);
+
+        List<List<Double>> corners = new ArrayList<>();
+        corners.add(Arrays.asList(x1, y1));  // TL
+        corners.add(Arrays.asList(x2, y1));  // TR
+        corners.add(Arrays.asList(x2, y2));  // BR
+        corners.add(Arrays.asList(x1, y2));  // BL
+
+        return corners;
+    }
+
+    /**
+     * 从 YOLO 检测结果中自动计算工件四角
+     * <p>
+     * 假设：工件整体是检测结果中面积最大的边界框
+     *
+     * @param detections YOLO 检测结果列表
+     * @return 四角坐标 [TL, TR, BR, BL] 或 null（如果没有检测到工件）
+     */
+    private List<List<Double>> calculateCornersFromDetections(List<Detection> detections) {
+        if (detections == null || detections.isEmpty()) {
+            return null;
+        }
+
+        // 找到面积最大的检测框（假设是工件整体）
+        Detection largestDetection = null;
+        double maxArea = 0;
+
+        for (Detection detection : detections) {
+            float[] bbox = detection.getBbox();
+            if (bbox != null && bbox.length >= 4) {
+                double width = bbox[2] - bbox[0];
+                double height = bbox[3] - bbox[1];
+                double area = width * height;
+
+                if (area > maxArea) {
+                    maxArea = area;
+                    largestDetection = detection;
+                }
+            }
+        }
+
+        if (largestDetection == null) {
+            logger.warn("No valid detection bbox found");
+            return null;
+        }
+
+        // 从最大边界框计算四角
+        float[] bbox = largestDetection.getBbox();
+        List<Double> bboxList = Arrays.asList(
+            (double) bbox[0],
+            (double) bbox[1],
+            (double) bbox[2],
+            (double) bbox[3]
+        );
+
+        List<List<Double>> corners = calculateCornersFromBbox(bboxList);
+
+        logger.info("Auto-calculated corners from largest detection (label={}, area={}): {}",
+            largestDetection.getLabel(), (int)maxArea, corners);
+
+        return corners;
     }
 }

@@ -141,6 +141,14 @@ jobs:
         if (Test-Path "mvs\lib\win64\MvCameraControl.dll") {
           Copy-Item -Path "mvs\lib" -Destination "dist\mvs" -Recurse -Force
           Write-Host "Copied MVS Windows libraries (complete mvs/lib directory)"
+
+          # Copy all DLLs to dist root to ensure they are found before system-installed versions
+          # This prevents Java from loading incomplete DLLs from system paths like:
+          # C:\Program Files (x86)\Common Files\MVS\Runtime\Win64_x64\
+          Get-ChildItem -Path "mvs\lib\win64\*.dll" | ForEach-Object {
+            Copy-Item -Path $_.FullName -Destination "dist\" -Force
+          }
+          Write-Host "Copied MVS DLLs to dist root for priority loading"
         }
 
         # Show final structure
@@ -427,6 +435,14 @@ jobs:
         if (Test-Path "mvs\lib\win64\MvCameraControl.dll") {
           Copy-Item -Path "mvs\lib" -Destination "dist\mvs" -Recurse -Force
           Write-Host "Copied MVS Windows libraries (complete mvs/lib directory)"
+
+          # Copy all DLLs to dist root to ensure they are found before system-installed versions
+          # This prevents Java from loading incomplete DLLs from system paths like:
+          # C:\Program Files (x86)\Common Files\MVS\Runtime\Win64_x64\
+          Get-ChildItem -Path "mvs\lib\win64\*.dll" | ForEach-Object {
+            Copy-Item -Path $_.FullName -Destination "dist\" -Force
+          }
+          Write-Host "Copied MVS DLLs to dist root for priority loading"
         }
 
         # Show final structure
