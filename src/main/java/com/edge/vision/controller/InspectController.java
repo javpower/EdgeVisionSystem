@@ -8,6 +8,7 @@ import com.edge.vision.model.*;
 import com.edge.vision.service.CameraService;
 import com.edge.vision.service.DataManager;
 import com.edge.vision.service.QualityStandardService;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -263,6 +264,7 @@ public class InspectController {
             PreCheckData preCheckData = new PreCheckData();
             preCheckData.setStitchedImage(stitchedImageBase64);
             preCheckData.setTimestamp(LocalDateTime.now());
+            preCheckData.setWorkpieceCorners(workpieceCorners);
             preCheckStore.put(requestId, preCheckData);
 
             PreCheckResponse preCheckResponse = new PreCheckResponse();
@@ -430,7 +432,7 @@ public class InspectController {
                 // 直接调用 evaluateWithTemplate，内部会根据 match-strategy 选择对应 Matcher
                 // 如果提供了工件四角坐标，将用于四角匹配
                 evaluationResult = qualityStandardService.evaluateWithTemplate(
-                    request.getConfirmedPartName(), detectedObjects, request.getWorkpieceCorners());
+                    request.getConfirmedPartName(), detectedObjects, preCheckData.getWorkpieceCorners());
 
                 // 如果返回了模板比对结果，说明使用了新模式
                 if (evaluationResult.getTemplateComparisons() != null &&
@@ -1186,9 +1188,20 @@ public class InspectController {
         private String stitchedImage;
         private LocalDateTime timestamp;
 
+        @JsonProperty("workpiece_corners")
+        private List<List<Double>> workpieceCorners;
+
         public String getStitchedImage() { return stitchedImage; }
         public void setStitchedImage(String stitchedImage) { this.stitchedImage = stitchedImage; }
         public LocalDateTime getTimestamp() { return timestamp; }
         public void setTimestamp(LocalDateTime timestamp) { this.timestamp = timestamp; }
+
+        public List<List<Double>> getWorkpieceCorners() {
+            return workpieceCorners;
+        }
+
+        public void setWorkpieceCorners(List<List<Double>> workpieceCorners) {
+            this.workpieceCorners = workpieceCorners;
+        }
     }
 }
