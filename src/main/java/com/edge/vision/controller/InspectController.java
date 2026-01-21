@@ -2,7 +2,6 @@ package com.edge.vision.controller;
 
 import com.edge.vision.config.YamlConfig;
 import com.edge.vision.core.infer.YOLOInferenceEngine;
-import com.edge.vision.core.quality.FeatureComparison;
 import com.edge.vision.core.template.model.DetectedObject;
 import com.edge.vision.model.*;
 import com.edge.vision.service.CameraService;
@@ -19,11 +18,8 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
-import org.opencv.core.Core;
-import org.opencv.core.Mat;
-import org.opencv.core.MatOfByte;
 import org.opencv.core.Point;
-import org.opencv.core.Scalar;
+import org.opencv.core.*;
 import org.opencv.imgcodecs.Imgcodecs;
 import org.opencv.imgproc.Imgproc;
 import org.slf4j.Logger;
@@ -34,12 +30,11 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.awt.*;
-import java.awt.color.ColorSpace;
 import java.awt.image.BufferedImage;
 import java.awt.image.DataBufferByte;
 import java.time.LocalDateTime;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -421,8 +416,15 @@ public class InspectController {
             }
 
             // 执行检测
+            long decodeStart = System.currentTimeMillis();
             Mat stitchedMat = base64ToMat(preCheckData.getStitchedImage());
+            long decodeTime = System.currentTimeMillis() - decodeStart;
+            logger.info("Base64 decode time: {} ms, Image size: {}x{}", decodeTime, stitchedMat.width(), stitchedMat.height());
+
+            long inferenceStart = System.currentTimeMillis();
             List<Detection> detailDetections = detailInferenceEngine.predict(stitchedMat);
+            long inferenceTime = System.currentTimeMillis() - inferenceStart;
+            logger.info("YOLO inference time: {} ms, Detections found: {}", inferenceTime, detailDetections.size());
 
             // 根据配置的 match-strategy 选择匹配方法
             QualityStandardService.QualityEvaluationResult evaluationResult = null;
@@ -445,10 +447,15 @@ public class InspectController {
             }
 
             // 绘制检测结果（包含模板比对结果）
-            // 注释：前端使用 index.html 绘制，后端绘制代码保留备用
+            long drawStart = System.currentTimeMillis();
             Mat resultMat = drawInspectionResults(stitchedMat.clone(), detailDetections, evaluationResult);
-            String resultImageBase64 = matToBase64(stitchedMat.clone());
-            String resultImageBase642 = matToBase64(resultMat);
+            long drawTime = System.currentTimeMillis() - drawStart;
+            logger.info("Draw results time: {} ms", drawTime);
+
+            long encodeStart = System.currentTimeMillis();
+            String resultImageBase64 = matToBase64(resultMat);
+            long encodeTime = System.currentTimeMillis() - encodeStart;
+            logger.info("Image encode time (images): {} ms", encodeTime);
 
             // 构建结果
             ConfirmResponse.ConfirmData data = new ConfirmResponse.ConfirmData();
@@ -509,13 +516,16 @@ public class InspectController {
             }
             inspectionEntity.setMeta(meta);
 
-            dataManager.saveRecord(inspectionEntity, resultImageBase642);
+            long saveStart = System.currentTimeMillis();
+            dataManager.saveRecord(inspectionEntity, resultImageBase64);
+            long saveTime = System.currentTimeMillis() - saveStart;
+            logger.info("Save record time: {} ms", saveTime);
 
             response.put("status", "success");
             response.put("data", data);
 
             stitchedMat.release();
-            resultMat.release();  // 注释：后端绘制已禁用，前端使用 index.html 绘制
+            resultMat.release();
 
             return ResponseEntity.ok(response);
 
@@ -822,8 +832,13 @@ public class InspectController {
 
     private String matToBase64(Mat mat) {
         MatOfByte mob = new MatOfByte();
-        Imgcodecs.imencode(".jpg", mat, mob);
-        return Base64.getEncoder().encodeToString(mob.toArray());
+        // 使用 JPEG 质量 80（默认 95），降低质量可加快编码速度
+        MatOfInt params = new MatOfInt(Imgcodecs.IMWRITE_JPEG_QUALITY, 80);
+        Imgcodecs.imencode(".jpg", mat, mob, params);
+        byte[] bytes = mob.toArray();
+        mob.release();
+        params.release();
+        return Base64.getEncoder().encodeToString(bytes);
     }
 
     private Mat drawDetections(Mat image, List<Detection> detections) {

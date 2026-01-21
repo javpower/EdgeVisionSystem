@@ -49,8 +49,26 @@ public abstract class InferEngineTemplate {
         // GPU 模式：支持 GPU（JAR 和 Native Image 都支持，只要有 CUDA）
         if ("GPU".equalsIgnoreCase(device)) {
             try {
+                // 尝试列出可用的 CUDA 设备
+                System.out.println("========================================");
+                System.out.println("Initializing CUDA provider...");
+                System.out.println("========================================");
+
+                // 添加 CUDA provider，使用设备 0
                 opts.addCUDA(0);
-                System.out.println("GPU (CUDA) provider enabled successfully");
+
+                System.out.println("GPU (CUDA) provider enabled successfully!");
+                System.out.println("Using CUDA Device ID: 0");
+                System.out.println("========================================");
+                System.out.println("");
+
+                // 设置一些性能优化选项
+                opts.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT);
+                opts.setExecutionMode(OrtSession.SessionOptions.ExecutionMode.SEQUENTIAL);
+                System.out.println("GPU optimization level: ALL_OPT");
+                System.out.println("Execution mode: SEQUENTIAL");
+                System.out.println("");
+
             } catch (Exception e) {
                 String errorMsg = e.getMessage();
                 System.err.println("========================================");
@@ -65,17 +83,25 @@ public abstract class InferEngineTemplate {
                         System.err.println("PROBLEM: CUDA or cuDNN libraries not found");
                         System.err.println("");
                         System.err.println("SOLUTION:");
-                        System.err.println("1. Install CUDA Toolkit from: https://developer.nvidia.com/cuda-downloads");
-                        System.err.println("2. Install cuDNN from: https://developer.nvidia.com/cudnn");
-                        System.err.println("   (Download cuDNN matching your CUDA version: 13.x, 12.x or 11.x)");
-                        System.err.println("3. The run.bat script should auto-detect CUDA/cuDNN");
+                        System.err.println("1. Install CUDA Toolkit 12.x from: https://developer.nvidia.com/cuda-downloads");
+                        System.err.println("2. Install cuDNN 9.x for CUDA 12.x from: https://developer.nvidia.com/cudnn");
+                        System.err.println("3. Place CUDA/cuDNN DLLs in libs/ directory or install system-wide");
+                        System.err.println("4. The run.bat script should auto-detect CUDA/cuDNN");
                         System.err.println("");
                     } else if (errorMsg.contains("not compiled with CUDA support")) {
                         System.err.println("");
                         System.err.println("PROBLEM: Wrong application version - using CPU build instead of GPU");
                         System.err.println("");
-                        System.err.println("SOLUTION: Download the GPU version from:");
-                        System.err.println("https://github.com/your-repo/releases");
+                        System.err.println("SOLUTION: Rebuild with -Pgpu profile");
+                        System.err.println("");
+                    } else if (errorMsg.contains("failed to create")) {
+                        System.err.println("");
+                        System.err.println("PROBLEM: CUDA initialization failed - possibly no GPU detected");
+                        System.err.println("");
+                        System.err.println("SOLUTION:");
+                        System.err.println("1. Check if NVIDIA GPU is installed: nvidia-smi");
+                        System.err.println("2. Check CUDA driver version matches CUDA Toolkit version");
+                        System.err.println("3. Try device ID 1, 2, ... if you have multiple GPUs");
                         System.err.println("");
                     }
                 }
@@ -176,5 +202,125 @@ public abstract class InferEngineTemplate {
             return labels[id];
         }
         return String.valueOf(id);
+    }
+
+    /**
+     * 诊断方法：列出所有可用的 CUDA 设备
+     * 调用此方法可以查看系统中有哪些 GPU 可用
+     */
+    public static void listAvailableCUDADevices() {
+        try {
+            OrtEnvironment env = OrtEnvironment.getEnvironment();
+
+            System.out.println("========================================");
+            System.out.println("Checking available CUDA devices...");
+            System.out.println("========================================");
+
+            // 尝试创建 CUDA provider
+            OrtSession.SessionOptions opts = new OrtSession.SessionOptions();
+
+            // 尝试不同的设备 ID
+            for (int deviceId = 0; deviceId <= 3; deviceId++) {
+                try {
+                    OrtSession.SessionOptions testOpts = new OrtSession.SessionOptions();
+                    testOpts.addCUDA(deviceId);
+                    System.out.println("Device ID " + deviceId + ": Available");
+                    testOpts.close();
+                } catch (Exception e) {
+                    if (deviceId == 0) {
+                        System.out.println("Device ID " + deviceId + ": " + e.getMessage());
+                    } else {
+                        // 对于其他设备ID，如果失败就不再继续
+                        break;
+                    }
+                }
+            }
+
+            opts.close();
+            env.close();
+
+            System.out.println("========================================");
+
+            // 显示系统 nvidia-smi 信息（如果可用）
+            try {
+                Process process = Runtime.getRuntime().exec("nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader");
+                java.io.BufferedReader reader = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(process.getInputStream()));
+
+                System.out.println("nvidia-smi output:");
+                System.out.println("========================================");
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    System.out.println("  " + line);
+                }
+                System.out.println("========================================");
+
+                process.waitFor();
+            } catch (Exception e) {
+                System.out.println("Note: nvidia-smi not available (" + e.getMessage() + ")");
+            }
+
+        } catch (Exception e) {
+            System.err.println("Failed to check CUDA devices: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 获取当前会话的提供者信息
+     */
+    public void printProviderInfo() {
+        try {
+            System.out.println("========================================");
+            System.out.println("Session Provider Information");
+            System.out.println("========================================");
+            System.out.println("Session: " + session);
+            System.out.println("Input name: " + inputName);
+            System.out.println("Input size: " + inputW + "x" + inputH);
+            System.out.println("========================================");
+        } catch (Exception e) {
+            System.err.println("Failed to get provider info: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 测试推理性能
+     */
+    public void benchmarkPerformance(Mat testImage, int warmupRuns, int testRuns) throws OrtException {
+        System.out.println("========================================");
+        System.out.println("Performance Benchmark");
+        System.out.println("========================================");
+        System.out.println("Warmup runs: " + warmupRuns);
+        System.out.println("Test runs: " + testRuns);
+        System.out.println("");
+
+        // Warmup
+        System.out.println("Warming up...");
+        for (int i = 0; i < warmupRuns; i++) {
+            predict(testImage);
+        }
+        System.out.println("Warmup complete.");
+        System.out.println("");
+
+        // Benchmark
+        System.out.println("Running benchmark...");
+        long totalTime = 0;
+        long[] times = new long[testRuns];
+
+        for (int i = 0; i < testRuns; i++) {
+            long start = System.currentTimeMillis();
+            predict(testImage);
+            long end = System.currentTimeMillis();
+            times[i] = end - start;
+            totalTime += times[i];
+            System.out.println("  Run " + (i + 1) + ": " + times[i] + " ms");
+        }
+
+        System.out.println("");
+        System.out.println("Results:");
+        System.out.println("  Average: " + (totalTime / testRuns) + " ms");
+        System.out.println("  Min: " + java.util.Arrays.stream(times).min().getAsLong() + " ms");
+        System.out.println("  Max: " + java.util.Arrays.stream(times).max().getAsLong() + " ms");
+        System.out.println("  FPS: " + String.format("%.2f", 1000.0 / (totalTime / testRuns)));
+        System.out.println("========================================");
     }
 }
