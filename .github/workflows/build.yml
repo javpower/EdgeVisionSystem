@@ -445,6 +445,23 @@ jobs:
           Write-Host "Copied MVS DLLs to dist root for priority loading"
         }
 
+        # Copy CUDA/cuDNN runtime libraries from libs directory (if provided)
+        # Users should place CUDA/cuDNN DLLs in libs/win64/ directory
+        if (Test-Path "libs\win64\*.dll") {
+          New-Item -ItemType Directory -Force -Path "dist\libs" | Out-Null
+          Copy-Item -Path "libs\win64\*.dll" -Destination "dist\libs\" -Force
+          Write-Host "Copied CUDA/cuDNN DLLs from libs/win64 to dist/libs"
+
+          # Copy to dist root for priority loading
+          Get-ChildItem -Path "libs\win64\*.dll" | ForEach-Object {
+            Copy-Item -Path $_.FullName -Destination "dist\" -Force
+          }
+          Write-Host "Copied CUDA/cuDNN DLLs to dist root for priority loading"
+        } else {
+          Write-Host "WARNING: libs/win64 directory not found. CUDA/cuDNN DLLs not included."
+          Write-Host "         For GPU builds, place CUDA/cuDNN runtime DLLs in libs/win64/"
+        }
+
         # Show final structure
         Write-Host ""
         Write-Host "Final dist structure:"
@@ -501,6 +518,21 @@ jobs:
           echo "Copied MVS Linux libraries (complete mvs/lib directory)"
         fi
 
+        # Copy CUDA/cuDNN runtime libraries from libs directory (if provided)
+        # Users should place CUDA/cuDNN .so files in libs/linux64/ directory
+        if [ -d "libs/linux64" ] && ls libs/linux64/*.so* > /dev/null 2>&1; then
+          mkdir -p dist/libs
+          cp -P libs/linux64/*.so* dist/libs/
+          echo "Copied CUDA/cuDNN libraries from libs/linux64 to dist/libs"
+
+          # Copy to dist root for priority loading
+          cp -P libs/linux64/*.so* dist/
+          echo "Copied CUDA/cuDNN libraries to dist root for priority loading"
+        else
+          echo "WARNING: libs/linux64 directory not found or empty. CUDA/cuDNN libraries not included."
+          echo "         For GPU builds, place CUDA/cuDNN runtime libraries in libs/linux64/"
+        fi
+
         # Show final structure
         echo ""
         echo "Final dist structure:"
@@ -510,7 +542,7 @@ jobs:
       if: runner.os == 'Windows'
       shell: pwsh
       run: |
-        @"
+        $batContent = @"
         @echo off
         setlocal enabledelayedexpansion
 
@@ -519,48 +551,71 @@ jobs:
         echo ========================================
         echo.
 
-        REM Add current directory to PATH first (for manually copied DLLs)
+        REM ============================================================
+        REM Step 1: Setup library PATH priority
+        REM Current directory takes highest priority for DLL loading
+        REM ============================================================
+
+        REM Add current directory to PATH first (highest priority)
         set "PATH=%~dp0;%PATH%"
 
-        REM Add MVS camera SDK library path to PATH (for MVS dependent DLLs)
+        REM Add libs directory (for bundled CUDA/cuDNN DLLs)
+        if exist "%~dp0libs" (
+            set "PATH=%~dp0libs;!PATH!"
+            echo Found libs directory with bundled libraries
+        )
+
+        REM Add MVS camera SDK library path
         if exist "%~dp0mvs\lib\win64" (
             set "PATH=%~dp0mvs\lib\win64;!PATH!"
         )
 
-        REM Auto-detect CUDA installation
-        set "CUDA_PATH="
-        set "CUDNN_PATH="
+        REM ============================================================
+        REM Step 2: Check for bundled CUDA/cuDNN libraries
+        REM ============================================================
 
-        REM Check common CUDA paths (PRIORITIZE CUDA 12.x for onnxruntime 1.23.2 compatibility)
-        REM onnxruntime 1.23.2 only supports CUDA 12.x, not CUDA 13.x
-        if exist "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.*\bin\cudart64*.dll" (
-            for /f "delims=" %%i in ('dir /b /ad "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.*" 2^>nul') do (
-                set "CUDA_PATH=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\%%i"
-                goto :found_cuda
-            )
-        )
-        if exist "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.*\bin\cudart64*.dll" (
-            for /f "delims=" %%i in ('dir /b /ad "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.*" 2^>nul') do (
-                set "CUDA_PATH=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\%%i"
-                echo WARNING: Found CUDA 13.x, but onnxruntime 1.23.2 only supports CUDA 12.x
-                echo Please install CUDA 12.x alongside CUDA 13.x for this application
-                goto :found_cuda
-            )
-        )
-        if exist "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.*\bin\cudart64*.dll" (
-            for /f "delims=" %%i in ('dir /b /ad "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.*" 2^>nul') do (
-                set "CUDA_PATH=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\%%i"
-                goto :found_cuda
-            )
+        set "HAS_BUNDLED_CUDA=0"
+        if exist "%~dp0cudart64_*.dll" (
+            set "HAS_BUNDLED_CUDA=1"
+            echo Using bundled CUDA/cuDNN libraries from application directory
         )
 
-        :found_cuda
-        if defined CUDA_PATH (
-            echo Found CUDA: !CUDA_PATH!
-            set "PATH=!CUDA_PATH!\bin;!PATH!"
+        REM ============================================================
+        REM Step 3: Auto-detect system CUDA installation (if no bundled)
+        REM ============================================================
 
-            REM Copy all required CUDA runtime DLLs to app directory if not present
-            if not exist "%~dp0cudart64_*.dll" (
+        if "!HAS_BUNDLED_CUDA!"=="0" (
+            set "CUDA_PATH="
+            set "CUDNN_PATH="
+
+            REM Check common CUDA paths (PRIORITIZE CUDA 12.x for onnxruntime 1.23.2)
+            if exist "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.*\bin\cudart64*.dll" (
+                for /f "delims=" %%i in ('dir /b /ad "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.*" 2^>nul') do (
+                    set "CUDA_PATH=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\%%i"
+                    goto :found_cuda
+                )
+            )
+            if exist "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.*\bin\cudart64*.dll" (
+                for /f "delims=" %%i in ('dir /b /ad "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.*" 2^>nul') do (
+                    set "CUDA_PATH=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\%%i"
+                    echo WARNING: Found CUDA 13.x, but onnxruntime 1.23.2 only supports CUDA 12.x
+                    echo Please install CUDA 12.x alongside CUDA 13.x for this application
+                    goto :found_cuda
+                )
+            )
+            if exist "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.*\bin\cudart64*.dll" (
+                for /f "delims=" %%i in ('dir /b /ad "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.*" 2^>nul') do (
+                    set "CUDA_PATH=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\%%i"
+                    goto :found_cuda
+                )
+            )
+
+            :found_cuda
+            if defined CUDA_PATH (
+                echo Found CUDA: !CUDA_PATH!
+                set "PATH=!CUDA_PATH!\bin;!PATH!"
+
+                REM Copy CUDA runtime DLLs to app directory
                 echo Copying CUDA runtime DLLs to application directory...
                 copy "!CUDA_PATH!\bin\cudart64_*.dll" "%~dp0" >nul 2>&1
                 copy "!CUDA_PATH!\bin\cublas64_*.dll" "%~dp0" >nul 2>&1
@@ -569,86 +624,86 @@ jobs:
                 copy "!CUDA_PATH!\bin\cusolver64_*.dll" "%~dp0" >nul 2>&1
                 copy "!CUDA_PATH!\bin\cusparse64_*.dll" "%~dp0" >nul 2>&1
                 copy "!CUDA_PATH!\bin\nvrtc64_*.dll" "%~dp0" >nul 2>&1
+            ) else (
+                echo WARNING: CUDA not found in default locations
+                echo.
+                echo Please install CUDA Toolkit:
+                echo https://developer.nvidia.com/cuda-downloads
+                echo.
             )
-        ) else (
-            echo WARNING: CUDA not found in default locations
-            echo.
-            echo Please install CUDA Toolkit:
-            echo https://developer.nvidia.com/cuda-downloads
-            echo.
-        )
 
-        REM Check cuDNN in various locations
-        if exist "C:\Program Files\NVIDIA\CUDNN\bin\cudnn*.dll" (
-            set "CUDNN_PATH=C:\Program Files\NVIDIA\CUDNN"
-            set "CUDNN_BIN=!CUDNN_PATH!\bin"
-            goto :cudnn_found
-        )
+            REM Check cuDNN in various locations
+            if exist "C:\Program Files\NVIDIA\CUDNN\bin\cudnn*.dll" (
+                set "CUDNN_PATH=C:\Program Files\NVIDIA\CUDNN"
+                set "CUDNN_BIN=!CUDNN_PATH!\bin"
+                goto :cudnn_found
+            )
 
-        REM Check cuDNN v9.x versioned directories (e.g., v9.17\bin\12.9)
-        for /d %%i in ("C:\Program Files\NVIDIA\CUDNN\v*.*") do (
-            for /d %%j in ("%%i\bin\*") do (
-                if exist "%%j\cudnn*.dll" (
-                    set "CUDNN_PATH=%%i"
-                    set "CUDNN_BIN=%%j"
-                    goto :cudnn_found
+            for /d %%i in ("C:\Program Files\NVIDIA\CUDNN\v*.*") do (
+                for /d %%j in ("%%i\bin\*") do (
+                    if exist "%%j\cudnn*.dll" (
+                        set "CUDNN_PATH=%%i"
+                        set "CUDNN_BIN=%%j"
+                        goto :cudnn_found
+                    )
                 )
             )
-        )
 
-        REM Check if cuDNN is in CUDA directory
-        if exist "!CUDA_PATH!\bin\cudnn*.dll" (
-            set "CUDNN_BIN=!CUDA_PATH!\bin"
-            goto :cudnn_found
-        )
+            if exist "!CUDA_PATH!\bin\cudnn*.dll" (
+                set "CUDNN_BIN=!CUDA_PATH!\bin"
+                goto :cudnn_found
+            )
 
-        goto :cudnn_not_found
+            goto :cudnn_not_found
 
-        :cudnn_found
-        echo Found cuDNN: !CUDNN_BIN!
-        set "PATH=!CUDNN_BIN;!PATH!"
+            :cudnn_found
+            echo Found cuDNN: !CUDNN_BIN!
+            set "PATH=!CUDNN_BIN;!PATH!"
 
-        REM Copy cuDNN DLLs to app directory if not present
-        if not exist "%~dp0cudnn64_*.dll" (
+            REM Copy cuDNN DLLs to app directory
             echo Copying cuDNN DLLs to application directory...
             copy "!CUDNN_BIN!\cudnn*.dll" "%~dp0" >nul 2>&1
-            echo DLLs copied successfully!
+            goto :cudnn_done
+
+            :cudnn_not_found
+            if not exist "%~dp0cudnn*.dll" (
+                echo WARNING: cuDNN not found in standard locations
+                echo.
+                echo Please install cuDNN:
+                echo https://developer.nvidia.com/cudnn
+                echo Download version matching CUDA 12.x
+                echo.
+            )
+
+            :cudnn_done
+        )
+
+        REM ============================================================
+        REM Step 4: Verify ONNX Runtime GPU libraries
+        REM ============================================================
+
+        if not exist "%~dp0onnxruntime_providers_cuda.dll" (
+            echo WARNING: onnxruntime_providers_cuda.dll not found
+            echo GPU acceleration may not work properly
             echo.
         )
-        goto :cudnn_done
 
-        :cudnn_not_found
-        REM Check if cuDNN DLLs are already in current directory
-        if exist "%~dp0cudnn*.dll" (
-            echo Found cuDNN in application directory
-            goto :cudnn_done
-        )
+        REM ============================================================
+        REM Step 5: Set environment and start application
+        REM ============================================================
 
-        echo WARNING: cuDNN not found in standard locations
-        echo.
-        echo Please install cuDNN:
-        echo https://developer.nvidia.com/cudnn
-        echo Download version matching CUDA 12.x
-        echo.
-        echo NOTE: CUDA 12.x can coexist with CUDA 13.x on the same machine.
-        echo Install CUDA 12.x to: C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.x
-        echo This application will automatically detect and use CUDA 12.x.
-        echo.
-
-        :cudnn_done
         echo.
         echo Starting application...
         echo ========================================
         echo.
 
-        REM Set environment variable to prefer CUDA 12.x (onnxruntime 1.23.2 compatibility)
-        if defined CUDA_PATH (
-            echo Using CUDA: !CUDA_PATH!
-            set "CUDA_PATH_=!CUDA_PATH!"
+        REM Set CUDA_PATH environment variable for onnxruntime
+        if exist "%~dp0cudart64_*.dll" (
+            set "CUDA_PATH=%~dp0"
         )
 
-        REM Set JAVA_TOOL_OPTIONS to specify CUDA path
-        set "JAVA_TOOL_OPTIONS=-Dai.cuda.path=!CUDA_PATH!"
+        REM Set JAVA_TOOL_OPTIONS for native library path
+        set "JAVA_TOOL_OPTIONS=-Djava.library.path=%~dp0"
 
         jre\bin\java.exe -jar edge-vision.jar --spring.config.additional-location=application.yml
 
@@ -660,20 +715,23 @@ jobs:
             echo.
             echo Troubleshooting:
             echo 1. Ensure NVIDIA GPU is installed
-            echo 2. Install CUDA Toolkit 12.x: https://developer.nvidia.com/cuda-downloads
-            echo    (onnxruntime 1.23.2 requires CUDA 12.x, not 13.x)
-            echo 3. Install cuDNN for CUDA 12.x: https://developer.nvidia.com/cudnn
+            echo 2. For bundled libraries: Place CUDA/cuDNN DLLs in libs/win64/ before building
+            echo 3. For system CUDA: Install CUDA Toolkit 12.x and cuDNN
             echo 4. Check application.log for details
             echo.
         )
 
         pause
-        "@ | Out-File -FilePath dist\run.bat -Encoding ASCII
+        "@
+
+        # Ensure proper encoding and line endings
+        $batContent | Out-File -FilePath dist\run.bat -Encoding ASCII
+        Write-Host "Created run.bat"
 
     - name: Create run script (Unix)
       if: runner.os != 'Windows'
       run: |
-        cat > dist/run.sh << 'EOF'
+        cat > dist/run.sh << 'EOFSCRIPT'
         #!/bin/bash
         set -e
 
@@ -685,7 +743,10 @@ jobs:
         echo "========================================"
         echo ""
 
-        # Check for NVIDIA GPU
+        # ============================================================
+        # Step 1: Check for NVIDIA GPU
+        # ============================================================
+
         if ! command -v nvidia-smi &> /dev/null; then
             echo "ERROR: nvidia-smi not found. This version requires NVIDIA GPU."
             echo "Please use the CPU version instead."
@@ -696,92 +757,128 @@ jobs:
         nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader
         echo ""
 
-        # Track paths
-        CUDA_PATH=""
-        CUDNN_PATH=""
+        # ============================================================
+        # Step 2: Setup library PATH priority
+        # ============================================================
 
-        # Auto-detect CUDA
-        if [ -d "/usr/local/cuda/lib64" ]; then
-            CUDA_PATH="/usr/local/cuda"
-            echo "Found CUDA: $CUDA_PATH"
-            export LD_LIBRARY_PATH="$CUDA_PATH/lib64:$LD_LIBRARY_PATH"
-            export PATH="$CUDA_PATH/bin:$PATH"
+        # Add current directory to library path (highest priority)
+        export LD_LIBRARY_PATH="$DIR:$LD_LIBRARY_PATH"
+
+        # Add libs directory (for bundled CUDA/cuDNN libraries)
+        if [ -d "$DIR/libs" ]; then
+            export LD_LIBRARY_PATH="$DIR/libs:$LD_LIBRARY_PATH"
+            echo "Found libs directory with bundled libraries"
         fi
 
-        for cuda_ver in 12 13 11; do
-            if [ -d "/usr/local/cuda-${cuda_ver}" ]; then
-                CUDA_PATH="/usr/local/cuda-${cuda_ver}"
-                if [ "$cuda_ver" = "13" ]; then
-                    echo "Found CUDA ${cuda_ver}: $CUDA_PATH"
-                    echo "WARNING: onnxruntime 1.23.2 only supports CUDA 12.x, not CUDA 13.x"
-                    echo "Please install CUDA 12.x alongside CUDA 13.x"
-                else
-                    echo "Found CUDA ${cuda_ver}: $CUDA_PATH"
-                fi
+        # Add MVS camera SDK library path
+        if [ -d "$DIR/mvs/lib/linux64" ]; then
+            export LD_LIBRARY_PATH="$DIR/mvs/lib/linux64:$LD_LIBRARY_PATH"
+        fi
+
+        # ============================================================
+        # Step 3: Check for bundled CUDA/cuDNN libraries
+        # ============================================================
+
+        HAS_BUNDLED_CUDA=0
+        if [ -f "$DIR/libcudart.so.12" ] || [ -f "$DIR/libcudart.so.11" ]; then
+            HAS_BUNDLED_CUDA=1
+            echo "Using bundled CUDA/cuDNN libraries from application directory"
+        fi
+
+        # ============================================================
+        # Step 4: Auto-detect system CUDA (if no bundled libraries)
+        # ============================================================
+
+        if [ "$HAS_BUNDLED_CUDA" -eq 0 ]; then
+            CUDA_PATH=""
+            CUDNN_PATH=""
+
+            # Auto-detect CUDA (prioritize CUDA 12.x)
+            if [ -d "/usr/local/cuda/lib64" ]; then
+                CUDA_PATH="/usr/local/cuda"
+                echo "Found CUDA: $CUDA_PATH"
                 export LD_LIBRARY_PATH="$CUDA_PATH/lib64:$LD_LIBRARY_PATH"
                 export PATH="$CUDA_PATH/bin:$PATH"
-                break
             fi
-        done
 
-        # Auto-detect and copy cuDNN if not in app directory
-        if [ ! -f "$DIR/libcudnn.so" ] && [ ! -f "$DIR/libcudnn.so.9" ]; then
-            # Prioritize cuDNN from CUDA 12.x directories
-            for lib_dir in /usr/local/cuda-12*/lib64 /usr/local/cuda/lib64 /usr/local/cuda-13*/lib64 /usr/local/cuda-11*/lib64 /usr/lib/x86_64-linux-gnu; do
-                if [ -d "$lib_dir" ] && ls "$lib_dir"/libcudnn*so* 2>/dev/null | head -1 > /dev/null; then
-                    CUDNN_PATH="$lib_dir"
-                    echo "Found cuDNN in: $CUDNN_PATH"
-                    echo "Copying cuDNN libraries to application directory..."
-                    cp "$lib_dir"/libcudnn*.so* "$DIR/" 2>/dev/null || true
-                    echo "cuDNN libraries copied successfully!"
-                    echo ""
+            for cuda_ver in 12 13 11; do
+                if [ -d "/usr/local/cuda-${cuda_ver}" ]; then
+                    CUDA_PATH="/usr/local/cuda-${cuda_ver}"
+                    if [ "$cuda_ver" = "13" ]; then
+                        echo "Found CUDA ${cuda_ver}: $CUDA_PATH"
+                        echo "WARNING: onnxruntime 1.23.2 only supports CUDA 12.x, not CUDA 13.x"
+                        echo "Please install CUDA 12.x alongside CUDA 13.x"
+                    else
+                        echo "Found CUDA ${cuda_ver}: $CUDA_PATH"
+                    fi
+                    export LD_LIBRARY_PATH="$CUDA_PATH/lib64:$LD_LIBRARY_PATH"
+                    export PATH="$CUDA_PATH/bin:$PATH"
                     break
                 fi
             done
-        else
-            echo "Found cuDNN in application directory"
+
+            # Auto-detect and copy cuDNN if not in app directory
+            if [ ! -f "$DIR/libcudnn.so" ] && [ ! -f "$DIR/libcudnn.so.9" ]; then
+                for lib_dir in /usr/local/cuda-12*/lib64 /usr/local/cuda/lib64 /usr/local/cuda-13*/lib64 /usr/local/cuda-11*/lib64 /usr/lib/x86_64-linux-gnu; do
+                    if [ -d "$lib_dir" ] && ls "$lib_dir"/libcudnn*so* 2>/dev/null | head -1 > /dev/null; then
+                        CUDNN_PATH="$lib_dir"
+                        echo "Found cuDNN in: $CUDNN_PATH"
+                        echo "Copying cuDNN libraries to application directory..."
+                        cp "$lib_dir"/libcudnn*.so* "$DIR/" 2>/dev/null || true
+                        echo "cuDNN libraries copied successfully!"
+                        echo ""
+                        break
+                    fi
+                done
+            else
+                echo "Found cuDNN in application directory"
+            fi
+
+            # Warnings
+            if [ -z "$CUDA_PATH" ]; then
+                echo "WARNING: CUDA not found in standard locations"
+                echo "Install CUDA Toolkit: https://developer.nvidia.com/cuda-downloads"
+                echo ""
+            fi
+
+            if [ -z "$CUDNN_PATH" ] && [ ! -f "$DIR/libcudnn.so" ] && [ ! -f "$DIR/libcudnn.so.9" ]; then
+                echo "WARNING: cuDNN not found"
+                echo "Install cuDNN for CUDA 12.x: https://developer.nvidia.com/cudnn"
+                echo ""
+            fi
         fi
 
-        # Add app directory to library path for locally copied libs
-        export LD_LIBRARY_PATH="$DIR:$LD_LIBRARY_PATH"
+        # ============================================================
+        # Step 5: Verify ONNX Runtime GPU libraries
+        # ============================================================
 
-        # Warnings
-        if [ -z "$CUDA_PATH" ]; then
-            echo "WARNING: CUDA not found in standard locations"
-            echo "Install CUDA Toolkit: https://developer.nvidia.com/cuda-downloads"
+        if [ ! -f "$DIR/libonnxruntime_providers_cuda.so" ]; then
+            echo "WARNING: libonnxruntime_providers_cuda.so not found"
+            echo "GPU acceleration may not work properly"
             echo ""
         fi
 
-        if [ -z "$CUDNN_PATH" ] && [ ! -f "$DIR/libcudnn.so" ] && [ ! -f "$DIR/libcudnn.so.9" ]; then
-            echo "WARNING: cuDNN not found"
-            echo "Install cuDNN for CUDA 12.x: https://developer.nvidia.com/cudnn"
-            echo "After downloading, extract and copy to /usr/local/cuda-12.x:"
-            echo "  sudo mkdir -p /usr/local/cuda-12.x"
-            echo "  sudo cp -R include/* /usr/local/cuda-12.x/include"
-            echo "  sudo cp -R lib64/* /usr/local/cuda-12.x/lib64"
-            echo ""
-            echo "NOTE: CUDA 12.x (/usr/local/cuda-12.x) can coexist with CUDA 13.x"
-            echo "This application will automatically detect and use CUDA 12.x"
-            echo ""
-        fi
+        # ============================================================
+        # Step 6: Set environment and start application
+        # ============================================================
 
         echo ""
         echo "Starting application..."
         echo "========================================"
         echo ""
 
-        # Set environment variable to prefer CUDA 12.x (onnxruntime 1.23.2 compatibility)
-        if [ -n "$CUDA_PATH" ]; then
-            echo "Using CUDA: $CUDA_PATH"
-            export CUDA_PATH_="$CUDA_PATH"
+        # Set CUDA_PATH environment variable for onnxruntime
+        if [ -f "$DIR/libcudart.so"* ]; then
+            export CUDA_PATH="$DIR"
         fi
 
-        # Set JAVA_TOOL_OPTIONS to specify CUDA path
-        export JAVA_TOOL_OPTIONS="-Dai.cuda.path=$CUDA_PATH"
+        # Set JAVA_TOOL_OPTIONS for native library path
+        export JAVA_TOOL_OPTIONS="-Djava.library.path=$DIR"
 
         exec "$DIR/jre/bin/java" -jar edge-vision.jar --spring.config.additional-location=application.yml
-        EOF
+        EOFSCRIPT
         chmod +x dist/run.sh
+        echo "Created run.sh"
 
     - name: Verify package (Windows)
       if: runner.os == 'Windows'

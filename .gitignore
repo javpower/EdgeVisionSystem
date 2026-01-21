@@ -66,3 +66,12 @@ spring-boot-*.log
 *.dylib
 *.so
 *.dll
+
+# CUDA/cuDNN bundled libraries (ignore binary files, keep documentation)
+libs/win64/*.dll
+libs/win64/*.so
+libs/linux64/*.dll
+libs/linux64/*.so
+libs/linux64/*.dylib
+!libs/README.md
+!libs/.gitkeep
