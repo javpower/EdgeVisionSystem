@@ -440,6 +440,50 @@ jobs:
           Write-Host "         For GPU builds, place CUDA/cuDNN runtime DLLs in libs/win64/"
         }
 
+        # Extract native libraries from JAR for easier access and loading
+        # This extracts OpenCV and ONNX Runtime native libraries to dist/libs
+        Write-Host "Extracting native libraries from JAR..."
+
+        # Create libs directory if not exists
+        New-Item -ItemType Directory -Force -Path "dist\libs" | Out-Null
+
+        # Extract OpenCV native library (Windows x64)
+        $jarPath = "dist\edge-vision.jar"
+        if (Test-Path $jarPath) {
+          Write-Host "Extracting OpenCV native library..."
+          Expand-Archive -Path $jarPath -DestinationPath "temp_jar_extract" -Force
+
+          # Copy OpenCV DLL
+          $opencvSource = "temp_jar_extract\BOOT-INF\lib\opencv-4.7.0-0.jar"
+          if (Test-Path $opencvSource) {
+            Expand-Archive -Path $opencvSource -DestinationPath "temp_opencv_extract" -Force
+            $opencvDll = "temp_opencv_extract\nu\pattern\opencv\windows\x86_64\opencv_java470.dll"
+            if (Test-Path $opencvDll) {
+              Copy-Item -Path $opencvDll -Destination "dist\libs\" -Force
+              Write-Host "Extracted opencv_java470.dll to dist/libs"
+            }
+          }
+
+          # Extract ONNX Runtime native libraries (Windows x64)
+          Write-Host "Extracting ONNX Runtime native libraries..."
+          $onnxJar = Get-ChildItem -Path "temp_jar_extract\BOOT-INF\lib" -Filter "onnxruntime_gpu-*.jar"
+          if ($onnxJar) {
+            Expand-Archive -Path $onnxJar.FullName -DestinationPath "temp_onnx_extract" -Force
+
+            # Copy ONNX Runtime DLLs
+            $onnxNativePath = "temp_onnx_extract\ai\onnxruntime\native\win-x64"
+            if (Test-Path $onnxNativePath) {
+              Copy-Item -Path "$onnxNativePath\*.dll" -Destination "dist\libs\" -Force
+              Write-Host "Extracted ONNX Runtime DLLs to dist/libs"
+            }
+          }
+
+          # Clean up temp directories
+          Remove-Item -Path "temp_jar_extract" -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -Path "temp_opencv_extract" -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -Path "temp_onnx_extract" -Recurse -Force -ErrorAction SilentlyContinue
+        }
+
         # Show final structure
         Write-Host ""
         Write-Host "Final dist structure:"
@@ -505,6 +549,58 @@ jobs:
         else
           echo "WARNING: libs/linux64 directory not found or empty. CUDA/cuDNN libraries not included."
           echo "         For GPU builds, place CUDA/cuDNN runtime libraries in libs/linux64/"
+        fi
+
+        # Extract native libraries from JAR for easier access and loading
+        # This extracts OpenCV and ONNX Runtime native libraries to dist/libs
+        echo "Extracting native libraries from JAR..."
+
+        # Create libs directory if not exists
+        mkdir -p dist/libs
+
+        JAR_PATH="dist/edge-vision.jar"
+        if [ -f "$JAR_PATH" ]; then
+          # Create temp directory for extraction
+          TEMP_DIR=$(mktemp -d)
+          echo "Using temp directory: $TEMP_DIR"
+
+          # Extract JAR contents
+          unzip -q "$JAR_PATH" -d "$TEMP_DIR"
+
+          # Extract OpenCV native library (Linux x64)
+          echo "Extracting OpenCV native library..."
+          OPENCV_JAR="$TEMP_DIR/BOOT-INF/lib/opencv-4.7.0-0.jar"
+          if [ -f "$OPENCV_JAR" ]; then
+            OPENCV_TEMP="$TEMP_DIR/opencv_extract"
+            mkdir -p "$OPENCV_TEMP"
+            unzip -q "$OPENCV_JAR" -d "$OPENCV_TEMP"
+
+            OPENCV_SO="$OPENCV_TEMP/nu/pattern/opencv/linux/x86_64/libopencv_java470.so"
+            if [ -f "$OPENCV_SO" ]; then
+              cp "$OPENCV_SO" "dist/libs/"
+              echo "Extracted libopencv_java470.so to dist/libs"
+            fi
+          fi
+
+          # Extract ONNX Runtime native libraries (Linux x64)
+          echo "Extracting ONNX Runtime native libraries..."
+          ONNX_JAR=$(find "$TEMP_DIR/BOOT-INF/lib" -name "onnxruntime_gpu-*.jar" | head -1)
+          if [ -n "$ONNX_JAR" ] && [ -f "$ONNX_JAR" ]; then
+            ONNX_TEMP="$TEMP_DIR/onnx_extract"
+            mkdir -p "$ONNX_TEMP"
+            unzip -q "$ONNX_JAR" -d "$ONNX_TEMP"
+
+            # Copy ONNX Runtime shared libraries
+            ONNX_NATIVE="$ONNX_TEMP/ai/onnxruntime/native/linux-x64"
+            if [ -d "$ONNX_NATIVE" ]; then
+              cp "$ONNX_NATIVE"/libonnxruntime*.so "$ONNX_NATIVE"/libonnxruntime4j_jni.so dist/libs/
+              echo "Extracted ONNX Runtime libraries to dist/libs"
+            fi
+          fi
+
+          # Clean up temp directory
+          rm -rf "$TEMP_DIR"
+          echo "Native library extraction completed"
         fi
 
         # Show final structure
@@ -601,16 +697,19 @@ jobs:
                 echo Found CUDA: !CUDA_PATH!
                 set "PATH=!CUDA_PATH!\bin;!PATH!"
 
-                REM Copy CUDA runtime DLLs to current directory (jar directory)
-                echo Copying CUDA runtime DLLs to application directory...
-                copy "!CUDA_PATH!\bin\cudart64_*.dll" "%~dp0\" >nul 2>&1
-                copy "!CUDA_PATH!\bin\cublas64_*.dll" "%~dp0\" >nul 2>&1
-                copy "!CUDA_PATH!\bin\cublasLt.dll" "%~dp0\" >nul 2>&1
-                copy "!CUDA_PATH!\bin\cufft64_*.dll" "%~dp0\" >nul 2>&1
-                copy "!CUDA_PATH!\bin\cusolver64_*.dll" "%~dp0\" >nul 2>&1
-                copy "!CUDA_PATH!\bin\cusparse64_*.dll" "%~dp0\" >nul 2>&1
-                copy "!CUDA_PATH!\bin\nvrtc64_*.dll" "%~dp0\" >nul 2>&1
-                echo CUDA DLLs copied to application directory
+                REM Create libs directory if not exists
+                if not exist "%~dp0libs" mkdir "%~dp0libs"
+
+                REM Copy CUDA runtime DLLs to libs directory
+                echo Copying CUDA runtime DLLs to libs directory...
+                copy "!CUDA_PATH!\bin\cudart64_*.dll" "%~dp0libs\" >nul 2>&1
+                copy "!CUDA_PATH!\bin\cublas64_*.dll" "%~dp0libs\" >nul 2>&1
+                copy "!CUDA_PATH!\bin\cublasLt.dll" "%~dp0libs\" >nul 2>&1
+                copy "!CUDA_PATH!\bin\cufft64_*.dll" "%~dp0libs\" >nul 2>&1
+                copy "!CUDA_PATH!\bin\cusolver64_*.dll" "%~dp0libs\" >nul 2>&1
+                copy "!CUDA_PATH!\bin\cusparse64_*.dll" "%~dp0libs\" >nul 2>&1
+                copy "!CUDA_PATH!\bin\nvrtc64_*.dll" "%~dp0libs\" >nul 2>&1
+                echo CUDA DLLs copied to libs directory
                 goto :check_cudnn
             )
 
@@ -664,10 +763,13 @@ jobs:
                 echo Found cuDNN: !CUDNN_BIN!
                 set "PATH=!CUDNN_BIN;!PATH!"
 
-                REM Copy cuDNN DLLs to application directory (jar directory)
-                echo Copying cuDNN DLLs to application directory...
-                copy "!CUDNN_BIN!\cudnn*.dll" "%~dp0\" >nul 2>&1
-                echo cuDNN DLLs copied to application directory
+                REM Create libs directory if not exists
+                if not exist "%~dp0libs" mkdir "%~dp0libs"
+
+                REM Copy cuDNN DLLs to libs directory
+                echo Copying cuDNN DLLs to libs directory...
+                copy "!CUDNN_BIN!\cudnn*.dll" "%~dp0libs\" >nul 2>&1
+                echo cuDNN DLLs copied to libs directory
             ) else (
                 echo WARNING: cuDNN not found in standard locations
                 echo.
@@ -690,23 +792,59 @@ jobs:
         )
 
         REM ============================================================
-        REM Step 4: Verify CUDA runtime libraries in application directory
+        REM Step 4: Verify native libraries in libs directory
+        REM ============================================================
+
+        echo Verifying native libraries in libs directory...
+
+        REM Check OpenCV
+        if exist "%~dp0libs\opencv_java470.dll" (
+            echo   Found: opencv_java470.dll ^(OpenCV^)
+        ) else (
+            echo   WARNING: opencv_java470.dll not found in libs directory
+        )
+
+        REM Check ONNX Runtime
+        if exist "%~dp0libs\onnxruntime.dll" (
+            echo   Found: onnxruntime.dll ^(ONNX Runtime^)
+        ) else (
+            echo   WARNING: onnxruntime.dll not found in libs directory
+        )
+
+        REM Check ONNX Runtime JNI
+        if exist "%~dp0libs\onnxruntime4j_jni.dll" (
+            echo   Found: onnxruntime4j_jni.dll ^(ONNX Runtime JNI^)
+        ) else (
+            echo   WARNING: onnxruntime4j_jni.dll not found in libs directory
+        )
+
+        REM Check ONNX Runtime CUDA provider
+        if exist "%~dp0libs\onnxruntime_providers_cuda.dll" (
+            echo   Found: onnxruntime_providers_cuda.dll ^(CUDA Provider^)
+        ) else (
+            echo   WARNING: onnxruntime_providers_cuda.dll not found in libs directory
+            echo   GPU acceleration may not work properly
+        )
+        echo.
+
+        REM ============================================================
+        REM Step 5: Verify CUDA runtime libraries
         REM ============================================================
 
         echo Verifying CUDA runtime libraries...
         set "MISSING_CUDA=0"
 
         REM Check for cudart64 DLL (CUDA Runtime)
-        dir /b "%~dp0cudart64_*.dll" >nul 2>&1
+        dir /b "%~dp0libs\cudart64_*.dll" >nul 2>&1
         if errorlevel 1 (
-            echo WARNING: cudart64_*.dll not found in application directory
+            echo WARNING: cudart64_*.dll not found in libs directory
             set "MISSING_CUDA=1"
         )
 
         REM Check for cublas64 DLL (CUDA BLAS)
-        dir /b "%~dp0cublas64_*.dll" >nul 2>&1
+        dir /b "%~dp0libs\cublas64_*.dll" >nul 2>&1
         if errorlevel 1 (
-            echo WARNING: cublas64_*.dll not found in application directory
+            echo WARNING: cublas64_*.dll not found in libs directory
             set "MISSING_CUDA=1"
         )
 
@@ -720,7 +858,7 @@ jobs:
         )
 
         REM ============================================================
-        REM Step 5: Set environment and start application
+        REM Step 6: Set environment and start application
         REM ============================================================
 
         echo.
@@ -729,8 +867,10 @@ jobs:
         echo.
 
         REM Set JAVA_TOOL_OPTIONS for native library path
-        REM Current directory (jar directory) is included for CUDA/cuDNN DLLs
-        set "JAVA_TOOL_OPTIONS=-Djava.library.path=%~dp0;%~dp0mvs\lib\win64"
+        REM - libs directory for extracted OpenCV, ONNX Runtime, and CUDA/cuDNN DLLs
+        REM - Current directory for any additional DLLs copied to jar directory
+        REM - mvs\lib\win64 for MVS camera SDK
+        set "JAVA_TOOL_OPTIONS=-Djava.library.path=%~dp0libs;%~dp0;%~dp0mvs\lib\win64"
 
         jre\bin\java.exe -jar edge-vision.jar --spring.config.additional-location=application.yml
 
@@ -875,14 +1015,40 @@ jobs:
         fi
 
         # ============================================================
-        # Step 5: Verify ONNX Runtime GPU libraries
+        # Step 5: Verify native libraries in libs directory
         # ============================================================
 
-        if [ ! -f "$DIR/libs/libonnxruntime_providers_cuda.so" ]; then
-            echo "WARNING: libonnxruntime_providers_cuda.so not found in libs directory"
-            echo "GPU acceleration may not work properly"
-            echo ""
+        echo "Verifying native libraries..."
+
+        # Check OpenCV
+        if [ -f "$DIR/libs/libopencv_java470.so" ]; then
+            echo "  Found: libopencv_java470.so (OpenCV)"
+        else
+            echo "  WARNING: libopencv_java470.so not found in libs directory"
         fi
+
+        # Check ONNX Runtime
+        if [ -f "$DIR/libs/libonnxruntime.so" ]; then
+            echo "  Found: libonnxruntime.so (ONNX Runtime)"
+        else
+            echo "  WARNING: libonnxruntime.so not found in libs directory"
+        fi
+
+        # Check ONNX Runtime JNI
+        if [ -f "$DIR/libs/libonnxruntime4j_jni.so" ]; then
+            echo "  Found: libonnxruntime4j_jni.so (ONNX Runtime JNI)"
+        else
+            echo "  WARNING: libonnxruntime4j_jni.so not found in libs directory"
+        fi
+
+        # Check ONNX Runtime CUDA provider
+        if [ -f "$DIR/libs/libonnxruntime_providers_cuda.so" ]; then
+            echo "  Found: libonnxruntime_providers_cuda.so (CUDA Provider)"
+        else
+            echo "  WARNING: libonnxruntime_providers_cuda.so not found in libs directory"
+            echo "  GPU acceleration may not work properly"
+        fi
+        echo ""
 
         # ============================================================
         # Step 6: Set environment and start application
@@ -894,6 +1060,8 @@ jobs:
         echo ""
 
         # Set JAVA_TOOL_OPTIONS for native library path
+        # - libs directory for extracted OpenCV, ONNX Runtime, and CUDA/cuDNN libraries
+        # - mvs/lib/linux64 for MVS camera SDK
         export JAVA_TOOL_OPTIONS="-Djava.library.path=$DIR/libs:$DIR/mvs/lib/linux64"
 
         exec "$DIR/jre/bin/java" -jar edge-vision.jar --spring.config.additional-location=application.yml
