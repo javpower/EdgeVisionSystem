@@ -545,7 +545,8 @@ jobs:
         REM ============================================================
 
         set "HAS_BUNDLED_CUDA=0"
-        if exist "%~dp0libs\cudart64_*.dll" (
+        dir /b "%~dp0libs\cudart64_*.dll" >nul 2>&1
+        if not errorlevel 1 (
             set "HAS_BUNDLED_CUDA=1"
             echo Using bundled CUDA/cuDNN libraries from libs directory
         )
@@ -559,24 +560,39 @@ jobs:
             set "CUDNN_PATH="
 
             REM Check common CUDA paths (PRIORITIZE CUDA 12.x for onnxruntime 1.23.2)
-            if exist "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.*\bin\cudart64*.dll" (
-                for /f "delims=" %%i in ('dir /b /ad "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.*" 2^>nul') do (
+            REM Use for loop with dir to find CUDA versions since "if exist" doesn't support path wildcards
+
+            REM Check CUDA 12.x first
+            for /f "delims=" %%i in ('dir /b /ad "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12*" 2>nul') do (
+                if exist "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\%%i\bin\cudart64*.dll" (
                     set "CUDA_PATH=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\%%i"
-                    goto :found_cuda
+                    set "CUDA_FOUND=1"
                 )
             )
-            if exist "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.*\bin\cudart64*.dll" (
-                for /f "delims=" %%i in ('dir /b /ad "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.*" 2^>nul') do (
-                    set "CUDA_PATH=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\%%i"
-                    echo WARNING: Found CUDA 13.x, but onnxruntime 1.23.2 only supports CUDA 12.x
-                    echo Please install CUDA 12.x alongside CUDA 13.x for this application
-                    goto :found_cuda
+
+            REM Check CUDA 13.x (with warning) - only if not already found
+            if not defined CUDA_PATH (
+                for /f "delims=" %%i in ('dir /b /ad "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13*" 2>nul') do (
+                    if not defined CUDA_PATH (
+                        if exist "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\%%i\bin\cudart64*.dll" (
+                            set "CUDA_PATH=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\%%i"
+                            set "CUDA_FOUND=1"
+                            echo WARNING: Found CUDA 13.x, but onnxruntime 1.23.2 only supports CUDA 12.x
+                            echo Please install CUDA 12.x alongside CUDA 13.x for this application
+                        )
+                    )
                 )
             )
-            if exist "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.*\bin\cudart64*.dll" (
-                for /f "delims=" %%i in ('dir /b /ad "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.*" 2^>nul') do (
-                    set "CUDA_PATH=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\%%i"
-                    goto :found_cuda
+
+            REM Check CUDA 11.x - only if not already found
+            if not defined CUDA_PATH (
+                for /f "delims=" %%i in ('dir /b /ad "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11*" 2>nul') do (
+                    if not defined CUDA_PATH (
+                        if exist "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\%%i\bin\cudart64*.dll" (
+                            set "CUDA_PATH=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\%%i"
+                            set "CUDA_FOUND=1"
+                        )
+                    )
                 )
             )
 
@@ -611,39 +627,44 @@ jobs:
             if exist "C:\Program Files\NVIDIA\CUDNN\bin\cudnn*.dll" (
                 set "CUDNN_PATH=C:\Program Files\NVIDIA\CUDNN"
                 set "CUDNN_BIN=!CUDNN_PATH!\bin"
-                goto :cudnn_found
             )
 
-            for /d %%i in ("C:\Program Files\NVIDIA\CUDNN\v*.*") do (
-                for /d %%j in ("%%i\bin\*") do (
-                    if exist "%%j\cudnn*.dll" (
-                        set "CUDNN_PATH=%%i"
-                        set "CUDNN_BIN=%%j"
-                        goto :cudnn_found
+            REM Search in versioned cuDNN directories
+            if not defined CUDNN_BIN (
+                for /d %%i in ("C:\Program Files\NVIDIA\CUDNN\v*.*") do (
+                    if not defined CUDNN_BIN (
+                        for /d %%j in ("%%i\bin\*") do (
+                            if not defined CUDNN_BIN (
+                                if exist "%%j\cudnn*.dll" (
+                                    set "CUDNN_PATH=%%i"
+                                    set "CUDNN_BIN=%%j"
+                                )
+                            )
+                        )
                     )
                 )
             )
 
-            if exist "!CUDA_PATH!\bin\cudnn*.dll" (
-                set "CUDNN_BIN=!CUDA_PATH!\bin"
-                goto :cudnn_found
+            REM Check cuDNN in CUDA bin directory (only if CUDA_PATH is defined)
+            if not defined CUDNN_BIN (
+                if defined CUDA_PATH (
+                    if exist "!CUDA_PATH!\bin\cudnn*.dll" (
+                        set "CUDNN_BIN=!CUDA_PATH!\bin"
+                    )
+                )
             )
 
-            goto :cudnn_not_found
+            REM Process cuDNN if found
+            if defined CUDNN_BIN (
+                echo Found cuDNN: !CUDNN_BIN!
+                set "PATH=!CUDNN_BIN;!PATH!"
 
-            :cudnn_found
-            echo Found cuDNN: !CUDNN_BIN!
-            set "PATH=!CUDNN_BIN;!PATH!"
-
-            REM Copy cuDNN DLLs to libs directory
-            echo Copying cuDNN DLLs to libs directory...
-            if not exist "%~dp0libs" mkdir "%~dp0libs"
-            copy "!CUDNN_BIN!\cudnn*.dll" "%~dp0libs\" >nul 2>&1
-            echo cuDNN DLLs copied to libs directory
-            goto :cudnn_done
-
-            :cudnn_not_found
-            if not exist "%~dp0cudnn*.dll" (
+                REM Copy cuDNN DLLs to libs directory
+                echo Copying cuDNN DLLs to libs directory...
+                if not exist "%~dp0libs" mkdir "%~dp0libs"
+                copy "!CUDNN_BIN!\cudnn*.dll" "%~dp0libs\" >nul 2>&1
+                echo cuDNN DLLs copied to libs directory
+            ) else (
                 echo WARNING: cuDNN not found in standard locations
                 echo.
                 echo Please install cuDNN:
@@ -725,10 +746,11 @@ jobs:
         pause
         "@
 
-        # Write batch file with proper encoding (ASCII handles Chinese paths correctly in cmd)
-        # Out-File in Windows defaults to CRLF line endings which are required for .bat files
-        $batContent | Out-File -FilePath dist\run.bat -Encoding ASCII
-        Write-Host "Created run.bat"
+        # Write batch file with proper encoding for Chinese paths
+        # Use UTF8 No BOM for better compatibility with both ASCII and Chinese characters
+        $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+        [System.IO.File]::WriteAllText("$PWD\dist\run.bat", $batContent.Replace("`n","`r`n"), $utf8NoBom)
+        Write-Host "Created run.bat with UTF8 encoding"
 
     - name: Create run script (Unix)
       if: runner.os != 'Windows'

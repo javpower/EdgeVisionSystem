@@ -18,7 +18,7 @@ edge-vision:
 
   models:
     # 类型识别模型（可选，不配置则跳过类型识别阶段）
-    type-model: "models/type_classifier.onnx"
+#    type-model: "models/type_classifier.onnx"
     # 细节检测模型（必须）
     detail-model: "models/detail_detector.onnx"
     conf-thres: 0.25
