@@ -470,4 +470,126 @@ public class InspectionRepository {
         }
         return results;
     }
+
+    /**
+     * 按日期范围查询
+     */
+    public List<InspectionEntity> findByDateBetween(LocalDate startDate, LocalDate endDate) {
+        if (!saveLocal || !Files.exists(recordsDir)) {
+            return Collections.emptyList();
+        }
+
+        List<InspectionEntity> results = new ArrayList<>();
+        LocalDate current = startDate;
+        while (!current.isAfter(endDate)) {
+            Path targetFile = getRecordsFileForDate(current);
+            if (Files.exists(targetFile)) {
+                try (Stream<String> lines = Files.lines(targetFile)) {
+                    List<InspectionEntity> batch = lines
+                            .filter(line -> !line.trim().isEmpty())
+                            .map(line -> {
+                                try {
+                                    return gson.fromJson(line, InspectionEntity.class);
+                                } catch (Exception e) {
+                                    return null;
+                                }
+                            })
+                            .filter(Objects::nonNull)
+                            .collect(Collectors.toList());
+                    results.addAll(batch);
+                } catch (IOException e) {
+                    // 跳过读取失败的文件
+                }
+            }
+            current = current.plusDays(1);
+        }
+        return results;
+    }
+
+    /**
+     * 查询指定日期之后的记录
+     */
+    public List<InspectionEntity> findByDateAfter(LocalDate date) {
+        if (!saveLocal || !Files.exists(recordsDir)) {
+            return Collections.emptyList();
+        }
+
+        List<InspectionEntity> results = new ArrayList<>();
+
+        // 查询从指定日期到今天（最多365天）
+        LocalDate today = LocalDate.now();
+        LocalDate current = date;
+        int daysSearched = 0;
+        int maxDays = 365;
+
+        while (!current.isAfter(today) && daysSearched < maxDays) {
+            Path targetFile = getRecordsFileForDate(current);
+            if (Files.exists(targetFile)) {
+                try (Stream<String> lines = Files.lines(targetFile)) {
+                    List<InspectionEntity> batch = lines
+                            .filter(line -> !line.trim().isEmpty())
+                            .map(line -> {
+                                try {
+                                    return gson.fromJson(line, InspectionEntity.class);
+                                } catch (Exception e) {
+                                    return null;
+                                }
+                            })
+                            .filter(Objects::nonNull)
+                            .filter(entity -> entity.getTimestamp() != null)
+                            .filter(entity -> !entity.getTimestamp().toLocalDate().isBefore(date))
+                            .collect(Collectors.toList());
+                    results.addAll(batch);
+                } catch (IOException e) {
+                    // 跳过读取失败的文件
+                }
+            }
+            current = current.plusDays(1);
+            daysSearched++;
+        }
+        return results;
+    }
+
+    /**
+     * 查询指定日期之前的记录
+     */
+    public List<InspectionEntity> findByDateBefore(LocalDate date) {
+        if (!saveLocal || !Files.exists(recordsDir)) {
+            return Collections.emptyList();
+        }
+
+        List<InspectionEntity> results = new ArrayList<>();
+
+        // 查询从最早记录到指定日期（最多365天）
+        LocalDate current = date;
+        int daysSearched = 0;
+        int maxDays = 365;
+
+        while (daysSearched < maxDays) {
+            Path targetFile = getRecordsFileForDate(current);
+            if (Files.exists(targetFile)) {
+                try (Stream<String> lines = Files.lines(targetFile)) {
+                    List<InspectionEntity> batch = lines
+                            .filter(line -> !line.trim().isEmpty())
+                            .map(line -> {
+                                try {
+                                    return gson.fromJson(line, InspectionEntity.class);
+                                } catch (Exception e) {
+                                    return null;
+                                }
+                            })
+                            .filter(Objects::nonNull)
+                            .filter(entity -> entity.getTimestamp() != null)
+                            .filter(entity -> entity.getTimestamp().toLocalDate().isBefore(date))
+                            .collect(Collectors.toList());
+                    results.addAll(batch);
+                } catch (IOException e) {
+                    // 跳过读取失败的文件
+                }
+            }
+            current = current.minusDays(1);
+            daysSearched++;
+        }
+        return results;
+    }
 }

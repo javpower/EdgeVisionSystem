@@ -532,21 +532,24 @@ public class InspectController {
     @Operation(
             summary = "查询检测记录",
             description = """
-                    查询历史检测记录，支持按日期和批次ID过滤。
+                    查询历史检测记录，支持按时间范围、批次ID过滤和分页。
 
                     **查询参数**：
 
                     | 参数 | 类型 | 必填 | 说明 |
                     |------|------|------|------|
-                    | date | string | 否 | 日期，格式：YYYY-MM-DD |
+                    | startDate | string | 否 | 开始日期，格式：YYYY-MM-DD |
+                    | endDate | string | 否 | 结束日期，格式：YYYY-MM-DD |
                     | batchId | string | 否 | 批次ID |
-                    | limit | number | 否 | 返回记录数量限制 |
+                    | page | number | 否 | 页码，从1开始，默认1 |
+                    | pageSize | number | 否 | 每页数量，默认20 |
 
                     **使用示例**：
-                    - 查询所有记录：`GET /api/inspect/records`
-                    - 查询特定日期：`GET /api/inspect/records?date=2024-01-15`
+                    - 查询所有记录（分页）：`GET /api/inspect/records?page=1&pageSize=20`
+                    - 查询特定日期：`GET /api/inspect/records?startDate=2024-01-15&endDate=2024-01-15`
+                    - 查询日期范围：`GET /api/inspect/records?startDate=2024-01-01&endDate=2024-01-31`
                     - 查询特定批次：`GET /api/inspect/records?batchId=BATCH-001`
-                    - 限制返回数量：`GET /api/inspect/records?limit=10`
+                    - 组合查询：`GET /api/inspect/records?startDate=2024-01-01&endDate=2024-01-31&batchId=BATCH-001&page=1&pageSize=10`
 
                     **记录存储位置**：`data/records/` 目录
                     """
@@ -561,20 +564,30 @@ public class InspectController {
                                     value = """
                                             {
                                               "status": "success",
-                                              "data": [
-                                                {
-                                                  "deviceId": "EDGE_001",
-                                                  "batchId": "BATCH-2024-001",
-                                                  "partName": "EKS",
-                                                  "operator": "张三",
-                                                  "timestamp": "2024-01-15T10:30:00",
-                                                  "meta": {
-                                                    "defectCount": 2,
-                                                    "qualityStatus": "FAIL"
+                                              "data": {
+                                                "records": [
+                                                  {
+                                                    "id": "550e8400-e29b-41d4-a716-446655440000",
+                                                    "deviceId": "EDGE_001",
+                                                    "batchId": "BATCH-2024-001",
+                                                    "partName": "EKS",
+                                                    "operator": "张三",
+                                                    "timestamp": "2024-01-15T10:30:00",
+                                                    "meta": {
+                                                      "defectCount": 2,
+                                                      "qualityStatus": "FAIL"
+                                                    }
                                                   }
+                                                ],
+                                                "pagination": {
+                                                  "page": 1,
+                                                  "pageSize": 20,
+                                                  "total": 100,
+                                                  "totalPages": 5,
+                                                  "hasNext": true,
+                                                  "hasPrevious": false
                                                 }
-                                              ],
-                                              "total": 1
+                                              }
                                             }
                                             """
                             )
@@ -583,10 +596,16 @@ public class InspectController {
     })
     public ResponseEntity<Map<String, Object>> getRecords(
             @Parameter(
-                    description = "日期（格式：YYYY-MM-DD）",
-                    example = "2024-01-15"
+                    description = "开始日期（格式：YYYY-MM-DD）",
+                    example = "2024-01-01"
             )
-            @RequestParam(required = false) String date,
+            @RequestParam(required = false) String startDate,
+
+            @Parameter(
+                    description = "结束日期（格式：YYYY-MM-DD）",
+                    example = "2024-01-31"
+            )
+            @RequestParam(required = false) String endDate,
 
             @Parameter(
                     description = "批次ID",
@@ -595,27 +614,66 @@ public class InspectController {
             @RequestParam(required = false) String batchId,
 
             @Parameter(
-                    description = "返回记录数量限制",
-                    example = "10"
+                    description = "页码（从1开始）",
+                    example = "1"
             )
-            @RequestParam(required = false) Integer limit) {
+            @RequestParam(required = false, defaultValue = "1") Integer page,
+
+            @Parameter(
+                    description = "每页数量",
+                    example = "20"
+            )
+            @RequestParam(required = false, defaultValue = "20") Integer pageSize) {
 
         Map<String, Object> response = new HashMap<>();
 
         try {
-            java.time.LocalDate localDate = null;
-            if (date != null) {
-                localDate = java.time.LocalDate.parse(date);
+            // 解析日期参数
+            java.time.LocalDate start = null;
+            java.time.LocalDate end = null;
+
+            if (startDate != null && !startDate.isEmpty()) {
+                start = java.time.LocalDate.parse(startDate);
             }
 
-            java.util.List<InspectionEntity> records = dataManager.queryRecords(localDate, batchId, limit);
+            if (endDate != null && !endDate.isEmpty()) {
+                end = java.time.LocalDate.parse(endDate);
+            }
+
+            // 参数校验
+            if (page == null || page < 1) {
+                page = 1;
+            }
+            if (pageSize == null || pageSize < 1 || pageSize > 100) {
+                pageSize = 20;
+            }
+
+            // 查询记录
+            com.edge.vision.service.DataManager.PageResult pageResult =
+                dataManager.queryRecords(start, end, batchId, page, pageSize);
+
+            // 构建响应
+            Map<String, Object> pagination = new HashMap<>();
+            pagination.put("page", pageResult.getPage());
+            pagination.put("pageSize", pageResult.getPageSize());
+            pagination.put("total", pageResult.getTotal());
+            pagination.put("totalPages", pageResult.getTotalPages());
+            pagination.put("hasNext", pageResult.hasNext());
+            pagination.put("hasPrevious", pageResult.hasPrevious());
+
+            Map<String, Object> data = new HashMap<>();
+            data.put("records", pageResult.getData());
+            data.put("pagination", pagination);
 
             response.put("status", "success");
-            response.put("data", records);
-            response.put("total", records.size());
+            response.put("data", data);
 
             return ResponseEntity.ok(response);
 
+        } catch (java.time.format.DateTimeParseException e) {
+            response.put("status", "error");
+            response.put("message", "日期格式错误，请使用 YYYY-MM-DD 格式");
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
         } catch (Exception e) {
             logger.error("Failed to query records", e);
             response.put("status", "error");

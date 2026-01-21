@@ -72,14 +72,15 @@ public class DataManager implements ApplicationListener<UploadEvent> {
     
     /**
      * 保存图像文件
-     * 路径格式: data/images/yyyy-MM-dd/partType/xxx.jpg
+     * <p>
+     * 存储路径: data/images/yyyy-MM-dd/partType/xxx.jpg
+     * 相对路径（用于API访问）: /api/images/yyyy-MM-dd/partType/xxx.jpg
      */
     private void saveImage(InspectionEntity entity, String imageBase64) throws IOException {
         // 创建目录: data/images/yyyy-MM-dd/partType/
         String partType = entity.getPartName() != null ? entity.getPartName() : "UNKNOWN";
-        Path dir = Paths.get("data", "images",
-            LocalDate.now().toString(),
-            partType);
+        String dateStr = LocalDate.now().toString();
+        Path dir = Paths.get("data", "images", dateStr, partType);
 
         Files.createDirectories(dir);
 
@@ -94,8 +95,10 @@ public class DataManager implements ApplicationListener<UploadEvent> {
         byte[] imageBytes = Base64.getDecoder().decode(imageBase64);
         Files.write(imagePath, imageBytes);
 
-        // 更新实体中的图像路径
-        entity.setImagePath(imagePath.toString());
+        // 存储相对路径（用于API访问）
+        // 格式: /api/images/yyyy-MM-dd/partType/xxx.jpg
+        String relativePath = "/api/images/" + dateStr + "/" + partType + "/" + filename;
+        entity.setImagePath(relativePath);
     }
     
     /**
@@ -150,7 +153,7 @@ public class DataManager implements ApplicationListener<UploadEvent> {
         
         // 添加图像文件（如果有）
         if (entity.getImagePath() != null) {
-            Path imagePath = Paths.get(entity.getImagePath());
+            Path imagePath = Paths.get(entity.getImagePath().replace("api","data"));
             if (Files.exists(imagePath)) {
                 String filename = imagePath.getFileName().toString();
                 byte[] imageBytes = Files.readAllBytes(imagePath);
@@ -176,48 +179,145 @@ public class DataManager implements ApplicationListener<UploadEvent> {
     }
     
     /**
-     * 查询记录
+     * 查询记录（新版本：支持时间范围和分页）
      */
-    public java.util.List<InspectionEntity> queryRecords(LocalDate date, String batchId, Integer limit) {
+    public PageResult queryRecords(LocalDate startDate, LocalDate endDate, String batchId,
+                                    Integer page, Integer pageSize) {
         java.util.List<InspectionEntity> results = new java.util.ArrayList<>();
-        
-        if (date != null) {
-            results.addAll(repository.findByDate(date));
+
+        // 按时间范围查询
+        if (startDate != null && endDate != null) {
+            results.addAll(repository.findByDateBetween(startDate, endDate));
+        } else if (startDate != null) {
+            results.addAll(repository.findByDateAfter(startDate));
+        } else if (endDate != null) {
+            results.addAll(repository.findByDateBefore(endDate));
         }
-        
+
+        // 按批次ID筛选
         if (batchId != null) {
-            results.addAll(repository.findByBatchId(batchId));
+            if (results.isEmpty()) {
+                results.addAll(repository.findByBatchId(batchId));
+            } else {
+                results = results.stream()
+                    .filter(r -> batchId.equals(r.getBatchId()))
+                    .collect(java.util.stream.Collectors.toList());
+            }
         }
-        
-        if (date == null && batchId == null) {
+
+        // 如果没有筛选条件，查询所有
+        if (startDate == null && endDate == null && batchId == null) {
             results.addAll(repository.findAll());
         }
-        
-        // 去重并限制数量
+
+        // 去重
         java.util.Set<String> seenIds = new java.util.HashSet<>();
         results.removeIf(e -> !seenIds.add(e.getId()));
-        
+
         // 按时间倒序排序
         results.sort((a, b) -> b.getTimestamp().compareTo(a.getTimestamp()));
-        
-        if (limit != null && limit > 0) {
-            return results.stream().limit(limit).collect(java.util.stream.Collectors.toList());
+
+        int total = results.size();
+
+        // 分页处理
+        if (page != null && pageSize != null && page > 0 && pageSize > 0) {
+            int startIndex = (page - 1) * pageSize;
+            if (startIndex >= total) {
+                return new PageResult(java.util.Collections.emptyList(), total, page, pageSize);
+            }
+            int endIndex = Math.min(startIndex + pageSize, total);
+            results = results.subList(startIndex, endIndex);
         }
-        
-        return results;
+
+        return new PageResult(results, total, page != null ? page : 1, pageSize != null ? pageSize : total);
     }
-    
+
+    /**
+     * 查询记录（旧版本：保持兼容）
+     */
+    public java.util.List<InspectionEntity> queryRecords(LocalDate date, String batchId, Integer limit) {
+        PageResult pageResult = queryRecords(date, date != null ? date : null, batchId, null, limit);
+        return pageResult.getData();
+    }
+
     /**
      * 获取统计数据
      */
     public java.util.Map<String, Object> getStatistics() {
         java.util.Map<String, Object> stats = new java.util.HashMap<>();
-        
+
         java.util.List<InspectionEntity> allRecords = repository.findAll();
-        
+
         stats.put("totalRecords", allRecords.size());
         stats.put("uploadedRecords", allRecords.stream().filter(InspectionEntity::isUploaded).count());
-        
+
         return stats;
+    }
+
+    /**
+     * 分页结果封装类
+     */
+    public static class PageResult {
+        private java.util.List<InspectionEntity> data;
+        private int total;
+        private int page;
+        private int pageSize;
+        private int totalPages;
+
+        public PageResult(java.util.List<InspectionEntity> data, int total, int page, int pageSize) {
+            this.data = data != null ? data : java.util.Collections.emptyList();
+            this.total = total;
+            this.page = page;
+            this.pageSize = pageSize;
+            this.totalPages = pageSize > 0 ? (int) Math.ceil((double) total / pageSize) : 1;
+        }
+
+        public java.util.List<InspectionEntity> getData() {
+            return data;
+        }
+
+        public void setData(java.util.List<InspectionEntity> data) {
+            this.data = data;
+        }
+
+        public int getTotal() {
+            return total;
+        }
+
+        public void setTotal(int total) {
+            this.total = total;
+        }
+
+        public int getPage() {
+            return page;
+        }
+
+        public void setPage(int page) {
+            this.page = page;
+        }
+
+        public int getPageSize() {
+            return pageSize;
+        }
+
+        public void setPageSize(int pageSize) {
+            this.pageSize = pageSize;
+        }
+
+        public int getTotalPages() {
+            return totalPages;
+        }
+
+        public void setTotalPages(int totalPages) {
+            this.totalPages = totalPages;
+        }
+
+        public boolean hasNext() {
+            return page < totalPages;
+        }
+
+        public boolean hasPrevious() {
+            return page > 1;
+        }
     }
 }
