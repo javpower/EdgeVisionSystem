@@ -140,15 +140,7 @@ jobs:
         # Copy MVS camera SDK libraries (complete lib directory with all dependencies)
         if (Test-Path "mvs\lib\win64\MvCameraControl.dll") {
           Copy-Item -Path "mvs\lib" -Destination "dist\mvs" -Recurse -Force
-          Write-Host "Copied MVS Windows libraries (complete mvs/lib directory)"
-
-          # Copy all DLLs to dist root to ensure they are found before system-installed versions
-          # This prevents Java from loading incomplete DLLs from system paths like:
-          # C:\Program Files (x86)\Common Files\MVS\Runtime\Win64_x64\
-          Get-ChildItem -Path "mvs\lib\win64\*.dll" | ForEach-Object {
-            Copy-Item -Path $_.FullName -Destination "dist\" -Force
-          }
-          Write-Host "Copied MVS DLLs to dist root for priority loading"
+          Write-Host "Copied MVS Windows libraries to dist/mvs/lib"
         }
 
         # Show final structure
@@ -434,15 +426,7 @@ jobs:
         # Copy MVS camera SDK libraries (complete lib directory with all dependencies)
         if (Test-Path "mvs\lib\win64\MvCameraControl.dll") {
           Copy-Item -Path "mvs\lib" -Destination "dist\mvs" -Recurse -Force
-          Write-Host "Copied MVS Windows libraries (complete mvs/lib directory)"
-
-          # Copy all DLLs to dist root to ensure they are found before system-installed versions
-          # This prevents Java from loading incomplete DLLs from system paths like:
-          # C:\Program Files (x86)\Common Files\MVS\Runtime\Win64_x64\
-          Get-ChildItem -Path "mvs\lib\win64\*.dll" | ForEach-Object {
-            Copy-Item -Path $_.FullName -Destination "dist\" -Force
-          }
-          Write-Host "Copied MVS DLLs to dist root for priority loading"
+          Write-Host "Copied MVS Windows libraries to dist/mvs/lib"
         }
 
         # Copy CUDA/cuDNN runtime libraries from libs directory (if provided)
@@ -451,12 +435,6 @@ jobs:
           New-Item -ItemType Directory -Force -Path "dist\libs" | Out-Null
           Copy-Item -Path "libs\win64\*.dll" -Destination "dist\libs\" -Force
           Write-Host "Copied CUDA/cuDNN DLLs from libs/win64 to dist/libs"
-
-          # Copy to dist root for priority loading
-          Get-ChildItem -Path "libs\win64\*.dll" | ForEach-Object {
-            Copy-Item -Path $_.FullName -Destination "dist\" -Force
-          }
-          Write-Host "Copied CUDA/cuDNN DLLs to dist root for priority loading"
         } else {
           Write-Host "WARNING: libs/win64 directory not found. CUDA/cuDNN DLLs not included."
           Write-Host "         For GPU builds, place CUDA/cuDNN runtime DLLs in libs/win64/"
@@ -524,10 +502,6 @@ jobs:
           mkdir -p dist/libs
           cp -P libs/linux64/*.so* dist/libs/
           echo "Copied CUDA/cuDNN libraries from libs/linux64 to dist/libs"
-
-          # Copy to dist root for priority loading
-          cp -P libs/linux64/*.so* dist/
-          echo "Copied CUDA/cuDNN libraries to dist root for priority loading"
         else
           echo "WARNING: libs/linux64 directory not found or empty. CUDA/cuDNN libraries not included."
           echo "         For GPU builds, place CUDA/cuDNN runtime libraries in libs/linux64/"
@@ -553,13 +527,9 @@ jobs:
 
         REM ============================================================
         REM Step 1: Setup library PATH priority
-        REM Current directory takes highest priority for DLL loading
         REM ============================================================
 
-        REM Add current directory to PATH first (highest priority)
-        set "PATH=%~dp0;%PATH%"
-
-        REM Add libs directory (for bundled CUDA/cuDNN DLLs)
+        REM Add libs directory first (for bundled CUDA/cuDNN libraries)
         if exist "%~dp0libs" (
             set "PATH=%~dp0libs;!PATH!"
             echo Found libs directory with bundled libraries
@@ -575,9 +545,9 @@ jobs:
         REM ============================================================
 
         set "HAS_BUNDLED_CUDA=0"
-        if exist "%~dp0cudart64_*.dll" (
+        if exist "%~dp0libs\cudart64_*.dll" (
             set "HAS_BUNDLED_CUDA=1"
-            echo Using bundled CUDA/cuDNN libraries from application directory
+            echo Using bundled CUDA/cuDNN libraries from libs directory
         )
 
         REM ============================================================
@@ -615,15 +585,18 @@ jobs:
                 echo Found CUDA: !CUDA_PATH!
                 set "PATH=!CUDA_PATH!\bin;!PATH!"
 
-                REM Copy CUDA runtime DLLs to app directory
-                echo Copying CUDA runtime DLLs to application directory...
-                copy "!CUDA_PATH!\bin\cudart64_*.dll" "%~dp0" >nul 2>&1
-                copy "!CUDA_PATH!\bin\cublas64_*.dll" "%~dp0" >nul 2>&1
-                copy "!CUDA_PATH!\bin\cublasLt.dll" "%~dp0" >nul 2>&1
-                copy "!CUDA_PATH!\bin\cufft64_*.dll" "%~dp0" >nul 2>&1
-                copy "!CUDA_PATH!\bin\cusolver64_*.dll" "%~dp0" >nul 2>&1
-                copy "!CUDA_PATH!\bin\cusparse64_*.dll" "%~dp0" >nul 2>&1
-                copy "!CUDA_PATH!\bin\nvrtc64_*.dll" "%~dp0" >nul 2>&1
+                REM Create libs directory and copy CUDA runtime DLLs
+                echo Copying CUDA runtime DLLs to libs directory...
+                if not exist "%~dp0libs" mkdir "%~dp0libs"
+                copy "!CUDA_PATH!\bin\cudart64_*.dll" "%~dp0libs\" >nul 2>&1
+                copy "!CUDA_PATH!\bin\cublas64_*.dll" "%~dp0libs\" >nul 2>&1
+                copy "!CUDA_PATH!\bin\cublasLt.dll" "%~dp0libs\" >nul 2>&1
+                copy "!CUDA_PATH!\bin\cufft64_*.dll" "%~dp0libs\" >nul 2>&1
+                copy "!CUDA_PATH!\bin\cusolver64_*.dll" "%~dp0libs\" >nul 2>&1
+                copy "!CUDA_PATH!\bin\cusparse64_*.dll" "%~dp0libs\" >nul 2>&1
+                copy "!CUDA_PATH!\bin\nvrtc64_*.dll" "%~dp0libs\" >nul 2>&1
+                echo CUDA DLLs copied to libs directory
+                set "PATH=%~dp0libs;!PATH!"
             ) else (
                 echo WARNING: CUDA not found in default locations
                 echo.
@@ -660,9 +633,11 @@ jobs:
             echo Found cuDNN: !CUDNN_BIN!
             set "PATH=!CUDNN_BIN;!PATH!"
 
-            REM Copy cuDNN DLLs to app directory
-            echo Copying cuDNN DLLs to application directory...
-            copy "!CUDNN_BIN!\cudnn*.dll" "%~dp0" >nul 2>&1
+            REM Copy cuDNN DLLs to libs directory
+            echo Copying cuDNN DLLs to libs directory...
+            if not exist "%~dp0libs" mkdir "%~dp0libs"
+            copy "!CUDNN_BIN!\cudnn*.dll" "%~dp0libs\" >nul 2>&1
+            echo cuDNN DLLs copied to libs directory
             goto :cudnn_done
 
             :cudnn_not_found
@@ -682,8 +657,8 @@ jobs:
         REM Step 4: Verify ONNX Runtime GPU libraries
         REM ============================================================
 
-        if not exist "%~dp0onnxruntime_providers_cuda.dll" (
-            echo WARNING: onnxruntime_providers_cuda.dll not found
+        if not exist "%~dp0libs\onnxruntime_providers_cuda.dll" (
+            echo WARNING: onnxruntime_providers_cuda.dll not found in libs directory
             echo GPU acceleration may not work properly
             echo.
         )
@@ -697,13 +672,8 @@ jobs:
         echo ========================================
         echo.
 
-        REM Set CUDA_PATH environment variable for onnxruntime
-        if exist "%~dp0cudart64_*.dll" (
-            set "CUDA_PATH=%~dp0"
-        )
-
         REM Set JAVA_TOOL_OPTIONS for native library path
-        set "JAVA_TOOL_OPTIONS=-Djava.library.path=%~dp0"
+        set "JAVA_TOOL_OPTIONS=-Djava.library.path=%~dp0libs;%~dp0mvs\lib\win64"
 
         jre\bin\java.exe -jar edge-vision.jar --spring.config.additional-location=application.yml
 
@@ -761,10 +731,7 @@ jobs:
         # Step 2: Setup library PATH priority
         # ============================================================
 
-        # Add current directory to library path (highest priority)
-        export LD_LIBRARY_PATH="$DIR:$LD_LIBRARY_PATH"
-
-        # Add libs directory (for bundled CUDA/cuDNN libraries)
+        # Add libs directory first (for bundled CUDA/cuDNN libraries)
         if [ -d "$DIR/libs" ]; then
             export LD_LIBRARY_PATH="$DIR/libs:$LD_LIBRARY_PATH"
             echo "Found libs directory with bundled libraries"
@@ -780,9 +747,9 @@ jobs:
         # ============================================================
 
         HAS_BUNDLED_CUDA=0
-        if [ -f "$DIR/libcudart.so.12" ] || [ -f "$DIR/libcudart.so.11" ]; then
+        if [ -f "$DIR/libs/libcudart.so.12" ] || [ -f "$DIR/libs/libcudart.so.11" ]; then
             HAS_BUNDLED_CUDA=1
-            echo "Using bundled CUDA/cuDNN libraries from application directory"
+            echo "Using bundled CUDA/cuDNN libraries from libs directory"
         fi
 
         # ============================================================
@@ -817,21 +784,22 @@ jobs:
                 fi
             done
 
-            # Auto-detect and copy cuDNN if not in app directory
-            if [ ! -f "$DIR/libcudnn.so" ] && [ ! -f "$DIR/libcudnn.so.9" ]; then
+            # Auto-detect and copy cuDNN if not in libs directory
+            if [ ! -f "$DIR/libs/libcudnn.so" ] && [ ! -f "$DIR/libs/libcudnn.so.9" ]; then
                 for lib_dir in /usr/local/cuda-12*/lib64 /usr/local/cuda/lib64 /usr/local/cuda-13*/lib64 /usr/local/cuda-11*/lib64 /usr/lib/x86_64-linux-gnu; do
                     if [ -d "$lib_dir" ] && ls "$lib_dir"/libcudnn*so* 2>/dev/null | head -1 > /dev/null; then
                         CUDNN_PATH="$lib_dir"
                         echo "Found cuDNN in: $CUDNN_PATH"
-                        echo "Copying cuDNN libraries to application directory..."
-                        cp "$lib_dir"/libcudnn*.so* "$DIR/" 2>/dev/null || true
-                        echo "cuDNN libraries copied successfully!"
+                        echo "Copying cuDNN libraries to libs directory..."
+                        mkdir -p "$DIR/libs"
+                        cp "$lib_dir"/libcudnn*.so* "$DIR/libs/" 2>/dev/null || true
+                        echo "cuDNN libraries copied to libs directory!"
                         echo ""
                         break
                     fi
                 done
             else
-                echo "Found cuDNN in application directory"
+                echo "Found cuDNN in libs directory"
             fi
 
             # Warnings
@@ -841,7 +809,7 @@ jobs:
                 echo ""
             fi
 
-            if [ -z "$CUDNN_PATH" ] && [ ! -f "$DIR/libcudnn.so" ] && [ ! -f "$DIR/libcudnn.so.9" ]; then
+            if [ -z "$CUDNN_PATH" ] && [ ! -f "$DIR/libs/libcudnn.so" ] && [ ! -f "$DIR/libs/libcudnn.so.9" ]; then
                 echo "WARNING: cuDNN not found"
                 echo "Install cuDNN for CUDA 12.x: https://developer.nvidia.com/cudnn"
                 echo ""
@@ -852,8 +820,8 @@ jobs:
         # Step 5: Verify ONNX Runtime GPU libraries
         # ============================================================
 
-        if [ ! -f "$DIR/libonnxruntime_providers_cuda.so" ]; then
-            echo "WARNING: libonnxruntime_providers_cuda.so not found"
+        if [ ! -f "$DIR/libs/libonnxruntime_providers_cuda.so" ]; then
+            echo "WARNING: libonnxruntime_providers_cuda.so not found in libs directory"
             echo "GPU acceleration may not work properly"
             echo ""
         fi
@@ -867,13 +835,8 @@ jobs:
         echo "========================================"
         echo ""
 
-        # Set CUDA_PATH environment variable for onnxruntime
-        if [ -f "$DIR/libcudart.so"* ]; then
-            export CUDA_PATH="$DIR"
-        fi
-
         # Set JAVA_TOOL_OPTIONS for native library path
-        export JAVA_TOOL_OPTIONS="-Djava.library.path=$DIR"
+        export JAVA_TOOL_OPTIONS="-Djava.library.path=$DIR/libs:$DIR/mvs/lib/linux64"
 
         exec "$DIR/jre/bin/java" -jar edge-vision.jar --spring.config.additional-location=application.yml
         EOFSCRIPT
