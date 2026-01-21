@@ -563,7 +563,7 @@ jobs:
             REM Use for loop with dir to find CUDA versions since "if exist" doesn't support path wildcards
 
             REM Check CUDA 12.x first
-            for /f "delims=" %%i in ('dir /b /ad "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12*" 2>nul') do (
+            for /f "delims=" %%i in ('dir /b /ad "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12*" 2^>nul') do (
                 if exist "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\%%i\bin\cudart64*.dll" (
                     set "CUDA_PATH=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\%%i"
                     set "CUDA_FOUND=1"
@@ -572,7 +572,7 @@ jobs:
 
             REM Check CUDA 13.x (with warning) - only if not already found
             if not defined CUDA_PATH (
-                for /f "delims=" %%i in ('dir /b /ad "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13*" 2>nul') do (
+                for /f "delims=" %%i in ('dir /b /ad "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13*" 2^>nul') do (
                     if not defined CUDA_PATH (
                         if exist "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\%%i\bin\cudart64*.dll" (
                             set "CUDA_PATH=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\%%i"
@@ -586,7 +586,7 @@ jobs:
 
             REM Check CUDA 11.x - only if not already found
             if not defined CUDA_PATH (
-                for /f "delims=" %%i in ('dir /b /ad "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11*" 2>nul') do (
+                for /f "delims=" %%i in ('dir /b /ad "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11*" 2^>nul') do (
                     if not defined CUDA_PATH (
                         if exist "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\%%i\bin\cudart64*.dll" (
                             set "CUDA_PATH=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\%%i"
@@ -601,18 +601,16 @@ jobs:
                 echo Found CUDA: !CUDA_PATH!
                 set "PATH=!CUDA_PATH!\bin;!PATH!"
 
-                REM Create libs directory and copy CUDA runtime DLLs
-                echo Copying CUDA runtime DLLs to libs directory...
-                if not exist "%~dp0libs" mkdir "%~dp0libs"
-                copy "!CUDA_PATH!\bin\cudart64_*.dll" "%~dp0libs\" >nul 2>&1
-                copy "!CUDA_PATH!\bin\cublas64_*.dll" "%~dp0libs\" >nul 2>&1
-                copy "!CUDA_PATH!\bin\cublasLt.dll" "%~dp0libs\" >nul 2>&1
-                copy "!CUDA_PATH!\bin\cufft64_*.dll" "%~dp0libs\" >nul 2>&1
-                copy "!CUDA_PATH!\bin\cusolver64_*.dll" "%~dp0libs\" >nul 2>&1
-                copy "!CUDA_PATH!\bin\cusparse64_*.dll" "%~dp0libs\" >nul 2>&1
-                copy "!CUDA_PATH!\bin\nvrtc64_*.dll" "%~dp0libs\" >nul 2>&1
-                echo CUDA DLLs copied to libs directory
-                set "PATH=%~dp0libs;!PATH!"
+                REM Copy CUDA runtime DLLs to current directory (jar directory)
+                echo Copying CUDA runtime DLLs to application directory...
+                copy "!CUDA_PATH!\bin\cudart64_*.dll" "%~dp0\" >nul 2>&1
+                copy "!CUDA_PATH!\bin\cublas64_*.dll" "%~dp0\" >nul 2>&1
+                copy "!CUDA_PATH!\bin\cublasLt.dll" "%~dp0\" >nul 2>&1
+                copy "!CUDA_PATH!\bin\cufft64_*.dll" "%~dp0\" >nul 2>&1
+                copy "!CUDA_PATH!\bin\cusolver64_*.dll" "%~dp0\" >nul 2>&1
+                copy "!CUDA_PATH!\bin\cusparse64_*.dll" "%~dp0\" >nul 2>&1
+                copy "!CUDA_PATH!\bin\nvrtc64_*.dll" "%~dp0\" >nul 2>&1
+                echo CUDA DLLs copied to application directory
                 goto :check_cudnn
             )
 
@@ -624,52 +622,67 @@ jobs:
 
             :check_cudnn
             REM Check cuDNN in various locations
+            set "CUDNN_BIN="
+
+            REM Check standard location
             if exist "C:\Program Files\NVIDIA\CUDNN\bin\cudnn*.dll" (
+                set "CUDNN_BIN=C:\Program Files\NVIDIA\CUDNN\bin"
                 set "CUDNN_PATH=C:\Program Files\NVIDIA\CUDNN"
-                set "CUDNN_BIN=!CUDNN_PATH!\bin"
+                goto :cudnn_found
             )
 
-            REM Search in versioned cuDNN directories
-            if not defined CUDNN_BIN (
-                for /d %%i in ("C:\Program Files\NVIDIA\CUDNN\v*.*") do (
-                    if not defined CUDNN_BIN (
-                        for /d %%j in ("%%i\bin\*") do (
-                            if not defined CUDNN_BIN (
-                                if exist "%%j\cudnn*.dll" (
-                                    set "CUDNN_PATH=%%i"
-                                    set "CUDNN_BIN=%%j"
-                                )
-                            )
-                        )
+            REM Search in versioned cuDNN directories (v9.x structure)
+            REM cuDNN v9.x has structure like: v9.18\bin\12\cudnn*.dll or v9.18\bin\11\cudnn*.dll
+            for /d %%i in ("C:\Program Files\NVIDIA\CUDNN\v*") do (
+                REM Check all subdirectories in bin (12, 11, etc.)
+                for /d %%j in ("%%i\bin\*") do (
+                    if exist "%%j\cudnn*.dll" (
+                        set "CUDNN_BIN=%%j"
+                        set "CUDNN_PATH=%%i"
+                        goto :cudnn_found
                     )
+                )
+                REM Check for bin directory directly (older structure)
+                if exist "%%i\bin\cudnn*.dll" (
+                    set "CUDNN_BIN=%%i\bin"
+                    set "CUDNN_PATH=%%i"
+                    goto :cudnn_found
                 )
             )
 
             REM Check cuDNN in CUDA bin directory (only if CUDA_PATH is defined)
-            if not defined CUDNN_BIN (
-                if defined CUDA_PATH (
-                    if exist "!CUDA_PATH!\bin\cudnn*.dll" (
-                        set "CUDNN_BIN=!CUDA_PATH!\bin"
-                    )
+            if not defined CUDNN_BIN if defined CUDA_PATH (
+                if exist "!CUDA_PATH!\bin\cudnn*.dll" (
+                    set "CUDNN_BIN=!CUDA_PATH!\bin"
+                    set "CUDNN_PATH=!CUDA_PATH!"
+                    goto :cudnn_found
                 )
             )
 
-            REM Process cuDNN if found
+            :cudnn_found
             if defined CUDNN_BIN (
                 echo Found cuDNN: !CUDNN_BIN!
                 set "PATH=!CUDNN_BIN;!PATH!"
 
-                REM Copy cuDNN DLLs to libs directory
-                echo Copying cuDNN DLLs to libs directory...
-                if not exist "%~dp0libs" mkdir "%~dp0libs"
-                copy "!CUDNN_BIN!\cudnn*.dll" "%~dp0libs\" >nul 2>&1
-                echo cuDNN DLLs copied to libs directory
+                REM Copy cuDNN DLLs to application directory (jar directory)
+                echo Copying cuDNN DLLs to application directory...
+                copy "!CUDNN_BIN!\cudnn*.dll" "%~dp0\" >nul 2>&1
+                echo cuDNN DLLs copied to application directory
             ) else (
                 echo WARNING: cuDNN not found in standard locations
                 echo.
-                echo Please install cuDNN:
+                echo Searched paths:
+                echo - C:\Program Files\NVIDIA\CUDNN\bin\
+                echo - C:\Program Files\NVIDIA\CUDNN\v9.x\bin\*\
+                echo - !CUDA_PATH!\bin\
+                echo.
+                echo Checking cuDNN directories...
+                if exist "C:\Program Files\NVIDIA\CUDNN" (
+                    dir /b /ad "C:\Program Files\NVIDIA\CUDNN\v*" 2>nul
+                )
+                echo.
+                echo Please install cuDNN for CUDA 12.x:
                 echo https://developer.nvidia.com/cudnn
-                echo Download version matching CUDA 12.x
                 echo.
             )
 
@@ -677,42 +690,33 @@ jobs:
         )
 
         REM ============================================================
-        REM Step 4: Verify CUDA runtime libraries (NOT onnxruntime - it loads from JAR)
+        REM Step 4: Verify CUDA runtime libraries in application directory
         REM ============================================================
 
         echo Verifying CUDA runtime libraries...
         set "MISSING_CUDA=0"
 
         REM Check for cudart64 DLL (CUDA Runtime)
-        dir /b "%~dp0libs\cudart64_*.dll" >nul 2>&1
+        dir /b "%~dp0cudart64_*.dll" >nul 2>&1
         if errorlevel 1 (
-            echo ERROR: cudart64_*.dll not found in libs directory
+            echo WARNING: cudart64_*.dll not found in application directory
             set "MISSING_CUDA=1"
         )
 
         REM Check for cublas64 DLL (CUDA BLAS)
-        dir /b "%~dp0libs\cublas64_*.dll" >nul 2>&1
+        dir /b "%~dp0cublas64_*.dll" >nul 2>&1
         if errorlevel 1 (
-            echo ERROR: cublas64_*.dll not found in libs directory
+            echo WARNING: cublas64_*.dll not found in application directory
             set "MISSING_CUDA=1"
         )
 
         if "!MISSING_CUDA!"=="1" (
             echo.
-            echo ========================================
-            echo ERROR: CUDA runtime libraries are missing!
-            echo ========================================
+            echo WARNING: Some CUDA runtime libraries may be missing.
+            echo This may cause GPU acceleration to fail.
             echo.
-            echo GPU acceleration requires CUDA 12.x runtime libraries.
+            echo Please ensure CUDA 12.x is installed.
             echo.
-            echo Please either:
-            echo 1. Install CUDA Toolkit 12.x: https://developer.nvidia.com/cuda-downloads
-            echo 2. Copy CUDA DLLs to libs/win64/ before building
-            echo.
-            echo The script will try to continue, but GPU may not work.
-            echo ========================================
-            echo.
-            pause
         )
 
         REM ============================================================
@@ -725,7 +729,8 @@ jobs:
         echo.
 
         REM Set JAVA_TOOL_OPTIONS for native library path
-        set "JAVA_TOOL_OPTIONS=-Djava.library.path=%~dp0libs;%~dp0mvs\lib\win64"
+        REM Current directory (jar directory) is included for CUDA/cuDNN DLLs
+        set "JAVA_TOOL_OPTIONS=-Djava.library.path=%~dp0;%~dp0mvs\lib\win64"
 
         jre\bin\java.exe -jar edge-vision.jar --spring.config.additional-location=application.yml
 
@@ -746,11 +751,10 @@ jobs:
         pause
         "@
 
-        # Write batch file with proper encoding for Chinese paths
-        # Use UTF8 No BOM for better compatibility with both ASCII and Chinese characters
-        $utf8NoBom = New-Object System.Text.UTF8Encoding $false
-        [System.IO.File]::WriteAllText("$PWD\dist\run.bat", $batContent.Replace("`n","`r`n"), $utf8NoBom)
-        Write-Host "Created run.bat with UTF8 encoding"
+        # Write batch file with ANSI encoding for cmd.exe compatibility
+        # UTF8 can cause issues with Chinese characters in cmd.exe
+        $batContent | Out-File -FilePath dist\run.bat -Encoding Default
+        Write-Host "Created run.bat with ANSI encoding"
 
     - name: Create run script (Unix)
       if: runner.os != 'Windows'
