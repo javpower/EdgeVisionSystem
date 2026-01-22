@@ -1,7 +1,7 @@
 edge-vision:
   system:
     device-id: "EDGE_001"
-    port: 8000
+    port: 8001
     save-local: true
 
   cameras:

@@ -5,6 +5,8 @@ import com.edge.vision.core.template.model.DetectedObject;
 import com.edge.vision.core.template.model.Template;
 import com.edge.vision.core.topology.CoordinateBasedMatcher;
 import com.edge.vision.core.topology.TopologyTemplateMatcher;
+import com.edge.vision.core.topology.croparea.CropAreaMatcher;
+import com.edge.vision.core.topology.croparea.CropAreaTemplate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,6 +34,9 @@ public class QualityInspector {
     @Autowired
     private CoordinateBasedMatcher coordinateBasedMatcher;
 
+    @Autowired(required = false)
+    private CropAreaMatcher cropAreaMatcher;
+
     @Autowired
     private YamlConfig yamlConfig;
 
@@ -46,7 +51,7 @@ public class QualityInspector {
         if (template == null) {
             throw new IllegalStateException("No template loaded. Please set a template first.");
         }
-        return inspect(template, detectedObjects);
+        return inspect(template, detectedObjects,null);
     }
 
     /**
@@ -56,14 +61,14 @@ public class QualityInspector {
      * @param detectedObjects YOLO 检测到的对象列表
      * @return 检测结果
      */
-    public InspectionResult inspect(Template template, List<DetectedObject> detectedObjects) {
+    public InspectionResult inspect(Template template, List<DetectedObject> detectedObjects,CropAreaTemplate cropTemplate) {
         // 从配置获取匹配策略
         MatchStrategy strategy = yamlConfig.getInspection().getMatchStrategy();
         if (strategy == null) {
             strategy = MatchStrategy.TOPOLOGY;  // 默认使用拓扑匹配
         }
 
-        return inspect(template, detectedObjects, strategy);
+        return inspect(template, detectedObjects, strategy,cropTemplate);
     }
 
     /**
@@ -74,7 +79,7 @@ public class QualityInspector {
      * @param strategy        匹配策略
      * @return 检测结果
      */
-    public InspectionResult inspect(Template template, List<DetectedObject> detectedObjects, MatchStrategy strategy) {
+    public InspectionResult inspect(Template template, List<DetectedObject> detectedObjects, MatchStrategy strategy, CropAreaTemplate cropTemplate) {
         logger.info("Starting quality inspection with strategy: {}", strategy);
 
         // 配置匹配器参数
@@ -87,10 +92,13 @@ public class QualityInspector {
                 // 使用坐标直接匹配
                 result = coordinateBasedMatcher.match(template, detectedObjects);
                 result.setMatchStrategy(MatchStrategy.COORDINATE);
-            } else {
+            } else if(strategy==MatchStrategy.TOPOLOGY){
                 // 使用拓扑图匹配（默认）
                 result = topologyTemplateMatcher.match(template, detectedObjects);
                 result.setMatchStrategy(MatchStrategy.TOPOLOGY);
+            }else {
+                result=cropAreaMatcher.match(cropTemplate, detectedObjects);
+                result.setMatchStrategy(MatchStrategy.CROP_AREA);
             }
 
             logger.info("Inspection completed: {}", result.getMessage());

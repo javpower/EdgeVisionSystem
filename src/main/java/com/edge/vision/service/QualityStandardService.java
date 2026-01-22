@@ -7,9 +7,9 @@ import com.edge.vision.core.template.TemplateManager;
 import com.edge.vision.core.template.model.DetectedObject;
 import com.edge.vision.core.template.model.Point;
 import com.edge.vision.core.template.model.Template;
+import com.edge.vision.core.topology.croparea.CropAreaTemplate;
 import com.edge.vision.dto.InspectionRequest;
 import com.edge.vision.model.Detection;
-import org.opencv.core.Mat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,7 +17,6 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -57,6 +56,10 @@ public class QualityStandardService {
      */
     public QualityEvaluationResult evaluateWithTemplate(String partType,
                                                          List<DetectedObject> detectedObjects) {
+        return evaluateWithTemplate(partType,detectedObjects,null);
+    }
+    public QualityEvaluationResult evaluateWithTemplate(String partType,
+                                                        List<DetectedObject> detectedObjects, CropAreaTemplate cropTemplate) {
         logger.info("Evaluating with template matching for part type: {}", partType);
 
         // 检查模板系统是否可用
@@ -73,9 +76,9 @@ public class QualityStandardService {
         }
 
         try {
-            // 使用拓扑/坐标匹配
+            // 使用拓扑/坐标匹配/croparea
             logger.info("Using topology/coordinate matching");
-            InspectionResult inspectionResult = qualityInspector.inspect(template, detectedObjects);
+            InspectionResult inspectionResult = qualityInspector.inspect(template, detectedObjects,cropTemplate);
             return convertToQualityEvaluationResult(partType, inspectionResult);
 
         } catch (Exception e) {

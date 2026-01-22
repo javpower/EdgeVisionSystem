@@ -958,6 +958,28 @@
                         截取当前画面，AI 自动识别特征并生成模板
                     </div>
 
+                    <!-- 建模方式选择 -->
+                    <div style="background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 15px; margin-bottom: 15px;">
+                        <div style="font-weight: 600; margin-bottom: 10px; color: #495057;">🎯 建模方式选择</div>
+                        <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                <input type="radio" name="matchStrategy" value="TOPOLOGY" checked onchange="updateMatchStrategy(this.value)">
+                                <span style="font-size: 14px; color: #495057;">拓扑图匹配</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                <input type="radio" name="matchStrategy" value="COORDINATE" onchange="updateMatchStrategy(this.value)">
+                                <span style="font-size: 14px; color: #495057;">坐标直接匹配</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                <input type="radio" name="matchStrategy" value="CROP_AREA" onchange="updateMatchStrategy(this.value)">
+                                <span style="font-size: 14px; color: #495057;">裁剪区域匹配</span>
+                            </label>
+                        </div>
+                        <div id="strategyDescription" style="margin-top: 10px; font-size: 12px; color: #6c757d;">
+                            拓扑图匹配：支持旋转、平移、缩放的全局最优匹配
+                        </div>
+                    </div>
+
                     <div id="templatesContainer">
                         <!-- 动态生成模板列表 -->
                     </div>
@@ -2347,6 +2369,56 @@
         isPreviewMode = false;
     }
 
+    // 建模方式描述
+    const strategyDescriptions = {
+        'TOPOLOGY': '拓扑图匹配：支持旋转、平移、缩放的全局最优匹配，适合复杂场景',
+        'COORDINATE': '坐标直接匹配：一对一关系明确，需要对预先校正坐标',
+        'CROP_AREA': '裁剪区域匹配：先检测工件位置并裁剪，然后在裁剪区域中匹配，精度高'
+    };
+
+    // 更新建模方式
+    async function updateMatchStrategy(strategy) {
+        // 更新描述
+        document.getElementById('strategyDescription').textContent = strategyDescriptions[strategy];
+
+        // 保存到后端
+        try {
+            const res = await fetch(`${API_BASE}/api/config/match-strategy`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ matchStrategy: strategy })
+            });
+            const data = await res.json();
+            if (data.status === 'success') {
+                showToast(`建模方式已切换为：${strategyDescriptions[strategy].split('：')[0]}`);
+            } else {
+                showToast('保存失败: ' + data.message, 'error');
+            }
+        } catch (e) {
+            console.error('Failed to update match strategy:', e);
+            showToast('保存失败: ' + e.message, 'error');
+        }
+    }
+
+    // 加载当前建模方式
+    async function loadMatchStrategy() {
+        try {
+            const res = await fetch(`${API_BASE}/api/config/match-strategy`);
+            const data = await res.json();
+            if (data.status === 'success' && data.data) {
+                const strategy = data.data.matchStrategy || 'TOPOLOGY';
+                // 更新单选框
+                document.querySelectorAll('input[name="matchStrategy"]').forEach(radio => {
+                    radio.checked = (radio.value === strategy);
+                });
+                // 更新描述
+                document.getElementById('strategyDescription').textContent = strategyDescriptions[strategy];
+            }
+        } catch (e) {
+            console.error('Failed to load match strategy:', e);
+        }
+    }
+
     async function loadManualConfigs() {
         try {
             const res = await fetch(`${API_BASE}/api/stitch/manual`);
@@ -2495,6 +2567,9 @@
 
     // 页面加载时更新拼接状态
     updateStitchStatus();
+
+    // 页面加载时加载当前建模方式
+    loadMatchStrategy();
 
     // ESC 关闭模态框
     document.addEventListener('keydown', (e) => {

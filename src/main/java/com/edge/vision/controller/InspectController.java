@@ -2,11 +2,15 @@ package com.edge.vision.controller;
 
 import com.edge.vision.config.YamlConfig;
 import com.edge.vision.core.infer.YOLOInferenceEngine;
+import com.edge.vision.core.quality.MatchStrategy;
 import com.edge.vision.core.template.model.DetectedObject;
+import com.edge.vision.core.topology.croparea.CropAreaTemplate;
 import com.edge.vision.model.*;
 import com.edge.vision.service.CameraService;
 import com.edge.vision.service.DataManager;
 import com.edge.vision.service.QualityStandardService;
+import com.edge.vision.util.ObjectDetectionUtil;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -24,6 +28,7 @@ import org.opencv.imgcodecs.Imgcodecs;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -31,6 +36,9 @@ import org.springframework.web.bind.annotation.*;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.awt.image.DataBufferByte;
+import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.*;
@@ -58,6 +66,16 @@ public class InspectController {
 
     @Autowired
     private QualityStandardService qualityStandardService;
+
+    @Autowired(required = false)
+    private ObjectDetectionUtil objectDetectionUtil;
+
+
+    @Value("${template.path:templates}")
+    private String templatePath;
+
+    @Value("${upload.path:uploads}")
+    private String uploadPath;
 
     // 类型识别引擎（可选）
     private YOLOInferenceEngine typeInferenceEngine;
@@ -398,19 +416,66 @@ public class InspectController {
             logger.info("Base64 decode time: {} ms, Image size: {}x{}", decodeTime, stitchedMat.width(), stitchedMat.height());
 
             long inferenceStart = System.currentTimeMillis();
-            List<Detection> detailDetections = detailInferenceEngine.predict(stitchedMat);
+            List<Detection> detailDetections;
+            QualityStandardService.QualityEvaluationResult evaluationResult = null;  // 提前声明
+
+            // 检查是否使用 croparea 模式
+            MatchStrategy strategy = config.getInspection().getMatchStrategy();
+            CropAreaTemplate cropTemplate=null;
+            if (strategy == MatchStrategy.CROP_AREA &&
+                objectDetectionUtil != null &&
+                detailInferenceEngine != null) {
+
+                logger.info("Using CROP_AREA match strategy");
+
+                // 1. 保存原图为临时文件
+                String tempImagePath = Paths.get(uploadPath, "temp", "inspect_" + request.getRequestId() + ".jpg").toString();
+                Files.createDirectories(Paths.get(tempImagePath).getParent());
+                Imgcodecs.imwrite(tempImagePath, stitchedMat);
+
+                // 2. 加载 croparea 模板
+                String templateJsonPath = Paths.get(templatePath, "crop-area", request.getConfirmedPartName(), "template.json").toString();
+                File templateFile = new File(templateJsonPath);
+                if (!templateFile.exists()) {
+                    response.put("status", "error");
+                    response.put("message", "CropArea template not found for: " + request.getConfirmedPartName());
+                    stitchedMat.release();
+                    return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+                }
+
+                ObjectMapper mapper = new ObjectMapper();
+                cropTemplate = mapper.readValue(templateFile, CropAreaTemplate.class);
+
+                // 3. 使用 ObjectDetectionUtil 检测工件位置
+                ObjectDetectionUtil.DetectionResult detectionResult =
+                    objectDetectionUtil.detectWorkpiece(tempImagePath, cropTemplate.getObjectTemplatePath());
+
+                if (!detectionResult.success) {
+                    response.put("status", "error");
+                    response.put("message", "工件检测失败: " + detectionResult.message);
+                    stitchedMat.release();
+                    return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+                }
+
+                // 4. 根据检测到的位置裁剪图像
+                Mat croppedMat = objectDetectionUtil.cropImageByCorners(tempImagePath, detectionResult.corners, null, 10);
+                // 5. 使用 detailInferenceEngine 识别裁剪的图像
+                detailDetections = detailInferenceEngine.predict(croppedMat);
+                stitchedMat.release();
+                stitchedMat=croppedMat;
+            } else {
+                // 原有逻辑：直接对整图进行检测
+                detailDetections = detailInferenceEngine.predict(stitchedMat);
+            }
+
             long inferenceTime = System.currentTimeMillis() - inferenceStart;
             logger.info("YOLO inference time: {} ms, Detections found: {}", inferenceTime, detailDetections.size());
 
-            // 根据配置的 match-strategy 选择匹配方法
-            QualityStandardService.QualityEvaluationResult evaluationResult = null;
             List<DetectedObject> detectedObjects = convertDetectionsToDetectedObjects(detailDetections);
-
             try {
                 // 直接调用 evaluateWithTemplate，内部会根据 match-strategy 选择对应 Matcher
                 evaluationResult = qualityStandardService.evaluateWithTemplate(
-                    request.getConfirmedPartName(), detectedObjects);
-
+                    request.getConfirmedPartName(), detectedObjects,cropTemplate);
                 // 如果返回了模板比对结果，说明使用了新模式
                 if (evaluationResult.getTemplateComparisons() != null &&
                     !evaluationResult.getTemplateComparisons().isEmpty()) {
@@ -420,7 +485,6 @@ public class InspectController {
             } catch (Exception e) {
                 logger.warn("Template-based evaluation failed: {}", e.getMessage());
             }
-
             // 绘制检测结果（包含模板比对结果）
             long drawStart = System.currentTimeMillis();
             Mat resultMat = drawInspectionResults(stitchedMat.clone(), detailDetections, evaluationResult);
@@ -796,6 +860,46 @@ public class InspectController {
 
             result.add(obj);
         }
+        return result;
+    }
+
+    /**
+     * 将 InspectionResult 转换为 QualityEvaluationResult
+     * 用于 croparea 匹配模式
+     */
+    private QualityStandardService.QualityEvaluationResult convertToEvaluationResult(
+            com.edge.vision.core.quality.InspectionResult inspectionResult) {
+
+        QualityStandardService.QualityEvaluationResult result =
+            new QualityStandardService.QualityEvaluationResult();
+
+        result.setPartType(inspectionResult.getTemplateId());
+        result.setPassed(inspectionResult.isPassed());
+        result.setMessage(inspectionResult.getMessage());
+        result.setProcessingTimeMs(inspectionResult.getProcessingTimeMs());
+        result.setTemplateComparisons(new ArrayList<>());
+
+        for (com.edge.vision.core.quality.FeatureComparison comp : inspectionResult.getComparisons()) {
+            QualityStandardService.QualityEvaluationResult.TemplateComparison tc =
+                new QualityStandardService.QualityEvaluationResult.TemplateComparison();
+
+            tc.setFeatureId(comp.getFeatureId());
+            tc.setFeatureName(comp.getFeatureName());
+            tc.setClassName(comp.getClassName());
+            tc.setClassId(comp.getClassId());
+            tc.setTemplatePosition(comp.getTemplatePosition());
+            tc.setDetectedPosition(comp.getDetectedPosition());
+            tc.setXError(comp.getXError());
+            tc.setYError(comp.getYError());
+            tc.setTotalError(comp.getTotalError());
+            tc.setToleranceX(comp.getToleranceX());
+            tc.setToleranceY(comp.getToleranceY());
+            tc.setWithinTolerance(comp.isWithinTolerance());
+            tc.setStatus(comp.getStatus());
+
+            result.getTemplateComparisons().add(tc);
+        }
+
         return result;
     }
 
