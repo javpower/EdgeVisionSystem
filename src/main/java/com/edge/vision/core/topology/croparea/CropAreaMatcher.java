@@ -95,8 +95,8 @@ public class CropAreaMatcher {
                 double yError = Math.abs(detectedPos.y - templatePos.y);
 
                 // 检查是否在容差范围内
-                boolean withinTolerance = (xError <= templateFeature.getTolerance().x &&
-                                          yError <= templateFeature.getTolerance().y);
+                boolean withinTolerance = (xError <= templateFeature.getTolerance().getX() &&
+                                          yError <= templateFeature.getTolerance().getY());
 
                 FeatureComparison comp = new FeatureComparison(featureId, templateFeature.getName());
                 comp.setTemplatePosition(templatePos);
@@ -104,12 +104,12 @@ public class CropAreaMatcher {
                 comp.setXError(xError);
                 comp.setYError(yError);
                 comp.setTotalError(Math.sqrt(xError * xError + yError * yError));
-                comp.setToleranceX(templateFeature.getTolerance().x);
-                comp.setToleranceY(templateFeature.getTolerance().y);
+                comp.setToleranceX(templateFeature.getTolerance().getX());
+                comp.setToleranceY(templateFeature.getTolerance().getY());
                 comp.setWithinTolerance(withinTolerance);
                 comp.setStatus(withinTolerance ?
                     FeatureComparison.ComparisonStatus.PASSED :
-                    FeatureComparison.ComparisonStatus.DEVIATION);
+                    FeatureComparison.ComparisonStatus.DEVIATION_EXCEEDED);
                 comp.setClassId(templateFeature.getClassId());
                 comp.setClassName(templateFeature.getName());
                 comp.setConfidence(bestMatch.getConfidence());
@@ -142,8 +142,8 @@ public class CropAreaMatcher {
                 comp.setTemplatePosition(templatePos);
                 // 漏检时，预期位置就是模板位置
                 comp.setDetectedPosition(templatePos);
-                comp.setToleranceX(templateFeature.getTolerance().x);
-                comp.setToleranceY(templateFeature.getTolerance().y);
+                comp.setToleranceX(templateFeature.getTolerance().getX());
+                comp.setToleranceY(templateFeature.getTolerance().getY());
                 comp.setStatus(FeatureComparison.ComparisonStatus.MISSING);
                 comp.setWithinTolerance(false);
                 comp.setClassId(templateFeature.getClassId());
