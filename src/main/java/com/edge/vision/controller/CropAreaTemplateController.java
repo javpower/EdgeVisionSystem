@@ -1,13 +1,15 @@
 package com.edge.vision.controller;
 
 import com.edge.vision.core.infer.YOLOInferenceEngine;
+import com.edge.vision.core.template.TemplateManager;
+import com.edge.vision.core.template.model.Template;
 import com.edge.vision.core.template.model.TemplateFeature;
-import com.edge.vision.core.topology.croparea.CropAreaTemplate;
 import com.edge.vision.dto.CropAreaPreviewResponse;
 import com.edge.vision.dto.CropAreaTemplateRequest;
 import com.edge.vision.service.CameraService;
 import com.edge.vision.util.ObjectDetectionUtil;
 import org.opencv.core.Mat;
+import org.opencv.core.MatOfByte;
 import org.opencv.imgcodecs.Imgcodecs;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,11 +49,11 @@ public class CropAreaTemplateController {
     @Autowired
     private ObjectDetectionUtil objectDetectionUtil;
 
+    @Autowired
+    private TemplateManager templateManager;
+
     @Value("${upload.path:uploads}")
     private String uploadPath;
-
-    @Value("${template.path:templates}")
-    private String templatePath;
 
     // 细节检测引擎
     private YOLOInferenceEngine detailInferenceEngine;
@@ -88,8 +90,13 @@ public class CropAreaTemplateController {
      * 第一步：调用摄像头截图，返回给前端
      */
     @PostMapping("/capture")
-    public ResponseEntity<?> captureImage() {
+    public ResponseEntity<?> captureImage(@RequestBody java.util.Map<String, String> request) {
         try {
+            String partType = request.get("partType");
+            if (partType == null || partType.isEmpty()) {
+                return ResponseEntity.ok(new Response(false, "请提供工件类型", null));
+            }
+
             if (!cameraService.isRunning()) {
                 return ResponseEntity.ok(new Response(false, "摄像头未启动", null));
             }
@@ -100,11 +107,11 @@ public class CropAreaTemplateController {
                 return ResponseEntity.ok(new Response(false, "获取图像失败", null));
             }
 
-            // 保存图像到临时目录
+            // 保存图像到临时目录，使用工件类型作为文件名
             Path dir = Paths.get(uploadPath, "crop-area-temp");
             Files.createDirectories(dir);
 
-            String filename = System.currentTimeMillis() + "_capture.jpg";
+            String filename = partType + "_temp.jpg";
             Path filePath = dir.resolve(filename);
 
             // 将 base64 转换为 Mat 并保存
@@ -115,10 +122,12 @@ public class CropAreaTemplateController {
 
             logger.info("摄像头截图保存成功: {}", filePath);
 
-            return ResponseEntity.ok(new Response(
-                true, "截图成功",
-                new CaptureResult(filename, "/uploads/crop-area-temp/" + filename)
-            ));
+            // 返回工件类型作为 templateId 和图片 base64
+            java.util.Map<String, Object> result = new java.util.HashMap<>();
+            result.put("templateId", partType);
+            result.put("imageUrl", "data:image/jpeg;base64," + stitchedImageBase64);
+
+            return ResponseEntity.ok(new Response(true, "截图成功", result));
 
         } catch (Exception e) {
             logger.error("截图失败", e);
@@ -134,8 +143,8 @@ public class CropAreaTemplateController {
         try {
             logger.info("预览请求: templateId={}, corners={}", request.getTemplateId(), request.getCorners());
 
-            // 从 templateId 获取原始图片路径
-            String originalImagePath = Paths.get(uploadPath, "crop-area-temp", request.getTemplateId()).toString();
+            // 从 templateId (工件类型) 获取原始图片路径
+            String originalImagePath = Paths.get(uploadPath, "crop-area-temp", request.getTemplateId() + "_temp.jpg").toString();
 
             if (!new File(originalImagePath).exists()) {
                 return ResponseEntity.ok(CropAreaPreviewResponse.error("原始图片不存在"));
@@ -153,14 +162,18 @@ public class CropAreaTemplateController {
             Mat cropped = objectDetectionUtil.cropImageByCorners(
                 originalImagePath, corners, null, 10);
 
-            // 保存裁剪图像
-            String croppedPath = Paths.get(uploadPath, "crop-area-temp", request.getTemplateId() + "_crop.jpg").toString();
-            Imgcodecs.imwrite(croppedPath, cropped);
-
             // 调用 YOLOInferenceEngine 识别
             List<com.edge.vision.model.Detection> detections = detailInferenceEngine.predict(cropped);
 
-            // 转换 Detection 为 DetectedObject 和 FeatureInfo
+            // 在图片上绘制检测框
+            Mat resultMat = drawDetections(cropped.clone(), detections);
+
+            // 转换为 base64
+            String resultImageBase64 = matToBase64(resultMat);
+            resultMat.release();
+            cropped.release();
+
+            // 转换 Detection 为 FeatureInfo
             List<CropAreaPreviewResponse.FeatureInfo> features = new ArrayList<>();
             for (int i = 0; i < detections.size(); i++) {
                 com.edge.vision.model.Detection det = detections.get(i);
@@ -184,13 +197,8 @@ public class CropAreaTemplateController {
                 ));
             }
 
-            // 在图片上绘制标注（可选）
-            // 这里可以调用绘制工具绘制 bbox
-
-            cropped.release();
-
             return ResponseEntity.ok(CropAreaPreviewResponse.success(
-                "/uploads/crop-area-temp/" + request.getTemplateId() + "_crop.jpg",
+                "data:image/jpeg;base64," + resultImageBase64,
                 features,
                 cropped.cols(),
                 cropped.rows()
@@ -210,8 +218,8 @@ public class CropAreaTemplateController {
         try {
             logger.info("保存模板: templateId={}", request.getTemplateId());
 
-            // 获取原始图片和截图
-            String originalImagePath = Paths.get(uploadPath, "crop-area-temp", request.getTemplateId()).toString();
+            // 获取原始图片路径（使用 {partType}_temp.jpg）
+            String originalImagePath = Paths.get(uploadPath, "crop-area-temp", request.getTemplateId() + "_temp.jpg").toString();
 
             // 转换 corners
             double[][] corners = new double[4][2];
@@ -225,12 +233,11 @@ public class CropAreaTemplateController {
             Mat cropped = objectDetectionUtil.cropImageByCorners(
                 originalImagePath, corners, null, 10);
 
-            // 创建模板目录
-            Path templateDir = Paths.get(templatePath, "crop-area", request.getTemplateId());
-            Files.createDirectories(templateDir);
-
-            // 保存模板截图
-            String templateImagePath = templateDir.resolve("template.jpg").toString();
+            // 保存模板截图到 templates/images/ 目录
+            Path imagesDir = Paths.get("templates", "images");
+            Files.createDirectories(imagesDir);
+            String imageFileName = request.getTemplateId() + ".jpg";
+            String templateImagePath = imagesDir.resolve(imageFileName).toString();
             Imgcodecs.imwrite(templateImagePath, cropped);
 
             // 调用 YOLOInferenceEngine 识别
@@ -258,19 +265,28 @@ public class CropAreaTemplateController {
                 features.add(feature);
             }
 
-            // 创建模板
-            CropAreaTemplate template = new CropAreaTemplate();
+            // 创建 Template，将裁剪区域信息存入 metadata
+            Template template = new Template();
             template.setTemplateId(request.getTemplateId());
-            template.setTemplateImagePath(templateImagePath);
-            template.setCorners(corners);
-            template.setCropWidth(cropped.cols());
-            template.setCropHeight(cropped.rows());
-            template.setObjectTemplatePath(request.getObjectTemplatePath());
+            template.setImagePath("templates/images/" + imageFileName);  // 相对路径
             template.setFeatures(features);
+            // 设置图像尺寸
+            template.setImageSize(new com.edge.vision.core.template.model.ImageSize(cropped.cols(), cropped.rows()));
 
-            // 保存模板到文件（JSON 格式）
-            String templateDataPath = templateDir.resolve("template.json").toString();
-            saveTemplateToJson(template, templateDataPath);
+
+            // 将裁剪区域信息存入 metadata
+            java.util.Map<String, Object> metadata = new java.util.HashMap<>();
+            metadata.put("cropWidth", cropped.cols());
+            metadata.put("cropHeight", cropped.rows());
+            metadata.put("objectTemplatePath", template.getImagePath());
+            metadata.put("matchStrategy", "CROP_AREA");
+            template.setMetadata(metadata);
+            // 关联工件类型
+            template.setPartType(request.getTemplateId());
+
+            // 使用 TemplateManager 保存模板
+            templateManager.save(template);
+            templateManager.setCurrentTemplate(template);
 
             cropped.release();
 
@@ -284,12 +300,55 @@ public class CropAreaTemplateController {
         }
     }
 
+    // ============ 工具方法 ============
+
     /**
-     * 将模板保存为 JSON
+     * 在图像上绘制检测框
      */
-    private void saveTemplateToJson(CropAreaTemplate template, String path) throws Exception {
-        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-        mapper.writerWithDefaultPrettyPrinter().writeValue(new File(path), template);
+    private Mat drawDetections(Mat image, List<com.edge.vision.model.Detection> detections) {
+        for (com.edge.vision.model.Detection detection : detections) {
+            float[] bbox = detection.getBbox();
+            if (bbox != null && bbox.length >= 4) {
+                // 绘制边界框
+                org.opencv.core.Point p1 = new org.opencv.core.Point(bbox[0], bbox[1]);
+                org.opencv.core.Point p2 = new org.opencv.core.Point(bbox[2], bbox[3]);
+                org.opencv.imgproc.Imgproc.rectangle(image, p1, p2, new org.opencv.core.Scalar(0, 255, 0), 2);
+
+                // 绘制标签
+                String label = String.format("%s: %.2f", detection.getLabel(), detection.getConfidence());
+                int[] baseline = new int[1];
+                org.opencv.core.Size textSize = org.opencv.imgproc.Imgproc.getTextSize(
+                    label, org.opencv.imgproc.Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, 1, baseline);
+
+                double textY = Math.max(bbox[1] - 5, textSize.height + 5);
+                org.opencv.core.Point textPos = new org.opencv.core.Point(bbox[0], textY);
+
+                // 绘制背景
+                org.opencv.core.Point bg1 = new org.opencv.core.Point(
+                    bbox[0], textY - textSize.height - 5);
+                org.opencv.core.Point bg2 = new org.opencv.core.Point(
+                    bbox[0] + textSize.width, textY + 5);
+                org.opencv.imgproc.Imgproc.rectangle(image, bg1, bg2,
+                    new org.opencv.core.Scalar(0, 255, 0), -1);
+
+                // 绘制文字
+                org.opencv.imgproc.Imgproc.putText(image, label, textPos,
+                    org.opencv.imgproc.Imgproc.FONT_HERSHEY_SIMPLEX, 0.5,
+                    new org.opencv.core.Scalar(0, 0, 0), 1);
+            }
+        }
+        return image;
+    }
+
+    /**
+     * 将Mat转换为Base64字符串
+     */
+    private String matToBase64(Mat mat) {
+        MatOfByte mob = new MatOfByte();
+        Imgcodecs.imencode(".jpg", mat, mob);
+        byte[] bytes = mob.toArray();
+        mob.release();
+        return Base64.getEncoder().encodeToString(bytes);
     }
 
     /**

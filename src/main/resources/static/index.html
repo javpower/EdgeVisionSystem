@@ -951,33 +951,12 @@
                 <div class="quality-standards-section">
                     <div class="section-title">
                         <span>模板管理</span>
-                        <button class="btn btn-success" style="font-size: 11px; padding: 4px 10px;" onclick="showOneClickBuildModal()">⚡ 一键建模</button>
+                        <button class="btn btn-success" style="font-size: 11px; padding: 4px 10px;" onclick="showOneClickBuildModal()">⚡ 一键建模（标准）</button>
+                        <button class="btn btn-primary" style="font-size: 11px; padding: 4px 10px;" onclick="showCropAreaBuildModal()">✂️ 一键建模（裁剪区域）</button>
                     </div>
 
                     <div class="preview-note" style="margin-bottom: 12px;">
                         截取当前画面，AI 自动识别特征并生成模板
-                    </div>
-
-                    <!-- 建模方式选择 -->
-                    <div style="background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 15px; margin-bottom: 15px;">
-                        <div style="font-weight: 600; margin-bottom: 10px; color: #495057;">🎯 建模方式选择</div>
-                        <div style="display: flex; gap: 20px; flex-wrap: wrap;">
-                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                                <input type="radio" name="matchStrategy" value="TOPOLOGY" checked onchange="updateMatchStrategy(this.value)">
-                                <span style="font-size: 14px; color: #495057;">拓扑图匹配</span>
-                            </label>
-                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                                <input type="radio" name="matchStrategy" value="COORDINATE" onchange="updateMatchStrategy(this.value)">
-                                <span style="font-size: 14px; color: #495057;">坐标直接匹配</span>
-                            </label>
-                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                                <input type="radio" name="matchStrategy" value="CROP_AREA" onchange="updateMatchStrategy(this.value)">
-                                <span style="font-size: 14px; color: #495057;">裁剪区域匹配</span>
-                            </label>
-                        </div>
-                        <div id="strategyDescription" style="margin-top: 10px; font-size: 12px; color: #6c757d;">
-                            拓扑图匹配：支持旋转、平移、缩放的全局最优匹配
-                        </div>
                     </div>
 
                     <div id="templatesContainer">
@@ -2313,6 +2292,394 @@
         }
     }
 
+    // ========== 裁剪区域建模 ==========
+    let cropAreaPreviewData = null;
+
+    // 加载模板列表用于裁剪区域建模
+    async function loadTemplatesForCropArea() {
+        try {
+            const res = await fetch(`${API_BASE}/api/templates`);
+            const data = await res.json();
+            if (data && Array.isArray(data)) {
+                // 延迟填充，因为DOM还没创建
+                setTimeout(() => {
+                    const select = document.getElementById('cropAreaObjectTemplate');
+                    if (select) {
+                        select.innerHTML = '<option value="">-- 选择已存在的模板 --</option>';
+                        data.forEach(t => {
+                            const option = document.createElement('option');
+                            option.value = t.imagePath;
+                            option.textContent = `${t.templateId} (${t.partType || '未分类'})`;
+                            select.appendChild(option);
+                        });
+                    }
+                }, 100);
+            }
+        } catch(e) {
+            console.error('Failed to load templates:', e);
+        }
+    }
+
+    // 显示裁剪区域建模对话框
+    async function showCropAreaBuildModal() {
+        // 先加载模板列表
+        await loadTemplatesForCropArea();
+
+        const html = `
+            <div id="cropAreaBuildModal" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 2000;">
+                <div style="background: #fff; padding: 24px; border-radius: 8px; width: 700px; max-width: 95%; max-height: 95vh; overflow-y: auto;">
+                    <h3 style="margin-top: 0;">✂️ 裁剪区域建模</h3>
+                    <p style="color: #666; font-size: 13px; margin-bottom: 20px;">
+                        用于工件位置可能变化，但可以通过整体检测定位的场景
+                    </p>
+
+                    <!-- 步骤1: 设置参数 -->
+                    <div id="cropAreaStep1">
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; margin-bottom: 6px; font-weight: bold;">工件类型 *</label>
+                            <input type="text" id="cropAreaPartType" placeholder="例如: CX756601" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
+                        </div>
+
+                        <div style="display: flex; gap: 15px; margin-bottom: 15px;">
+                            <div style="flex: 1;">
+                                <label style="display: block; margin-bottom: 6px; font-weight: bold;">X 轴容差 (像素)</label>
+                                <input type="number" id="cropAreaToleranceX" value="5" min="1" max="500" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                            </div>
+                            <div style="flex: 1;">
+                                <label style="display: block; margin-bottom: 6px; font-weight: bold;">Y 轴容差 (像素)</label>
+                                <input type="number" id="cropAreaToleranceY" value="5" min="1" max="500" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                            </div>
+                        </div>
+
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; margin-bottom: 6px; font-weight: bold;">工件整体检测模板 (可选)</label>
+                            <select id="cropAreaObjectTemplate" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
+                                <option value="">-- 选择已存在的模板 --</option>
+                            </select>
+                            <div style="font-size: 11px; color: #888; margin-top: 4px;">用于检测工件整体位置，如果为空将直接对原图进行检测</div>
+                        </div>
+
+                        <div style="padding: 12px; background: #f0f9ff; border-left: 3px solid #1890ff; border-radius: 4px; margin-bottom: 15px; font-size: 12px;">
+                            <strong style="color: #1890ff;">操作说明：</strong><br>
+                            1. 确保摄像头已启动<br>
+                            2. 确保当前画面中有完整的工件<br>
+                            3. 点击"获取截图"获取当前画面<br>
+                            4. 在截图上框出四个角，定义裁剪区域<br>
+                            5. 预览并确认
+                        </div>
+
+                        <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                            <button class="btn btn-secondary" onclick="closeCropAreaBuildModal()">取消</button>
+                            <button class="btn btn-primary" onclick="captureCropAreaImage()">获取截图</button>
+                        </div>
+                    </div>
+
+                    <!-- 步骤2: 框选四角 -->
+                    <div id="cropAreaStep2" style="display: none;">
+                        <div style="margin-bottom: 15px;">
+                            <h4 style="margin: 0 0 10px 0;">框选裁剪区域</h4>
+                            <div id="cropAreaCanvasContainer" style="text-align: center; margin-bottom: 15px; position: relative;">
+                                <canvas id="cropAreaCanvas" style="max-width: 100%; border: 1px solid #ddd; cursor: crosshair;"></canvas>
+                            </div>
+                            <div style="font-size: 12px; color: #666; text-align: center;">
+                                请按顺序点击四个角（左上、右上、右下、左下）
+                            </div>
+                        </div>
+
+                        <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                            <button class="btn btn-secondary" onclick="backToCropAreaStep1()">返回</button>
+                            <button class="btn btn-primary" onclick="previewCropArea()">预览识别结果</button>
+                        </div>
+                    </div>
+
+                    <!-- 步骤3: 预览结果 -->
+                    <div id="cropAreaStep3" style="display: none;">
+                        <div style="margin-bottom: 15px;">
+                            <h4 style="margin: 0 0 10px 0;">裁剪区域预览</h4>
+                            <div id="cropAreaPreviewContainer" style="text-align: center; margin-bottom: 15px;">
+                                <div style="color: #999; padding: 40px;">加载中...</div>
+                            </div>
+                            <div id="cropAreaDetectionInfo" style="font-size: 13px; color: #666;"></div>
+                        </div>
+
+                        <div id="cropAreaFeatureList" style="max-height: 200px; overflow-y: auto; margin-bottom: 15px; border: 1px solid #eee; border-radius: 4px; padding: 10px;">
+                        </div>
+
+                        <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                            <button class="btn btn-secondary" onclick="backToCropAreaStep2()">返回</button>
+                            <button class="btn btn-success" onclick="confirmCropAreaBuild()">确认并创建模板</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.insertAdjacentHTML('beforeend', html);
+
+        // 自动聚焦到输入框
+        setTimeout(() => {
+            const input = document.getElementById('cropAreaPartType');
+            if (input) input.focus();
+        }, 100);
+    }
+
+    function closeCropAreaBuildModal() {
+        const modal = document.getElementById('cropAreaBuildModal');
+        if (modal) modal.remove();
+        cropAreaPreviewData = null;
+    }
+
+    // 获取裁剪区域截图
+    async function captureCropAreaImage() {
+        const partType = document.getElementById('cropAreaPartType').value.trim();
+        if (!partType) {
+            showToast('请输入工件类型', 'error');
+            return;
+        }
+
+        try {
+            // 调用 capture 接口，传递工件类型
+            const res = await fetch(`${API_BASE}/api/crop-area-template/capture`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ partType: partType })
+            });
+            const data = await res.json();
+
+            if (data.success && data.data) {
+                cropAreaPreviewData = {
+                    partType: partType,
+                    templateId: data.data.templateId,  // 保存 templateId
+                    imageBase64: data.data.imageUrl
+                };
+
+                // 加载图片并显示在 canvas 上
+                const img = new Image();
+                img.onload = function() {
+                    const canvas = document.getElementById('cropAreaCanvas');
+                    const ctx = canvas.getContext('2d');
+
+                    // 设置 canvas 尺寸
+                    const maxWidth = 650;
+                    const scale = Math.min(maxWidth / img.width, 1);
+                    canvas.width = img.width * scale;
+                    canvas.height = img.height * scale;
+
+                    // 绘制图片
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+                    // 保存 corners 数组
+                    canvas.corners = [];
+
+                    // 添加点击事件
+                    canvas.onclick = function(e) {
+                        const rect = canvas.getBoundingClientRect();
+                        const x = e.clientX - rect.left;
+                        const y = e.clientY - rect.top;
+
+                        // 转换回原图坐标
+                        const originalX = x / scale;
+                        const originalY = y / scale;
+
+                        canvas.corners.push({ x: originalX, y: originalY });
+
+                        // 绘制点
+                        ctx.fillStyle = '#ff0000';
+                        ctx.beginPath();
+                        ctx.arc(x, y, 5, 0, 2 * Math.PI);
+                        ctx.fill();
+
+                        // 绘制序号
+                        ctx.fillStyle = '#ffffff';
+                        ctx.font = '12px Arial';
+                        ctx.fillText(canvas.corners.length, x + 8, y - 8);
+
+                        // 如果有4个点，绘制连接线
+                        if (canvas.corners.length === 4) {
+                            ctx.strokeStyle = '#00ff00';
+                            ctx.lineWidth = 2;
+                            ctx.beginPath();
+                            for (let i = 0; i < 4; i++) {
+                                const scaledX = canvas.corners[i].x * scale;
+                                const scaledY = canvas.corners[i].y * scale;
+                                if (i === 0) {
+                                    ctx.moveTo(scaledX, scaledY);
+                                } else {
+                                    ctx.lineTo(scaledX, scaledY);
+                                }
+                            }
+                            ctx.closePath();
+                            ctx.stroke();
+                        }
+                    };
+                };
+                img.src = data.data.imageUrl;  // 使用返回的 imageUrl 字段
+
+                // 显示步骤2
+                document.getElementById('cropAreaStep1').style.display = 'none';
+                document.getElementById('cropAreaStep2').style.display = 'block';
+            } else {
+                showToast('获取截图失败: ' + data.message, 'error');
+            }
+        } catch(e) {
+            console.error('Capture error:', e);
+            showToast('获取截图失败: ' + e.message, 'error');
+        }
+    }
+
+    function backToCropAreaStep1() {
+        document.getElementById('cropAreaStep2').style.display = 'none';
+        document.getElementById('cropAreaStep1').style.display = 'block';
+    }
+
+    function backToCropAreaStep2() {
+        // 移除加载提示（如果存在）
+        const loading = document.getElementById('cropAreaLoading');
+        if (loading) loading.remove();
+
+        document.getElementById('cropAreaStep3').style.display = 'none';
+        document.getElementById('cropAreaStep2').style.display = 'block';
+    }
+
+    // 预览裁剪区域识别结果
+    async function previewCropArea() {
+        const canvas = document.getElementById('cropAreaCanvas');
+        if (!canvas.corners || canvas.corners.length !== 4) {
+            showToast('请先框选四个角', 'error');
+            return;
+        }
+
+        const toleranceX = parseFloat(document.getElementById('cropAreaToleranceX').value) || 5;
+        const toleranceY = parseFloat(document.getElementById('cropAreaToleranceY').value) || 5;
+
+        // 转换 corners 为 [x1,y1,x2,y2,...] 格式
+        const corners = [];
+        canvas.corners.forEach(c => {
+            corners.push(c.x, c.y);
+        });
+
+        // 保存corners到cropAreaPreviewData
+        cropAreaPreviewData.corners = canvas.corners;
+
+        try {
+            // 显示加载提示（不破坏HTML）
+            const loadingHtml = `
+                <div id="cropAreaLoading" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.9); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 10;">
+                    <div style="font-size: 40px; margin-bottom: 10px;">🔍</div>
+                    <div style="color: #666;">正在识别裁剪区域...</div>
+                </div>
+            `;
+            document.getElementById('cropAreaCanvasContainer').innerHTML += loadingHtml;
+
+            const res = await fetch(`${API_BASE}/api/crop-area-template/preview`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    templateId: cropAreaPreviewData.templateId,
+                    corners: corners,
+                    toleranceX: toleranceX,
+                    toleranceY: toleranceY
+                })
+            });
+
+            const data = await res.json();
+
+            if (data.success) {
+                // 显示步骤3
+                showCropAreaPreviewResult(data);
+            } else {
+                showToast('预览失败: ' + data.message, 'error');
+                backToCropAreaStep2();
+            }
+        } catch(e) {
+            console.error('Preview error:', e);
+            showToast('预览失败: ' + e.message, 'error');
+            backToCropAreaStep2();
+        }
+    }
+
+    function showCropAreaPreviewResult(data) {
+        // 移除加载提示
+        const loading = document.getElementById('cropAreaLoading');
+        if (loading) loading.remove();
+
+        // 不要重新生成步骤2的HTML，保持canvas状态
+        document.getElementById('cropAreaStep2').style.display = 'none';
+        document.getElementById('cropAreaStep3').style.display = 'block';
+
+        // 保存当前corners数据
+        const canvas = document.getElementById('cropAreaCanvas');
+        if (canvas && canvas.corners) {
+            cropAreaPreviewData.corners = canvas.corners;
+        }
+
+        // 显示裁剪图像
+        const imgHtml = `<img src="${data.imageUrl}" style="max-width: 100%; max-height: 300px; border: 1px solid #ddd; border-radius: 4px;">`;
+        document.getElementById('cropAreaPreviewContainer').innerHTML = imgHtml;
+
+        // 显示检测信息
+        const featureCount = data.features ? data.features.length : 0;
+        document.getElementById('cropAreaDetectionInfo').innerHTML = `
+            裁剪区域尺寸: ${data.cropWidth || 0} x ${data.cropHeight || 0} |
+            检测到 ${featureCount} 个特征
+        `;
+
+        // 显示特征列表
+        let featureListHtml = '<div style="font-size: 12px;"><strong>检测到的特征：</strong></div>';
+        if (data.features && data.features.length > 0) {
+            data.features.forEach((f, idx) => {
+                featureListHtml += `<div style="font-size: 11px; color: #666; padding: 2px 0;">
+                    ${idx + 1}. ${f.featureName || f.name} (${f.className || '-'}) - 置信度: ${(f.confidence * 100).toFixed(1)}%
+                </div>`;
+            });
+        }
+        document.getElementById('cropAreaFeatureList').innerHTML = featureListHtml;
+
+        // 保存容差值
+        cropAreaPreviewData.toleranceX = parseFloat(document.getElementById('cropAreaToleranceX').value) || 5;
+        cropAreaPreviewData.toleranceY = parseFloat(document.getElementById('cropAreaToleranceY').value) || 5;
+    }
+
+    // 确认并创建裁剪区域模板
+    async function confirmCropAreaBuild() {
+        if (!cropAreaPreviewData || !cropAreaPreviewData.corners) {
+            showToast('没有预览数据，请重新操作', 'error');
+            return;
+        }
+
+        try {
+            // 转换 corners 为 [x1,y1,x2,y2,...] 格式
+            const corners = [];
+            cropAreaPreviewData.corners.forEach(c => {
+                corners.push(c.x, c.y);
+            });
+
+            const res = await fetch(`${API_BASE}/api/crop-area-template/save`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    templateId: cropAreaPreviewData.templateId,
+                    objectTemplatePath: document.getElementById('cropAreaObjectTemplate').value,
+                    corners: corners,
+                    toleranceX: cropAreaPreviewData.toleranceX,
+                    toleranceY: cropAreaPreviewData.toleranceY
+                })
+            });
+
+            const data = await res.json();
+
+            if (data.success) {
+                closeCropAreaBuildModal();
+                await loadTemplates();
+                showToast('裁剪区域模板创建成功！');
+            } else {
+                showToast('创建失败: ' + data.message, 'error');
+            }
+        } catch(e) {
+            console.error('Build error:', e);
+            showToast('创建失败: ' + e.message, 'error');
+        }
+    }
+
     // 标签页切换
     function switchTab(tabName) {
         console.log('switchTab called with:', tabName);
@@ -2367,56 +2734,6 @@
     function closeSystemConfigModal() {
         document.getElementById('systemConfigModal').style.display = 'none';
         isPreviewMode = false;
-    }
-
-    // 建模方式描述
-    const strategyDescriptions = {
-        'TOPOLOGY': '拓扑图匹配：支持旋转、平移、缩放的全局最优匹配，适合复杂场景',
-        'COORDINATE': '坐标直接匹配：一对一关系明确，需要对预先校正坐标',
-        'CROP_AREA': '裁剪区域匹配：先检测工件位置并裁剪，然后在裁剪区域中匹配，精度高'
-    };
-
-    // 更新建模方式
-    async function updateMatchStrategy(strategy) {
-        // 更新描述
-        document.getElementById('strategyDescription').textContent = strategyDescriptions[strategy];
-
-        // 保存到后端
-        try {
-            const res = await fetch(`${API_BASE}/api/config/match-strategy`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ matchStrategy: strategy })
-            });
-            const data = await res.json();
-            if (data.status === 'success') {
-                showToast(`建模方式已切换为：${strategyDescriptions[strategy].split('：')[0]}`);
-            } else {
-                showToast('保存失败: ' + data.message, 'error');
-            }
-        } catch (e) {
-            console.error('Failed to update match strategy:', e);
-            showToast('保存失败: ' + e.message, 'error');
-        }
-    }
-
-    // 加载当前建模方式
-    async function loadMatchStrategy() {
-        try {
-            const res = await fetch(`${API_BASE}/api/config/match-strategy`);
-            const data = await res.json();
-            if (data.status === 'success' && data.data) {
-                const strategy = data.data.matchStrategy || 'TOPOLOGY';
-                // 更新单选框
-                document.querySelectorAll('input[name="matchStrategy"]').forEach(radio => {
-                    radio.checked = (radio.value === strategy);
-                });
-                // 更新描述
-                document.getElementById('strategyDescription').textContent = strategyDescriptions[strategy];
-            }
-        } catch (e) {
-            console.error('Failed to load match strategy:', e);
-        }
     }
 
     async function loadManualConfigs() {

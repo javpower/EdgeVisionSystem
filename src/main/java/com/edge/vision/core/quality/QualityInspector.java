@@ -6,7 +6,6 @@ import com.edge.vision.core.template.model.Template;
 import com.edge.vision.core.topology.CoordinateBasedMatcher;
 import com.edge.vision.core.topology.TopologyTemplateMatcher;
 import com.edge.vision.core.topology.croparea.CropAreaMatcher;
-import com.edge.vision.core.topology.croparea.CropAreaTemplate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -51,7 +50,7 @@ public class QualityInspector {
         if (template == null) {
             throw new IllegalStateException("No template loaded. Please set a template first.");
         }
-        return inspect(template, detectedObjects,null);
+        return inspect(template, detectedObjects);
     }
 
     /**
@@ -61,14 +60,14 @@ public class QualityInspector {
      * @param detectedObjects YOLO 检测到的对象列表
      * @return 检测结果
      */
-    public InspectionResult inspect(Template template, List<DetectedObject> detectedObjects,CropAreaTemplate cropTemplate) {
+    public InspectionResult inspect(Template template, List<DetectedObject> detectedObjects) {
         // 从配置获取匹配策略
         MatchStrategy strategy = yamlConfig.getInspection().getMatchStrategy();
         if (strategy == null) {
             strategy = MatchStrategy.TOPOLOGY;  // 默认使用拓扑匹配
         }
 
-        return inspect(template, detectedObjects, strategy,cropTemplate);
+        return inspect(template, detectedObjects, strategy);
     }
 
     /**
@@ -79,7 +78,7 @@ public class QualityInspector {
      * @param strategy        匹配策略
      * @return 检测结果
      */
-    public InspectionResult inspect(Template template, List<DetectedObject> detectedObjects, MatchStrategy strategy, CropAreaTemplate cropTemplate) {
+    public InspectionResult inspect(Template template, List<DetectedObject> detectedObjects, MatchStrategy strategy) {
         logger.info("Starting quality inspection with strategy: {}", strategy);
 
         // 配置匹配器参数
@@ -97,7 +96,7 @@ public class QualityInspector {
                 result = topologyTemplateMatcher.match(template, detectedObjects);
                 result.setMatchStrategy(MatchStrategy.TOPOLOGY);
             }else {
-                result=cropAreaMatcher.match(cropTemplate, detectedObjects);
+                result=cropAreaMatcher.match(template, detectedObjects);
                 result.setMatchStrategy(MatchStrategy.CROP_AREA);
             }
 

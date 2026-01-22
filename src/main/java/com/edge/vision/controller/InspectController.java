@@ -4,10 +4,11 @@ import com.edge.vision.config.YamlConfig;
 import com.edge.vision.core.infer.YOLOInferenceEngine;
 import com.edge.vision.core.quality.MatchStrategy;
 import com.edge.vision.core.template.model.DetectedObject;
-import com.edge.vision.core.topology.croparea.CropAreaTemplate;
+import com.edge.vision.core.template.model.Template;
 import com.edge.vision.model.*;
 import com.edge.vision.service.CameraService;
 import com.edge.vision.service.DataManager;
+import com.edge.vision.core.template.TemplateManager;
 import com.edge.vision.service.QualityStandardService;
 import com.edge.vision.util.ObjectDetectionUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -66,6 +67,9 @@ public class InspectController {
 
     @Autowired
     private QualityStandardService qualityStandardService;
+
+    @Autowired(required = false)
+    private TemplateManager templateManager;
 
     @Autowired(required = false)
     private ObjectDetectionUtil objectDetectionUtil;
@@ -421,10 +425,9 @@ public class InspectController {
 
             // 检查是否使用 croparea 模式
             MatchStrategy strategy = config.getInspection().getMatchStrategy();
-            CropAreaTemplate cropTemplate=null;
             if (strategy == MatchStrategy.CROP_AREA &&
-                objectDetectionUtil != null &&
-                detailInferenceEngine != null) {
+                    objectDetectionUtil != null &&
+                    detailInferenceEngine != null) {
 
                 logger.info("Using CROP_AREA match strategy");
 
@@ -433,22 +436,26 @@ public class InspectController {
                 Files.createDirectories(Paths.get(tempImagePath).getParent());
                 Imgcodecs.imwrite(tempImagePath, stitchedMat);
 
-                // 2. 加载 croparea 模板
-                String templateJsonPath = Paths.get(templatePath, "crop-area", request.getConfirmedPartName(), "template.json").toString();
-                File templateFile = new File(templateJsonPath);
-                if (!templateFile.exists()) {
+                // 2. 加载 croparea 模板（从模板系统获取 objectTemplatePath）
+                Template template = templateManager.load(request.getConfirmedPartName());
+                if (template == null || template.getMetadata() == null) {
                     response.put("status", "error");
                     response.put("message", "CropArea template not found for: " + request.getConfirmedPartName());
                     stitchedMat.release();
                     return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
                 }
 
-                ObjectMapper mapper = new ObjectMapper();
-                cropTemplate = mapper.readValue(templateFile, CropAreaTemplate.class);
+                String objectTemplatePath = (String) template.getMetadata().get("objectTemplatePath");
+                if (objectTemplatePath == null) {
+                    response.put("status", "error");
+                    response.put("message", "objectTemplatePath not found in template metadata");
+                    stitchedMat.release();
+                    return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+                }
 
                 // 3. 使用 ObjectDetectionUtil 检测工件位置
                 ObjectDetectionUtil.DetectionResult detectionResult =
-                    objectDetectionUtil.detectWorkpiece(tempImagePath, cropTemplate.getObjectTemplatePath());
+                        objectDetectionUtil.detectWorkpiece(tempImagePath, objectTemplatePath);
 
                 if (!detectionResult.success) {
                     response.put("status", "error");
@@ -475,12 +482,12 @@ public class InspectController {
             try {
                 // 直接调用 evaluateWithTemplate，内部会根据 match-strategy 选择对应 Matcher
                 evaluationResult = qualityStandardService.evaluateWithTemplate(
-                    request.getConfirmedPartName(), detectedObjects,cropTemplate);
+                        request.getConfirmedPartName(), detectedObjects);
                 // 如果返回了模板比对结果，说明使用了新模式
                 if (evaluationResult.getTemplateComparisons() != null &&
-                    !evaluationResult.getTemplateComparisons().isEmpty()) {
+                        !evaluationResult.getTemplateComparisons().isEmpty()) {
                     logger.info("Using template-based evaluation for part type: {}",
-                        request.getConfirmedPartName());
+                            request.getConfirmedPartName());
                 }
             } catch (Exception e) {
                 logger.warn("Template-based evaluation failed: {}", e.getMessage());
@@ -511,7 +518,7 @@ public class InspectController {
 
             // 将模板比对结果添加到 analysis 中
             if (evaluationResult != null && evaluationResult.getTemplateComparisons() != null &&
-                !evaluationResult.getTemplateComparisons().isEmpty()) {
+                    !evaluationResult.getTemplateComparisons().isEmpty()) {
                 analysis.setTemplateComparisons(evaluationResult.getTemplateComparisons());
             }
 
@@ -537,7 +544,7 @@ public class InspectController {
 
             // 使用的模板
             if (evaluationResult.getTemplateComparisons() != null &&
-                !evaluationResult.getTemplateComparisons().isEmpty()) {
+                    !evaluationResult.getTemplateComparisons().isEmpty()) {
                 inspectionEntity.setTemplateId(request.getConfirmedPartName());
             }
 
@@ -727,7 +734,7 @@ public class InspectController {
 
             // 查询记录 - 使用支持精确时间的方法
             com.edge.vision.service.DataManager.PageResult pageResult =
-                dataManager.queryRecords(start, end, batchId, page, pageSize);
+                    dataManager.queryRecords(start, end, batchId, page, pageSize);
 
             // 构建响应
             Map<String, Object> pagination = new HashMap<>();
@@ -871,7 +878,7 @@ public class InspectController {
             com.edge.vision.core.quality.InspectionResult inspectionResult) {
 
         QualityStandardService.QualityEvaluationResult result =
-            new QualityStandardService.QualityEvaluationResult();
+                new QualityStandardService.QualityEvaluationResult();
 
         result.setPartType(inspectionResult.getTemplateId());
         result.setPassed(inspectionResult.isPassed());
@@ -881,7 +888,7 @@ public class InspectController {
 
         for (com.edge.vision.core.quality.FeatureComparison comp : inspectionResult.getComparisons()) {
             QualityStandardService.QualityEvaluationResult.TemplateComparison tc =
-                new QualityStandardService.QualityEvaluationResult.TemplateComparison();
+                    new QualityStandardService.QualityEvaluationResult.TemplateComparison();
 
             tc.setFeatureId(comp.getFeatureId());
             tc.setFeatureName(comp.getFeatureName());

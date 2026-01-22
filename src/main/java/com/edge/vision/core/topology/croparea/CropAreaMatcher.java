@@ -4,17 +4,25 @@ import com.edge.vision.core.quality.FeatureComparison;
 import com.edge.vision.core.quality.InspectionResult;
 import com.edge.vision.core.template.model.DetectedObject;
 import com.edge.vision.core.template.model.Point;
+import com.edge.vision.core.template.model.Template;
 import com.edge.vision.core.template.model.TemplateFeature;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-import java.util.*;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 /**
  * 裁剪区域匹配器
  * <p>
- * 模板坐标和检测坐标都在裁剪截图的坐标系中，直接比对即可
+ * 使用现有的 Template 类，从 metadata 中获取裁剪区域信息
+ * <p>
+ * Template metadata 存储格式：
+ * - cropWidth: 裁剪区域宽度
+ * - cropHeight: 裁剪区域高度
+ * - objectTemplatePath: 整体检测模板路径
  */
 @Component
 public class CropAreaMatcher {
@@ -26,18 +34,24 @@ public class CropAreaMatcher {
     /**
      * 执行匹配
      *
-     * @param template         裁剪区域模板
+     * @param template         模板（从 metadata 中获取裁剪区域信息）
      * @param detectedObjects  在裁剪区域中检测到的对象（相对坐标）
      * @return 检测结果
      */
-    public InspectionResult match(CropAreaTemplate template,
+    public InspectionResult match(Template template,
                                   List<DetectedObject> detectedObjects) {
         long startTime = System.currentTimeMillis();
         InspectionResult result = new InspectionResult(template.getTemplateId());
 
         logger.info("=== Crop Area Matching ===");
-        logger.info("Template: {}", template);
+        logger.info("Template: {}", template.getTemplateId());
         logger.info("Detected objects: {}", detectedObjects.size());
+
+        // 从 metadata 获取裁剪区域信息
+        int cropWidth = getCropWidth(template);
+        int cropHeight = getCropHeight(template);
+
+        logger.info("Crop area size: {}x{}", cropWidth, cropHeight);
 
         Set<DetectedObject> matchedObjects = new HashSet<>();
         Set<String> matchedFeatures = new HashSet<>();
@@ -152,25 +166,41 @@ public class CropAreaMatcher {
 
         // 设置结果
         result.setProcessingTimeMs(System.currentTimeMillis() - startTime);
-        setResultMessage(result, template, matchedFeatures.size());
+        setResultMessage(result, template.getFeatures().size(), matchedFeatures.size());
 
         logger.info("=== Matching Complete: {} ===", result.getMessage());
         return result;
     }
 
-    private void setResultMessage(InspectionResult result, CropAreaTemplate template, int matchedCount) {
+    private void setResultMessage(InspectionResult result, int totalFeatures, int matchedCount) {
         InspectionResult.InspectionSummary summary = result.getSummary();
         boolean allPassed = summary.totalFeatures == summary.passed;
 
         if (allPassed) {
             result.setPassed(true);
             result.setMessage(String.format("区域匹配通过 - %d/%d 特征匹配成功",
-                matchedCount, template.getFeatureCount()));
+                matchedCount, totalFeatures));
         } else {
             result.setPassed(false);
             result.setMessage(String.format("区域匹配失败 - %d个通过, %d个漏检, %d个偏差, %d个错检",
                 summary.passed, summary.missing, summary.deviation, summary.extra));
         }
+    }
+
+    // 从 Template metadata 获取裁剪区域信息
+    private int getCropWidth(Template template) {
+        Object width = template.getMetadata().get("cropWidth");
+        return width instanceof Integer ? (Integer) width : 0;
+    }
+
+    private int getCropHeight(Template template) {
+        Object height = template.getMetadata().get("cropHeight");
+        return height instanceof Integer ? (Integer) height : 0;
+    }
+
+    private String getObjectTemplatePath(Template template) {
+        Object path = template.getMetadata().get("objectTemplatePath");
+        return path != null ? path.toString() : null;
     }
 
     public boolean isUseUniqueMatching() {
