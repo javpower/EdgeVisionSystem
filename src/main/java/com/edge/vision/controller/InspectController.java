@@ -841,28 +841,9 @@ public class InspectController {
         return Base64.getEncoder().encodeToString(bytes);
     }
 
-    private Mat drawDetections(Mat image, List<Detection> detections) {
-        for (Detection detection : detections) {
-            float[] bbox = detection.getBbox();
-
-            if (bbox != null && bbox.length >= 4) {
-                org.opencv.core.Point p1 = new org.opencv.core.Point(bbox[0], bbox[1]);
-                org.opencv.core.Point p2 = new org.opencv.core.Point(bbox[2], bbox[3]);
-
-                Imgproc.rectangle(image, p1, p2, new Scalar(0, 255, 0), 2);
-
-                String label = String.format("%s: %.2f", detection.getLabel(), detection.getConfidence());
-                double textY = Math.max(bbox[1] - 5, 15);
-
-                Imgproc.putText(image, label, new org.opencv.core.Point(bbox[0], textY),
-                        Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, new Scalar(0, 255, 0), 2);
-            }
-        }
-        return image;
-    }
-
     /**
      * 绘制质检结果（包含模板比对结果）
+     * 性能优化：只做一次 Mat <-> BufferedImage 转换，所有绘制在 Graphics2D 上完成
      *
      * @param image 原始图像
      * @param detections 检测结果
@@ -871,236 +852,146 @@ public class InspectController {
      */
     private Mat drawInspectionResults(Mat image, List<Detection> detections,
                                       QualityStandardService.QualityEvaluationResult evaluationResult) {
-        // 1. 先绘制所有检测结果（绿色框）
-        for (Detection detection : detections) {
-            float[] bbox = detection.getBbox();
-            if (bbox != null && bbox.length >= 4) {
-                Point p1 = new Point(bbox[0], bbox[1]);
-                Point p2 = new Point(bbox[2], bbox[3]);
-                Imgproc.rectangle(image, p1, p2, new Scalar(0, 255, 0), 2);
+        // 一次性 Mat -> BufferedImage 转换
+        BufferedImage bufferedImage = matToBufferedImage(image);
 
-                String label = String.format("%s: %.2f", detection.getLabel(), detection.getConfidence());
-                double textY = Math.max(bbox[1] - 5, 15);
-                Imgproc.putText(image, label, new Point(bbox[0], textY),
-                        Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, new Scalar(0, 255, 0), 2);
-            }
+        Graphics2D g2d = bufferedImage.createGraphics();
+        g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g2d.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+        g2d.setFont(new Font("Microsoft YaHei", Font.PLAIN, 14));
+
+        // 1. 绘制所有检测结果（绿色框）
+        for (Detection detection : detections) {
+            drawDetectionBox(g2d, detection);
         }
 
-        // 2. 如果有模板比对结果，绘制漏检和错检
+        // 2. 绘制模板比对结果
         if (evaluationResult != null && evaluationResult.getTemplateComparisons() != null) {
             for (QualityStandardService.QualityEvaluationResult.TemplateComparison comp : evaluationResult.getTemplateComparisons()) {
                 switch (comp.getStatus()) {
-                    case MISSING:
-                        // 漏检：红色虚线框 + 文字
-                        drawMissingAnnotation(image, comp);
-                        break;
-                    case EXTRA:
-                        // 错检：红色X + 文字
-                        drawExtraAnnotation(image, comp);
-                        break;
-                    case PASSED:
-                        // 合格：蓝色小框标记
-                        drawPassedAnnotation(image, comp);
-                        break;
-                    case DEVIATION_EXCEEDED:
-                        // 偏差过大：黄色小框标记
-                        drawDeviationAnnotation(image, comp);
-                        break;
-                    default:
-                        break;
+                    case MISSING -> drawMissingAnnotation(g2d, comp);
+                    case EXTRA -> drawExtraAnnotation(g2d, comp);
+                    case PASSED -> drawPassedAnnotation(g2d, comp);
+                    case DEVIATION_EXCEEDED -> drawDeviationAnnotation(g2d, comp);
                 }
             }
         }
 
-        // 3. 在左上角绘制整体结果
-        drawOverallResult(image, evaluationResult);
+        // 3. 左上角整体结果绘制已移除（按用户要求）
+
+        g2d.dispose();
+
+        // BufferedImage -> Mat 转换（覆盖原 Mat）
+        byte[] data = ((DataBufferByte) bufferedImage.getRaster().getDataBuffer()).getData();
+        image.put(0, 0, data);
 
         return image;
     }
 
     /**
-     * 绘制漏检标注（红色虚线框）
+     * 绘制单个检测框（使用 Graphics2D）
      */
-    private void drawMissingAnnotation(Mat image, QualityStandardService.QualityEvaluationResult.TemplateComparison comp) {
+    private void drawDetectionBox(Graphics2D g2d, Detection detection) {
+        float[] bbox = detection.getBbox();
+        if (bbox == null || bbox.length < 4) return;
+
+        int x1 = (int) bbox[0];
+        int y1 = (int) bbox[1];
+        int x2 = (int) bbox[2];
+        int y2 = (int) bbox[3];
+
+        // 绘制绿色框
+        g2d.setColor(Color.GREEN);
+        g2d.drawRect(x1, y1, x2 - x1, y2 - y1);
+
+        // 绘制标签
+        String label = String.format("%s: %.2f", detection.getLabel(), detection.getConfidence());
+        int textY = Math.max(y1 - 5, 15);
+        g2d.drawString(label, x1, textY);
+    }
+
+    /**
+     * 绘制漏检标注（红色虚线框 + 中心十字 + 文字）
+     */
+    private void drawMissingAnnotation(Graphics2D g2d, QualityStandardService.QualityEvaluationResult.TemplateComparison comp) {
         if (comp.getDetectedPosition() == null) return;
 
-        // 位置（已经是检测图坐标）
         double x = comp.getDetectedPosition().x;
         double y = comp.getDetectedPosition().y;
+        int size = 30;
 
-        // 绘制红色虚线框（表示这里应该有特征）
-        Scalar red = new Scalar(0, 0, 255);
-        int size = 30; // 框的大小
-        org.opencv.core.Point p1 = new org.opencv.core.Point(x - size, y - size);
-        org.opencv.core.Point p2 = new org.opencv.core.Point(x + size, y + size);
+        g2d.setColor(Color.RED);
 
         // 绘制虚线框
-        drawDashedRectangle(image, p1, p2, red, 2);
+        int x1 = (int) (x - size), y1 = (int) (y - size);
+        int x2 = (int) (x + size), y2 = (int) (y + size);
+        g2d.setStroke(new BasicStroke(2, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER,
+                1.0f, new float[]{10, 5}, 0));
+        g2d.drawRect(x1, y1, x2 - x1, y2 - y1);
 
         // 绘制中心十字
-        org.opencv.core.Point cross1 = new org.opencv.core.Point(x - 10, y);
-        org.opencv.core.Point cross2 = new org.opencv.core.Point(x + 10, y);
-        org.opencv.core.Point cross3 = new org.opencv.core.Point(x, y - 10);
-        org.opencv.core.Point cross4 = new org.opencv.core.Point(x, y + 10);
-        Imgproc.line(image, cross1, cross2, red, 2);
-        Imgproc.line(image, cross3, cross4, red, 2);
+        g2d.setStroke(new BasicStroke(2));
+        g2d.drawLine((int) x - 10, (int) y, (int) x + 10, (int) y);
+        g2d.drawLine((int) x, (int) y - 10, (int) x, (int) y + 10);
 
-        // 绘制文字标签（使用中文绘制）
-        String label = "漏检: " + comp.getFeatureName();
-        org.opencv.core.Point textPos = new org.opencv.core.Point(x - size, y - size - 10);
-        drawChineseText(image, label, textPos, red, 14);
+        // 绘制文字
+        g2d.setStroke(new BasicStroke(1));
+        g2d.drawString("漏检: " + comp.getFeatureName(), x1, y1 - 10);
     }
 
     /**
-     * 绘制错检标注（红色X）
+     * 绘制错检标注（红色X + 外圈 + 文字）
      */
-    private void drawExtraAnnotation(Mat image, QualityStandardService.QualityEvaluationResult.TemplateComparison comp) {
+    private void drawExtraAnnotation(Graphics2D g2d, QualityStandardService.QualityEvaluationResult.TemplateComparison comp) {
         if (comp.getDetectedPosition() == null) return;
 
         double x = comp.getDetectedPosition().x;
         double y = comp.getDetectedPosition().y;
-
-        Scalar red = new Scalar(0, 0, 255);
         int size = 25;
 
-        // 绘制红色X
-        org.opencv.core.Point p1 = new org.opencv.core.Point(x - size, y - size);
-        org.opencv.core.Point p2 = new org.opencv.core.Point(x + size, y + size);
-        org.opencv.core.Point p3 = new org.opencv.core.Point(x + size, y - size);
-        org.opencv.core.Point p4 = new org.opencv.core.Point(x - size, y + size);
+        g2d.setColor(Color.RED);
+        g2d.setStroke(new BasicStroke(3));
 
-        Imgproc.line(image, p1, p2, red, 3);
-        Imgproc.line(image, p3, p4, red, 3);
+        // 绘制红色X
+        g2d.drawLine((int) x - size, (int) y - size, (int) x + size, (int) y + size);
+        g2d.drawLine((int) x + size, (int) y - size, (int) x - size, (int) y + size);
 
         // 绘制外圈
-        org.opencv.core.Point center = new org.opencv.core.Point(x, y);
-        Imgproc.circle(image, center, size + 5, red, 2);
+        g2d.setStroke(new BasicStroke(2));
+        g2d.drawOval((int) x - size - 5, (int) y - size - 5, (size + 5) * 2, (size + 5) * 2);
 
-        // 绘制文字标签（使用中文绘制）
-        String label = "错检";
-        org.opencv.core.Point textPos = new org.opencv.core.Point(x - size, y - size - 10);
-        drawChineseText(image, label, textPos, red, 14);
+        // 绘制文字
+        g2d.setStroke(new BasicStroke(1));
+        g2d.drawString("错检", (int) x - size, (int) y - size - 10);
     }
 
     /**
-     * 绘制合格标注（绿色小框）
+     * 绘制合格标注（绿色小方块）
      */
-    private void drawPassedAnnotation(Mat image, QualityStandardService.QualityEvaluationResult.TemplateComparison comp) {
+    private void drawPassedAnnotation(Graphics2D g2d, QualityStandardService.QualityEvaluationResult.TemplateComparison comp) {
         if (comp.getDetectedPosition() == null) return;
 
         double x = comp.getDetectedPosition().x;
         double y = comp.getDetectedPosition().y;
-
-        Scalar green = new Scalar(0, 255, 0); // 绿色（合格）
         int size = 8;
 
-        // 绘制绿色小方块标记
-        org.opencv.core.Point p1 = new org.opencv.core.Point(x - size, y - size);
-        org.opencv.core.Point p2 = new org.opencv.core.Point(x + size, y + size);
-        Imgproc.rectangle(image, p1, p2, green, -1); // 填充
+        g2d.setColor(Color.GREEN);
+        g2d.fillRect((int) x - size, (int) y - size, size * 2, size * 2);
     }
 
     /**
-     * 绘制偏差标注（黄色小框）
+     * 绘制偏差标注（黄色空心框）
      */
-    private void drawDeviationAnnotation(Mat image, QualityStandardService.QualityEvaluationResult.TemplateComparison comp) {
+    private void drawDeviationAnnotation(Graphics2D g2d, QualityStandardService.QualityEvaluationResult.TemplateComparison comp) {
         if (comp.getDetectedPosition() == null) return;
 
         double x = comp.getDetectedPosition().x;
         double y = comp.getDetectedPosition().y;
-
-        Scalar yellow = new Scalar(0, 255, 255);
         int size = 10;
 
-        // 绘制黄色空心框标记
-        org.opencv.core.Point p1 = new org.opencv.core.Point(x - size, y - size);
-        org.opencv.core.Point p2 = new org.opencv.core.Point(x + size, y + size);
-        Imgproc.rectangle(image, p1, p2, yellow, 2);
-    }
-
-    /**
-     * 绘制虚线矩形
-     */
-    private void drawDashedRectangle(Mat image, org.opencv.core.Point p1, org.opencv.core.Point p2, Scalar color, int thickness) {
-        // 虚线模式：10像素实线，5像素空白
-        int[] dashPattern = {10, 5};
-        int dashIndex = 0;
-        int currentDash = 0;
-
-        // 绘制上边
-        drawDashedLine(image, new org.opencv.core.Point(p1.x, p1.y), new org.opencv.core.Point(p2.x, p1.y), color, thickness, dashPattern, dashIndex);
-        // 绘制右边
-        drawDashedLine(image, new org.opencv.core.Point(p2.x, p1.y), new org.opencv.core.Point(p2.x, p2.y), color, thickness, dashPattern, 0);
-        // 绘制下边
-        drawDashedLine(image, new org.opencv.core.Point(p1.x, p2.y), new org.opencv.core.Point(p2.x, p2.y), color, thickness, dashPattern, 0);
-        // 绘制左边
-        drawDashedLine(image, new org.opencv.core.Point(p1.x, p1.y), new org.opencv.core.Point(p1.x, p2.y), color, thickness, dashPattern, 0);
-    }
-
-    /**
-     * 绘制虚线
-     */
-    private void drawDashedLine(Mat image, org.opencv.core.Point p1, org.opencv.core.Point p2, Scalar color, int thickness, int[] dashPattern, int dashIndex) {
-        double totalDist = Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
-        int dashCount = (int) (totalDist / 2); // 每2像素一段
-        double dx = (p2.x - p1.x) / dashCount;
-        double dy = (p2.y - p1.y) / dashCount;
-
-        boolean draw = true;
-        int segmentLength = 0;
-        int patternIdx = dashIndex;
-
-        for (int i = 0; i < dashCount; i++) {
-            org.opencv.core.Point start = new org.opencv.core.Point(p1.x + dx * i, p1.y + dy * i);
-            org.opencv.core.Point end = new org.opencv.core.Point(p1.x + dx * (i + 1), p1.y + dy * (i + 1));
-
-            if (draw) {
-                Imgproc.line(image, start, end, color, thickness);
-            }
-
-            segmentLength++;
-            if (segmentLength >= dashPattern[patternIdx]) {
-                segmentLength = 0;
-                patternIdx = (patternIdx + 1) % dashPattern.length;
-                draw = !draw;
-            }
-        }
-    }
-
-    /**
-     * 在 Mat 上绘制中文文字（使用 Graphics2D）
-     * OpenCV 的 putText 不支持中文，需要用 Java 的 Graphics2D
-     */
-    private void drawChineseText(Mat mat, String text, org.opencv.core.Point pos,
-                                  org.opencv.core.Scalar color, double fontSize) {
-        try {
-            // 将 Mat 转换为 BufferedImage
-            BufferedImage image = matToBufferedImage(mat);
-
-            Graphics2D g2d = image.createGraphics();
-            g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            g2d.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-
-            // OpenCV Scalar 是 BGR 格式，需要转换为 RGB
-            java.awt.Color awtColor = new java.awt.Color(
-                (int) color.val[2],  // R
-                (int) color.val[1],  // G
-                (int) color.val[0]   // B
-            );
-
-            g2d.setColor(awtColor);
-            g2d.setFont(new Font("Microsoft YaHei", Font.PLAIN, (int) fontSize));
-            g2d.drawString(text, (int) pos.x, (int) pos.y);
-            g2d.dispose();
-
-            // 将 BufferedImage 转换回 Mat
-            bufferedImageToMat(image, mat);
-        } catch (Exception e) {
-            logger.warn("Failed to draw Chinese text: {}", e.getMessage());
-            // 降级到英文
-            Imgproc.putText(mat, text, pos, Imgproc.FONT_HERSHEY_SIMPLEX,
-                fontSize / 20, color, 1);
-        }
+        g2d.setColor(Color.YELLOW);
+        g2d.setStroke(new BasicStroke(2));
+        g2d.drawRect((int) x - size, (int) y - size, size * 2, size * 2);
     }
 
     /**
@@ -1118,74 +1009,6 @@ public class InspectController {
         byte[] data = ((DataBufferByte) image.getRaster().getDataBuffer()).getData();
         mat.get(0, 0, data);
         return image;
-    }
-
-    /**
-     * BufferedImage 转换回 Mat（覆盖原 Mat）
-     */
-    private void bufferedImageToMat(BufferedImage image, Mat mat) {
-        byte[] data = ((DataBufferByte) image.getRaster().getDataBuffer()).getData();
-        mat.put(0, 0, data);
-    }
-
-    /**
-     * 在左上角绘制整体结果
-     */
-    private void drawOverallResult(Mat image, QualityStandardService.QualityEvaluationResult evaluationResult) {
-        if (evaluationResult == null) return;
-
-        Scalar color;
-        String statusText;
-
-        if (evaluationResult.isPassed()) {
-            color = new Scalar(0, 255, 0); // 绿色
-            statusText = "PASS";
-        } else {
-            color = new Scalar(0, 0, 255); // 红色
-            statusText = "FAIL";
-        }
-
-        // 手动计算统计信息（QualityEvaluationResult 没有 getSummary 方法）
-        int passed = 0, missing = 0, deviation = 0, extra = 0;
-        if (evaluationResult.getTemplateComparisons() != null) {
-            for (QualityStandardService.QualityEvaluationResult.TemplateComparison comp : evaluationResult.getTemplateComparisons()) {
-                if (comp.isWithinTolerance()) passed++;
-                else if (comp.getStatus() == com.edge.vision.core.quality.FeatureComparison.ComparisonStatus.MISSING) missing++;
-                else if (comp.getStatus() == com.edge.vision.core.quality.FeatureComparison.ComparisonStatus.EXTRA) extra++;
-                else deviation++;
-            }
-        }
-
-        // 绘制半透明背景
-        org.opencv.core.Point bg1 = new org.opencv.core.Point(10, 10);
-        org.opencv.core.Point bg2 = new org.opencv.core.Point(350, 120);
-        Mat overlay = image.clone();
-        Imgproc.rectangle(overlay, bg1, bg2, new Scalar(200, 200, 200), -1);
-        Core.addWeighted(overlay, 0.5, image, 0.5, 0, image);
-        overlay.release();
-
-        // 绘制边框
-        Imgproc.rectangle(image, bg1, bg2, color, 2);
-
-        // 绘制文字（使用 Graphics2D 支持中文）
-        int y = 30;
-        String resultText = evaluationResult.isPassed() ? "检测结果: 合格" : "检测结果: 不合格";
-        drawChineseText(image, resultText, new org.opencv.core.Point(20, y), color, 16);
-
-        y += 25;
-        String statsText = String.format("通过: %d  漏检: %d  偏差: %d  错检: %d",
-                passed, missing, deviation, extra);
-        drawChineseText(image, statsText, new org.opencv.core.Point(20, y), new Scalar(0, 0, 0), 14);
-
-        // 绘制消息
-        if (evaluationResult.getMessage() != null) {
-            y += 20;
-            String msg = evaluationResult.getMessage();
-            if (msg.length() > 30) {
-                msg = msg.substring(0, 30) + "...";
-            }
-            drawChineseText(image, msg, new org.opencv.core.Point(20, y), new Scalar(100, 100, 100), 12);
-        }
     }
 
     @PreDestroy
