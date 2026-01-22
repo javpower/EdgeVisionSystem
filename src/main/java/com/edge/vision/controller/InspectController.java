@@ -7,7 +7,6 @@ import com.edge.vision.model.*;
 import com.edge.vision.service.CameraService;
 import com.edge.vision.service.DataManager;
 import com.edge.vision.service.QualityStandardService;
-import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -18,10 +17,10 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
-import org.opencv.core.Point;
-import org.opencv.core.*;
+import org.opencv.core.Mat;
+import org.opencv.core.MatOfByte;
+import org.opencv.core.MatOfInt;
 import org.opencv.imgcodecs.Imgcodecs;
-import org.opencv.imgproc.Imgproc;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -226,25 +225,6 @@ public class InspectController {
                                     suggestedType = bestDetection.getLabel();
                                     logger.info("Suggested type: {} (confidence: {})", suggestedType, bestDetection.getConfidence());
                                 }
-
-                                // 获取工件整体边界框和四角
-                                float[] bbox = bestDetection.getBbox();
-                                if (bbox != null && bbox.length >= 4) {
-                                    workpieceBbox = new ArrayList<>();
-                                    workpieceBbox.add((double) bbox[0]);
-                                    workpieceBbox.add((double) bbox[1]);
-                                    workpieceBbox.add((double) bbox[2]);
-                                    workpieceBbox.add((double) bbox[3]);
-
-                                    // 计算四角
-                                    workpieceCorners = new ArrayList<>();
-                                    workpieceCorners.add(Arrays.asList((double) bbox[0], (double) bbox[1]));  // TL
-                                    workpieceCorners.add(Arrays.asList((double) bbox[2], (double) bbox[1]));  // TR
-                                    workpieceCorners.add(Arrays.asList((double) bbox[2], (double) bbox[3]));  // BR
-                                    workpieceCorners.add(Arrays.asList((double) bbox[0], (double) bbox[3]));  // BL
-
-                                    logger.info("Detected workpiece: bbox={}, corners={}", workpieceBbox, workpieceCorners);
-                                }
                             }
                         }
                     } catch (Exception e) {
@@ -259,7 +239,6 @@ public class InspectController {
             PreCheckData preCheckData = new PreCheckData();
             preCheckData.setStitchedImage(stitchedImageBase64);
             preCheckData.setTimestamp(LocalDateTime.now());
-            preCheckData.setWorkpieceCorners(workpieceCorners);
             preCheckStore.put(requestId, preCheckData);
 
             PreCheckResponse preCheckResponse = new PreCheckResponse();
@@ -268,9 +247,6 @@ public class InspectController {
             preCheckResponse.setPreviewImage("data:image/jpeg;base64," + stitchedImageBase64);
             preCheckResponse.setCameraCount(cameraService.getCameraCount());
             preCheckResponse.setImageShape(imageShape);
-            preCheckResponse.setWorkpieceBbox(workpieceBbox);
-            preCheckResponse.setWorkpieceCorners(workpieceCorners);
-
             response.put("status", "success");
             response.put("data", preCheckResponse);
 
@@ -432,9 +408,8 @@ public class InspectController {
 
             try {
                 // 直接调用 evaluateWithTemplate，内部会根据 match-strategy 选择对应 Matcher
-                // 如果提供了工件四角坐标，将用于四角匹配
                 evaluationResult = qualityStandardService.evaluateWithTemplate(
-                    request.getConfirmedPartName(), detectedObjects, preCheckData.getWorkpieceCorners());
+                    request.getConfirmedPartName(), detectedObjects);
 
                 // 如果返回了模板比对结果，说明使用了新模式
                 if (evaluationResult.getTemplateComparisons() != null &&
@@ -1026,20 +1001,9 @@ public class InspectController {
         private String stitchedImage;
         private LocalDateTime timestamp;
 
-        @JsonProperty("workpiece_corners")
-        private List<List<Double>> workpieceCorners;
-
         public String getStitchedImage() { return stitchedImage; }
         public void setStitchedImage(String stitchedImage) { this.stitchedImage = stitchedImage; }
         public LocalDateTime getTimestamp() { return timestamp; }
         public void setTimestamp(LocalDateTime timestamp) { this.timestamp = timestamp; }
-
-        public List<List<Double>> getWorkpieceCorners() {
-            return workpieceCorners;
-        }
-
-        public void setWorkpieceCorners(List<List<Double>> workpieceCorners) {
-            this.workpieceCorners = workpieceCorners;
-        }
     }
 }

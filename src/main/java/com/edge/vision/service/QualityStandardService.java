@@ -53,12 +53,10 @@ public class QualityStandardService {
      *
      * @param partType       工件类型（用于查找关联的模板）
      * @param detectedObjects 模型格式的检测对象列表
-     * @param corners        可选的工件四角坐标（用于四角匹配）
      * @return 质检结果
      */
     public QualityEvaluationResult evaluateWithTemplate(String partType,
-                                                         List<DetectedObject> detectedObjects,
-                                                         List<List<Double>> corners) {
+                                                         List<DetectedObject> detectedObjects) {
         logger.info("Evaluating with template matching for part type: {}", partType);
 
         // 检查模板系统是否可用
@@ -75,42 +73,15 @@ public class QualityStandardService {
         }
 
         try {
-            // 根据模板中是否配置了四角，以及是否有传入 corners，决定匹配方式
-            Object templateCorners = template.getMetadata().get("fourCorners");
-            boolean hasFourCorners = (templateCorners != null || corners != null);
-
-            if (hasFourCorners && corners != null) {
-                // 使用四角匹配
-                logger.info("Using four-corner matching");
-                Point[] cornerPoints = new Point[4];
-                for (int i = 0; i < 4; i++) {
-                    List<Double> c = corners.get(i);
-                    cornerPoints[i] = new Point(c.get(0), c.get(1));
-                }
-
-                InspectionResult inspectionResult = qualityInspector.inspectWithFourCorners(
-                    template, detectedObjects, cornerPoints);
-                return convertToQualityEvaluationResult(partType, inspectionResult);
-
-            } else {
-                // 使用拓扑/坐标匹配
-                logger.info("Using topology/coordinate matching");
-                InspectionResult inspectionResult = qualityInspector.inspect(template, detectedObjects);
-                return convertToQualityEvaluationResult(partType, inspectionResult);
-            }
+            // 使用拓扑/坐标匹配
+            logger.info("Using topology/coordinate matching");
+            InspectionResult inspectionResult = qualityInspector.inspect(template, detectedObjects);
+            return convertToQualityEvaluationResult(partType, inspectionResult);
 
         } catch (Exception e) {
             logger.error("Error during template-based evaluation", e);
             return createErrorResult(partType, "模板匹配失败: " + e.getMessage());
         }
-    }
-
-    /**
-     * 使用拓扑图匹配模式进行质检评估（模型格式）- 无 corners 参数
-     */
-    public QualityEvaluationResult evaluateWithTemplate(String partType,
-                                                         List<DetectedObject> detectedObjects) {
-        return evaluateWithTemplate(partType, detectedObjects, null);
     }
 
     /**

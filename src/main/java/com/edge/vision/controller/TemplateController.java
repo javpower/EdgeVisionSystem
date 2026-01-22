@@ -2,7 +2,8 @@ package com.edge.vision.controller;
 
 import com.edge.vision.config.YamlConfig;
 import com.edge.vision.core.infer.YOLOInferenceEngine;
-import com.edge.vision.core.template.*;
+import com.edge.vision.core.template.TemplateBuilder;
+import com.edge.vision.core.template.TemplateManager;
 import com.edge.vision.core.template.model.DetectedObject;
 import com.edge.vision.core.template.model.ImageSize;
 import com.edge.vision.core.template.model.Point;
@@ -52,9 +53,6 @@ public class TemplateController {
 
     @Autowired
     private YamlConfig yamlConfig;
-
-    // 类型识别引擎（用于检测工件整体）
-    private YOLOInferenceEngine typeInferenceEngine;
 
     // 细节检测引擎（用于一键建模）
     private YOLOInferenceEngine detailInferenceEngine;
@@ -185,22 +183,6 @@ public class TemplateController {
 
             // 2. 初始化检测引擎（如果尚未初始化）
 
-            // 2.1 初始化类型识别引擎（可选，用于检测工件整体）
-            if (typeInferenceEngine == null && yamlConfig.getModels().getTypeModel() != null
-                && !yamlConfig.getModels().getTypeModel().isEmpty()) {
-                try {
-                    typeInferenceEngine = new YOLOInferenceEngine(
-                        yamlConfig.getModels().getTypeModel(),
-                        yamlConfig.getModels().getConfThres(),
-                        yamlConfig.getModels().getIouThres(),
-                        yamlConfig.getModels().getDevice()
-                    );
-                    logger.info("Type inference engine initialized for one-click build");
-                } catch (Exception e) {
-                    logger.warn("Failed to initialize type inference engine: {}", e.getMessage());
-                }
-            }
-
             // 2.2 初始化细节检测引擎（必须，用于检测特征）
             if (detailInferenceEngine == null) {
                 try {
@@ -246,27 +228,6 @@ public class TemplateController {
                 return ResponseEntity.badRequest()
                     .body(TemplateBuildResponse.error("未检测到任何特征，请确保画面中有目标工件"));
             }
-
-            // 5.5. 使用类型识别引擎检测工件整体（如果配置了）
-            Detection workpieceDetection = null;
-            if (typeInferenceEngine != null) {
-                try {
-                    List<Detection> typeDetections = typeInferenceEngine.predict(imageMat);
-                    if (!typeDetections.isEmpty()) {
-                        // 取置信度最高的检测结果作为工件整体
-                        workpieceDetection = typeDetections.stream()
-                                .max(Comparator.comparing(Detection::getConfidence))
-                                .orElse(null);
-                        if (workpieceDetection != null && workpieceDetection.getConfidence() > 0.5) {
-                            logger.info("Detected workpiece using type model: {} (confidence: {})",
-                                workpieceDetection.getLabel(), workpieceDetection.getConfidence());
-                        }
-                    }
-                } catch (Exception e) {
-                    logger.warn("Type model detection failed", e);
-                }
-            }
-
             // 6. 转换为DetectedObject列表（直接使用检测结果中的className）
             List<DetectedObject> detectedObjects = new ArrayList<>();
             for (Detection detection : detections) {
@@ -341,32 +302,6 @@ public class TemplateController {
 
             // 9. 关联工件类型
             template.putMetadata("partType", partType);
-
-            // 10. 自动计算工件四角坐标（优先使用类型识别引擎检测的工件整体，否则从细节检测结果中找最大的边界框）
-            List<List<Double>> fourCorners = null;
-            if (workpieceDetection != null) {
-                // 使用类型识别引擎检测的工件整体
-                float[] bbox = workpieceDetection.getBbox();
-                List<Double> bboxList = new ArrayList<>();
-                bboxList.add((double) bbox[0]);
-                bboxList.add((double) bbox[1]);
-                bboxList.add((double) bbox[2]);
-                bboxList.add((double) bbox[3]);
-                fourCorners = calculateCornersFromBbox(bboxList);
-                logger.info("Auto-calculated four corners from type model detection: {}", fourCorners);
-            } else {
-                // 降级：从细节检测结果中找最大的边界框
-                fourCorners = calculateCornersFromDetections(detections);
-                if (fourCorners != null) {
-                    logger.info("Auto-calculated four corners from detail detections (fallback): {}", fourCorners);
-                }
-            }
-
-            if (fourCorners != null) {
-                template.getMetadata().put("fourCorners", fourCorners);
-            } else {
-                logger.info("Could not calculate four corners (no workpiece detection found)");
-            }
 
             // 11. 保存并激活模板
             templateManager.save(template);

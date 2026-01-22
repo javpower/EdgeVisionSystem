@@ -31,10 +31,9 @@ edge-vision:
 
   # 质检配置
   inspection:
-    # 匹配策略: topology（拓扑图匹配）, coordinate（坐标直接匹配）, fourcorner（四角匹配）
+    # 匹配策略: topology（拓扑图匹配）, coordinate（坐标直接匹配
     # topology: 支持旋转/平移/尺度变化，适合复杂场景
     # coordinate: 一对一关系明确，错检漏检一目了然
-    # fourcorner: 利用工件四角作为世界坐标系，通过仿射不变量匹配，支持平移/旋转/缩放
     match-strategy: coordinate
     # 最大匹配距离（像素，相对坐标）- 用于坐标匹配时查找最近的匹配
     max-match-distance: 100.0
