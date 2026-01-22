@@ -79,7 +79,25 @@ public class QualityInspector {
      * @return 检测结果
      */
     public InspectionResult inspect(Template template, List<DetectedObject> detectedObjects, MatchStrategy strategy) {
+        return inspect(template, detectedObjects, strategy, 0, 0);
+    }
+
+    /**
+     * 使用指定策略执行质量检测（带实际裁剪尺寸）
+     *
+     * @param template         模板
+     * @param detectedObjects  YOLO 检测到的对象列表
+     * @param strategy         匹配策略
+     * @param actualCropWidth  实际检测时的裁剪宽度
+     * @param actualCropHeight 实际检测时的裁剪高度
+     * @return 检测结果
+     */
+    public InspectionResult inspect(Template template, List<DetectedObject> detectedObjects, MatchStrategy strategy,
+                                    int actualCropWidth, int actualCropHeight) {
         logger.info("Starting quality inspection with strategy: {}", strategy);
+        if (actualCropWidth > 0 && actualCropHeight > 0) {
+            logger.info("Actual crop dimensions: {}x{}", actualCropWidth, actualCropHeight);
+        }
 
         // 配置匹配器参数
         configureMatchers();
@@ -96,8 +114,11 @@ public class QualityInspector {
                 result = topologyTemplateMatcher.match(template, detectedObjects);
                 result.setMatchStrategy(MatchStrategy.TOPOLOGY);
             }else {
-                result=cropAreaMatcher.match(template, detectedObjects);
-                result.setMatchStrategy(MatchStrategy.CROP_AREA);
+                // CROP_AREA 策略：传递实际裁剪尺寸用于坐标归一化
+//                result=cropAreaMatcher.match(template, detectedObjects, actualCropWidth, actualCropHeight);
+//                result.setMatchStrategy(MatchStrategy.CROP_AREA);
+                result = coordinateBasedMatcher.match(template, detectedObjects);
+                result.setMatchStrategy(MatchStrategy.COORDINATE);
             }
 
             logger.info("Inspection completed: {}", result.getMessage());

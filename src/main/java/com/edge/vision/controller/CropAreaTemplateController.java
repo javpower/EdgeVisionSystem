@@ -10,6 +10,7 @@ import com.edge.vision.service.CameraService;
 import com.edge.vision.util.ObjectDetectionUtil;
 import org.opencv.core.Mat;
 import org.opencv.core.MatOfByte;
+import org.opencv.core.MatOfInt;
 import org.opencv.imgcodecs.Imgcodecs;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -114,10 +115,20 @@ public class CropAreaTemplateController {
             String filename = partType + "_temp.jpg";
             Path filePath = dir.resolve(filename);
 
-            // 将 base64 转换为 Mat 并保存
+            // 将 base64 转换为 Mat 并保存（使用最高质量）
             byte[] bytes = Base64.getDecoder().decode(stitchedImageBase64);
             Mat mat = Imgcodecs.imdecode(new org.opencv.core.MatOfByte(bytes), Imgcodecs.IMREAD_COLOR);
-            Imgcodecs.imwrite(filePath.toString(), mat);
+            MatOfByte mob = new MatOfByte();
+            int[] params = new int[]{Imgcodecs.IMWRITE_JPEG_QUALITY, 100};
+            Imgcodecs.imencode(".jpg", mat, mob, new MatOfInt(params));
+            byte[] outBytes = mob.toArray();
+            mob.release();
+            try {
+                java.nio.file.Files.write(filePath, outBytes);
+            } catch (Exception e) {
+                logger.warn("高质量保存失败，使用默认方式: {}", e.getMessage());
+                Imgcodecs.imwrite(filePath.toString(), mat);
+            }
             mat.release();
 
             logger.info("摄像头截图保存成功: {}", filePath);
@@ -233,12 +244,22 @@ public class CropAreaTemplateController {
             Mat cropped = objectDetectionUtil.cropImageByCorners(
                 originalImagePath, corners, null, 10);
 
-            // 保存模板截图到 templates/images/ 目录
+            // 保存模板截图到 templates/images/ 目录（使用最高质量）
             Path imagesDir = Paths.get("templates", "images");
             Files.createDirectories(imagesDir);
             String imageFileName = request.getTemplateId() + ".jpg";
             String templateImagePath = imagesDir.resolve(imageFileName).toString();
-            Imgcodecs.imwrite(templateImagePath, cropped);
+            MatOfByte mob = new MatOfByte();
+            int[] params = new int[]{Imgcodecs.IMWRITE_JPEG_QUALITY, 100};
+            Imgcodecs.imencode(".jpg", cropped, mob, new MatOfInt(params));
+            byte[] outBytes = mob.toArray();
+            mob.release();
+            try {
+                java.nio.file.Files.write(java.nio.file.Paths.get(templateImagePath), outBytes);
+            } catch (Exception e) {
+                logger.warn("高质量保存失败，使用默认方式: {}", e.getMessage());
+                Imgcodecs.imwrite(templateImagePath, cropped);
+            }
 
             // 调用 YOLOInferenceEngine 识别
             List<com.edge.vision.model.Detection> detections = detailInferenceEngine.predict(cropped);
@@ -248,7 +269,7 @@ public class CropAreaTemplateController {
             for (int i = 0; i < detections.size(); i++) {
                 com.edge.vision.model.Detection det = detections.get(i);
 
-                // 从 bbox 计算中心点
+                // 从 bbox 计算中心点和边界框
                 float[] bbox = det.getBbox();
                 double centerX = (bbox[0] + bbox[2]) / 2.0;
                 double centerY = (bbox[1] + bbox[3]) / 2.0;
@@ -259,6 +280,8 @@ public class CropAreaTemplateController {
                     new com.edge.vision.core.template.model.Point(centerX, centerY),
                     det.getClassId()
                 );
+                // 保存边界框信息（用于 IoU 匹配）
+                feature.setBbox(TemplateFeature.BoundingBox.fromYolo(bbox));
                 feature.setTolerance(new TemplateFeature.Tolerance(
                     request.getToleranceX(), request.getToleranceY()));
 

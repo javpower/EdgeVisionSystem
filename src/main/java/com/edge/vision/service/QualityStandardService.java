@@ -2,11 +2,13 @@ package com.edge.vision.service;
 
 import com.edge.vision.core.quality.FeatureComparison;
 import com.edge.vision.core.quality.InspectionResult;
+import com.edge.vision.core.quality.MatchStrategy;
 import com.edge.vision.core.quality.QualityInspector;
 import com.edge.vision.core.template.TemplateManager;
 import com.edge.vision.core.template.model.DetectedObject;
 import com.edge.vision.core.template.model.Point;
 import com.edge.vision.core.template.model.Template;
+import com.edge.vision.config.YamlConfig;
 import com.edge.vision.dto.InspectionRequest;
 import com.edge.vision.model.Detection;
 import org.slf4j.Logger;
@@ -39,6 +41,9 @@ public class QualityStandardService {
     @Autowired(required = false)
     private QualityInspector qualityInspector;
 
+    @Autowired(required = false)
+    private YamlConfig yamlConfig;
+
     /**
      * 使用拓扑图匹配模式进行质检评估（模型格式）
      * <p>
@@ -55,7 +60,26 @@ public class QualityStandardService {
      */
     public QualityEvaluationResult evaluateWithTemplate(String partType,
                                                          List<DetectedObject> detectedObjects) {
+        return evaluateWithTemplate(partType, detectedObjects, 0, 0);
+    }
+
+    /**
+     * 使用模板匹配进行质检评估（带实际裁剪尺寸）
+     *
+     * @param partType         工件类型
+     * @param detectedObjects  检测到的对象列表
+     * @param actualCropWidth  实际检测时的裁剪宽度
+     * @param actualCropHeight 实际检测时的裁剪高度
+     * @return 质检评估结果
+     */
+    public QualityEvaluationResult evaluateWithTemplate(String partType,
+                                                         List<DetectedObject> detectedObjects,
+                                                         int actualCropWidth,
+                                                         int actualCropHeight) {
         logger.info("Evaluating with template matching for part type: {}", partType);
+        if (actualCropWidth > 0 && actualCropHeight > 0) {
+            logger.info("Actual crop dimensions: {}x{}", actualCropWidth, actualCropHeight);
+        }
 
         // 检查模板系统是否可用
         if (templateManager == null || qualityInspector == null) {
@@ -71,9 +95,17 @@ public class QualityStandardService {
         }
 
         try {
-            // 使用拓扑/坐标匹配/croparea
-            logger.info("Using topology/coordinate/croparea matching");
-            InspectionResult inspectionResult = qualityInspector.inspect(template, detectedObjects);
+            // 获取匹配策略
+            MatchStrategy strategy = yamlConfig != null && yamlConfig.getInspection() != null
+                ? yamlConfig.getInspection().getMatchStrategy()
+                : null;
+            if (strategy == null) {
+                strategy = MatchStrategy.TOPOLOGY;  // 默认使用拓扑匹配
+            }
+
+            // 使用指定策略进行匹配
+            InspectionResult inspectionResult = qualityInspector.inspect(
+                template, detectedObjects, strategy, actualCropWidth, actualCropHeight);
             return convertToQualityEvaluationResult(partType, inspectionResult);
 
         } catch (Exception e) {

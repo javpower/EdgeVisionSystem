@@ -36,6 +36,25 @@ public class DetectedObject {
         return new Point(center.x + width / 2, center.y + height / 2);
     }
 
+    /**
+     * 获取边界框对象（用于 IoU 匹配）
+     */
+    public TemplateFeature.BoundingBox getBbox() {
+        return new TemplateFeature.BoundingBox(
+            center.x - width / 2,
+            center.y - height / 2,
+            width,
+            height
+        );
+    }
+
+    /**
+     * 计算与另一个检测对象的 IoU
+     */
+    public double iou(DetectedObject other) {
+        return this.getBbox().iou(other.getBbox());
+    }
+
     // Getters and Setters
     public int getClassId() { return classId; }
     public void setClassId(int classId) { this.classId = classId; }

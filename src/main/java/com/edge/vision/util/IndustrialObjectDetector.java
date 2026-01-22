@@ -34,7 +34,143 @@ public class IndustrialObjectDetector {
     }
 
     /**
-     * 执行检测的主方法
+     * 执行检测的主方法（Mat 版本）
+     *
+     * @param templateImage 工件截图 Mat (小图)
+     * @param sceneImage    现场整图 Mat (大图)
+     * @return 检测结果对象
+     */
+    public DetectionResult detectObject(Mat templateImage, Mat sceneImage) {
+        // 定义所有需要手动释放的 Mat 对象，防止内存泄漏
+        Mat imgTemplateGray = null;
+        Mat imgSceneGray = null;
+        Mat descriptorsTemplate = null;
+        Mat descriptorsScene = null;
+        MatOfKeyPoint keypointsTemplate = null;
+        MatOfKeyPoint keypointsScene = null;
+        Mat hMatrix = null;
+        try {
+            // 1. 图片校验
+            if (templateImage.empty() || sceneImage.empty()) {
+                return new DetectionResult(false, "图像 Mat 为空");
+            }
+
+            // 2. 转换为灰度图用于特征提取
+            imgTemplateGray = new Mat();
+            imgSceneGray = new Mat();
+            Imgproc.cvtColor(templateImage, imgTemplateGray, Imgproc.COLOR_BGR2GRAY);
+            Imgproc.cvtColor(sceneImage, imgSceneGray, Imgproc.COLOR_BGR2GRAY);
+
+            // 3. 初始化特征检测器
+            Feature2D detector = SIFT.create();
+
+            keypointsTemplate = new MatOfKeyPoint();
+            keypointsScene = new MatOfKeyPoint();
+            descriptorsTemplate = new Mat();
+            descriptorsScene = new Mat();
+
+            // 4. 检测特征点并计算描述子
+            detector.detectAndCompute(imgTemplateGray, new Mat(), keypointsTemplate, descriptorsTemplate);
+            detector.detectAndCompute(imgSceneGray, new Mat(), keypointsScene, descriptorsScene);
+
+            if (descriptorsTemplate.empty() || descriptorsScene.empty()) {
+                return new DetectionResult(false, "无法提取特征点，图片可能过于模糊或无纹理");
+            }
+
+            // 5. 特征匹配
+            DescriptorMatcher matcher = DescriptorMatcher.create(DescriptorMatcher.FLANNBASED);
+            List<MatOfDMatch> knnMatches = new ArrayList<>();
+
+            if (descriptorsTemplate.type() != CvType.CV_32F) {
+                descriptorsTemplate.convertTo(descriptorsTemplate, CvType.CV_32F);
+            }
+            if (descriptorsScene.type() != CvType.CV_32F) {
+                descriptorsScene.convertTo(descriptorsScene, CvType.CV_32F);
+            }
+
+            matcher.knnMatch(descriptorsTemplate, descriptorsScene, knnMatches, 2);
+
+            // 6. Lowe's Ratio Test
+            float ratioThresh = 0.7f;
+            List<DMatch> listOfGoodMatches = new ArrayList<>();
+            for (MatOfDMatch match : knnMatches) {
+                DMatch[] dmatches = match.toArray();
+                if (dmatches.length >= 2 && dmatches[0].distance < ratioThresh * dmatches[1].distance) {
+                    listOfGoodMatches.add(dmatches[0]);
+                }
+            }
+
+            // 7. 校验匹配数量
+            if (listOfGoodMatches.size() < 4) {
+                return new DetectionResult(false, "匹配点不足 (" + listOfGoodMatches.size() + "<4)，无法定位工件");
+            }
+
+            // 8. 计算单应性矩阵
+            List<Point> objPoints = new ArrayList<>();
+            List<Point> scenePoints = new ArrayList<>();
+            List<KeyPoint> listOfKeypointsTemplate = keypointsTemplate.toList();
+            List<KeyPoint> listOfKeypointsScene = keypointsScene.toList();
+
+            for (DMatch goodMatch : listOfGoodMatches) {
+                objPoints.add(listOfKeypointsTemplate.get(goodMatch.queryIdx).pt);
+                scenePoints.add(listOfKeypointsScene.get(goodMatch.trainIdx).pt);
+            }
+
+            MatOfPoint2f objMat = new MatOfPoint2f();
+            objMat.fromList(objPoints);
+            MatOfPoint2f sceneMat = new MatOfPoint2f();
+            sceneMat.fromList(scenePoints);
+
+            hMatrix = Calib3d.findHomography(objMat, sceneMat, Calib3d.RANSAC, 5.0);
+
+            if (hMatrix.empty()) {
+                return new DetectionResult(false, "无法计算空间变换矩阵");
+            }
+
+            // 9. 坐标映射
+            Mat objCorners = new Mat(4, 1, CvType.CV_32FC2);
+            Mat sceneCorners = new Mat(4, 1, CvType.CV_32FC2);
+
+            objCorners.put(0, 0, new double[]{0, 0});
+            objCorners.put(1, 0, new double[]{templateImage.cols(), 0});
+            objCorners.put(2, 0, new double[]{templateImage.cols(), templateImage.rows()});
+            objCorners.put(3, 0, new double[]{0, templateImage.rows()});
+
+            Core.perspectiveTransform(objCorners, sceneCorners, hMatrix);
+
+            // 10. 绘图
+            Point[] corners = new Point[4];
+            for (int i = 0; i < 4; i++) {
+                corners[i] = new Point(sceneCorners.get(i, 0));
+            }
+            DetectionResult result = new DetectionResult(true, "检测成功");
+            result.matchedCount = listOfGoodMatches.size();
+            result.corners = corners;
+            result.resultImage = sceneImage;
+
+            objCorners.release();
+            sceneCorners.release();
+            objMat.release();
+            sceneMat.release();
+
+            return result;
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            return new DetectionResult(false, "发生异常: " + e.getMessage());
+        } finally {
+            safeRelease(imgTemplateGray);
+            safeRelease(imgSceneGray);
+            safeRelease(descriptorsTemplate);
+            safeRelease(descriptorsScene);
+            safeRelease(keypointsTemplate);
+            safeRelease(keypointsScene);
+            safeRelease(hMatrix);
+        }
+    }
+
+    /**
+     * 执行检测的主方法（文件路径版本）
      *
      * @param templatePath 工件截图路径 (小图)
      * @param scenePath    现场整图路径 (大图)

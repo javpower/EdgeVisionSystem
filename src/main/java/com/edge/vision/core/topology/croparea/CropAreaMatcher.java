@@ -40,6 +40,22 @@ public class CropAreaMatcher {
      */
     public InspectionResult match(Template template,
                                   List<DetectedObject> detectedObjects) {
+        return match(template, detectedObjects, 0, 0);
+    }
+
+    /**
+     * 执行匹配（带实际裁剪尺寸）
+     *
+     * @param template         模板（从 metadata 中获取裁剪区域信息）
+     * @param detectedObjects  在裁剪区域中检测到的对象（相对坐标）
+     * @param actualCropWidth  实际检测时的裁剪宽度
+     * @param actualCropHeight 实际检测时的裁剪高度
+     * @return 检测结果
+     */
+    public InspectionResult match(Template template,
+                                  List<DetectedObject> detectedObjects,
+                                  int actualCropWidth,
+                                  int actualCropHeight) {
         long startTime = System.currentTimeMillis();
         InspectionResult result = new InspectionResult(template.getTemplateId());
 
@@ -47,19 +63,71 @@ public class CropAreaMatcher {
         logger.info("Template: {}", template.getTemplateId());
         logger.info("Detected objects: {}", detectedObjects.size());
 
-        // 从 metadata 获取裁剪区域信息
-        int cropWidth = getCropWidth(template);
-        int cropHeight = getCropHeight(template);
+        // 调试：打印检测到的对象信息
+        for (DetectedObject obj : detectedObjects) {
+            logger.info("DetectedObject: classId={}, center=({},{}), size={}x{}",
+                obj.getClassId(),
+                String.format("%.1f", obj.getCenter().x),
+                String.format("%.1f", obj.getCenter().y),
+                String.format("%.1f", obj.getWidth()),
+                String.format("%.1f", obj.getHeight()));
+        }
 
-        logger.info("Crop area size: {}x{}", cropWidth, cropHeight);
+        // 从 metadata 获取建模时的裁剪区域信息
+        int templateCropWidth = getCropWidth(template);
+        int templateCropHeight = getCropHeight(template);
+
+        logger.info("Template crop size from metadata: {}x{}", templateCropWidth, templateCropHeight);
+
+        // 如果没有 cropWidth/cropHeight，使用 imageSize
+        if (templateCropWidth == 0 || templateCropHeight == 0) {
+            if (template.getImageSize() != null) {
+                templateCropWidth = template.getImageSize().getWidth();
+                templateCropHeight = template.getImageSize().getHeight();
+                logger.info("Using imageSize from template: {}x{}", templateCropWidth, templateCropHeight);
+            }
+        }
+
+        // 计算缩放比例（如果提供了实际裁剪尺寸）
+        double scaleX = 1.0;
+        double scaleY = 1.0;
+        if (actualCropWidth > 0 && actualCropHeight > 0) {
+            logger.info("Actual crop size: {}x{}", actualCropWidth, actualCropHeight);
+            scaleX = (double) actualCropWidth / templateCropWidth;
+            scaleY = (double) actualCropHeight / templateCropHeight;
+            logger.info("Scale factors: scaleX={}, scaleY={}",
+                String.format("%.3f", scaleX),
+                String.format("%.3f", scaleY));
+        }
 
         Set<DetectedObject> matchedObjects = new HashSet<>();
         Set<String> matchedFeatures = new HashSet<>();
 
         for (TemplateFeature templateFeature : template.getFeatures()) {
-            // 找到最佳匹配的检测点（基于类别和距离）
+            // 对模板特征坐标进行缩放（以适应实际裁剪尺寸）
+            double scaledX = templateFeature.getPosition().x * scaleX;
+            double scaledY = templateFeature.getPosition().y * scaleY;
+            Point scaledPosition = new Point(scaledX, scaledY);
+
+            // 创建缩放后的边界框
+            TemplateFeature.BoundingBox scaledBbox = null;
+            if (templateFeature.getBbox() != null) {
+                scaledBbox = new TemplateFeature.BoundingBox(
+                    templateFeature.getBbox().getX() * scaleX,
+                    templateFeature.getBbox().getY() * scaleY,
+                    templateFeature.getBbox().getWidth() * scaleX,
+                    templateFeature.getBbox().getHeight() * scaleY
+                );
+            }
+
+            // 找到最佳匹配的检测对象（基于类别和 IoU）
             DetectedObject bestMatch = null;
-            double minDistance = Double.MAX_VALUE;
+            double maxIoU = 0.0;  // IoU 范围 [0, 1]，越高越好
+
+            // 根据是否有 bbox 决定阈值
+            // 有 bbox: 使用严格的 IoU 阈值
+            // 无 bbox: 使用更宽松的阈值（因为是距离近似）
+            final double IOU_THRESHOLD = (scaledBbox != null) ? 0.25 : 0.15;
 
             for (DetectedObject obj : detectedObjects) {
                 // 检查类别是否匹配
@@ -72,32 +140,40 @@ public class CropAreaMatcher {
                     continue;
                 }
 
-                // 计算欧氏距离（在同一坐标系下）
-                double dx = obj.getCenter().x - templateFeature.getPosition().x;
-                double dy = obj.getCenter().y - templateFeature.getPosition().y;
-                double distance = Math.sqrt(dx * dx + dy * dy);
+                // 计算 IoU（交并比）
+                double iou = 0.0;
+                if (scaledBbox != null && obj.getBbox() != null) {
+                    iou = scaledBbox.iou(obj.getBbox());
+                } else {
+                    // 降级到中心点距离匹配（向后兼容，使用缩放后的坐标）
+                    double dx = obj.getCenter().x - scaledPosition.x;
+                    double dy = obj.getCenter().y - scaledPosition.y;
+                    double distance = Math.sqrt(dx * dx + dy * dy);
+                    // 距离转 IoU 的简单近似（仅用于兼容）
+                    iou = Math.max(0, 1.0 - distance / 100.0);
+                }
 
-                if (distance < minDistance) {
-                    minDistance = distance;
+                if (iou > maxIoU) {
+                    maxIoU = iou;
                     bestMatch = obj;
                 }
             }
 
             // 判断是否匹配成功
-            if (bestMatch != null) {
+            if (bestMatch != null && maxIoU >= IOU_THRESHOLD) {
                 matchedObjects.add(bestMatch);
                 matchedFeatures.add(templateFeature.getId());
 
                 Point detectedPos = bestMatch.getCenter();
-                Point templatePos = templateFeature.getPosition();
-                double xError = Math.abs(detectedPos.x - templatePos.x);
-                double yError = Math.abs(detectedPos.y - templatePos.y);
+                // 使用缩放后的模板位置
+                double xError = Math.abs(detectedPos.x - scaledPosition.x);
+                double yError = Math.abs(detectedPos.y - scaledPosition.y);
 
                 boolean withinTolerance = (xError <= templateFeature.getTolerance().getX() &&
                                           yError <= templateFeature.getTolerance().getY());
 
                 FeatureComparison comp = new FeatureComparison(templateFeature.getId(), templateFeature.getName());
-                comp.setTemplatePosition(templatePos);
+                comp.setTemplatePosition(scaledPosition);  // 使用缩放后的位置
                 comp.setDetectedPosition(detectedPos);
                 comp.setXError(xError);
                 comp.setYError(yError);
@@ -114,21 +190,21 @@ public class CropAreaMatcher {
 
                 result.addComparison(comp);
 
-                logger.debug("MATCHED: {} -> detected=({},{}) [expected=({},{})], dist={}, xErr={}, yErr={}",
+                logger.debug("MATCHED: {} -> IoU={}, detected=({},{}) [expected=({},{})], xErr={}, yErr={}",
                     templateFeature.getId(),
+                    String.format("%.3f", maxIoU),
                     (int)detectedPos.x, (int)detectedPos.y,
-                    (int)templatePos.x, (int)templatePos.y,
-                    String.format("%.1f", minDistance),
+                    (int)scaledPosition.x, (int)scaledPosition.y,
                     String.format("%.1f", xError),
                     String.format("%.1f", yError));
 
             } else {
-                // 漏检
-                Point templatePos = templateFeature.getPosition();
+                // 漏检或 IoU 不达标
+                // 使用缩放后的模板位置
 
                 FeatureComparison comp = new FeatureComparison(templateFeature.getId(), templateFeature.getName());
-                comp.setTemplatePosition(templatePos);
-                comp.setDetectedPosition(templatePos);
+                comp.setTemplatePosition(scaledPosition);
+                comp.setDetectedPosition(scaledPosition);
                 comp.setToleranceX(templateFeature.getTolerance().getX());
                 comp.setToleranceY(templateFeature.getTolerance().getY());
                 comp.setStatus(FeatureComparison.ComparisonStatus.MISSING);
@@ -138,8 +214,19 @@ public class CropAreaMatcher {
 
                 result.addComparison(comp);
 
-                logger.info("MISSING: {}, expected at ({}, {})",
-                    templateFeature.getId(), (int)templatePos.x, (int)templatePos.y);
+                if (bestMatch != null) {
+                    // 重要：即使 IoU 不达标，也要标记为已匹配，避免被标记为 EXTRA
+                    matchedObjects.add(bestMatch);
+                    logger.warn("LOW_IOU: {} -> IoU={} < {}, detected=({},{}) [expected=({},{})]",
+                        templateFeature.getId(),
+                        String.format("%.3f", maxIoU),
+                        String.format("%.3f", IOU_THRESHOLD),
+                        (int)bestMatch.getCenter().x, (int)bestMatch.getCenter().y,
+                        (int)scaledPosition.x, (int)scaledPosition.y);
+                } else {
+                    logger.info("MISSING: {}, expected at ({}, {})",
+                        templateFeature.getId(), (int)scaledPosition.x, (int)scaledPosition.y);
+                }
             }
         }
 

@@ -3,15 +3,14 @@ package com.edge.vision.controller;
 import com.edge.vision.config.YamlConfig;
 import com.edge.vision.core.infer.YOLOInferenceEngine;
 import com.edge.vision.core.quality.MatchStrategy;
+import com.edge.vision.core.template.TemplateManager;
 import com.edge.vision.core.template.model.DetectedObject;
 import com.edge.vision.core.template.model.Template;
 import com.edge.vision.model.*;
 import com.edge.vision.service.CameraService;
 import com.edge.vision.service.DataManager;
-import com.edge.vision.core.template.TemplateManager;
 import com.edge.vision.service.QualityStandardService;
 import com.edge.vision.util.ObjectDetectionUtil;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -37,9 +36,6 @@ import org.springframework.web.bind.annotation.*;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.awt.image.DataBufferByte;
-import java.io.File;
-import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.*;
@@ -73,10 +69,6 @@ public class InspectController {
 
     @Autowired(required = false)
     private ObjectDetectionUtil objectDetectionUtil;
-
-
-    @Value("${template.path:templates}")
-    private String templatePath;
 
     @Value("${upload.path:uploads}")
     private String uploadPath;
@@ -258,10 +250,10 @@ public class InspectController {
             }
             stitchedMat.release();
 
-            PreCheckData preCheckData = new PreCheckData();
-            preCheckData.setStitchedImage(stitchedImageBase64);
-            preCheckData.setTimestamp(LocalDateTime.now());
-            preCheckStore.put(requestId, preCheckData);
+//            PreCheckData preCheckData = new PreCheckData();
+//            preCheckData.setStitchedImage(stitchedImageBase64);
+//            preCheckData.setTimestamp(LocalDateTime.now());
+//            preCheckStore.put(requestId, preCheckData);
 
             PreCheckResponse preCheckResponse = new PreCheckResponse();
             preCheckResponse.setRequestId(requestId);
@@ -394,7 +386,7 @@ public class InspectController {
         Map<String, Object> response = new HashMap<>();
 
         try {
-            if (request.getRequestId() == null || request.getConfirmedPartName() == null || request.getBatchId() == null) {
+            if (request.getConfirmedPartName() == null) {
                 response.put("status", "error");
                 response.put("message", "Missing required fields");
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
@@ -405,23 +397,23 @@ public class InspectController {
                 response.put("message", "Detail inference engine not available.");
                 return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(response);
             }
-
-            PreCheckData preCheckData = preCheckStore.remove(request.getRequestId());
-            if (preCheckData == null) {
+            String stitchedImageBase64 = cameraService.getStitchedImageBase64();
+            if (stitchedImageBase64 == null) {
                 response.put("status", "error");
-                response.put("message", "Invalid request ID or request expired");
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+                response.put("message", "Failed to capture stitched image.");
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
             }
-
             // 执行检测
             long decodeStart = System.currentTimeMillis();
-            Mat stitchedMat = base64ToMat(preCheckData.getStitchedImage());
+            Mat stitchedMat = base64ToMat(stitchedImageBase64);
             long decodeTime = System.currentTimeMillis() - decodeStart;
             logger.info("Base64 decode time: {} ms, Image size: {}x{}", decodeTime, stitchedMat.width(), stitchedMat.height());
 
             long inferenceStart = System.currentTimeMillis();
             List<Detection> detailDetections;
             QualityStandardService.QualityEvaluationResult evaluationResult = null;  // 提前声明
+            int actualCropWidth = 0;  // 实际裁剪宽度（用于坐标归一化）
+            int actualCropHeight = 0; // 实际裁剪高度
 
             // 检查是否使用 croparea 模式
             MatchStrategy strategy = config.getInspection().getMatchStrategy();
@@ -430,11 +422,6 @@ public class InspectController {
                     detailInferenceEngine != null) {
 
                 logger.info("Using CROP_AREA match strategy");
-
-                // 1. 保存原图为临时文件
-                String tempImagePath = Paths.get(uploadPath, "temp", "inspect_" + request.getRequestId() + ".jpg").toString();
-                Files.createDirectories(Paths.get(tempImagePath).getParent());
-                Imgcodecs.imwrite(tempImagePath, stitchedMat);
 
                 // 2. 加载 croparea 模板（从模板系统获取 objectTemplatePath）
                 Template template = templateManager.load(request.getConfirmedPartName());
@@ -455,7 +442,7 @@ public class InspectController {
 
                 // 3. 使用 ObjectDetectionUtil 检测工件位置
                 ObjectDetectionUtil.DetectionResult detectionResult =
-                        objectDetectionUtil.detectWorkpiece(tempImagePath, objectTemplatePath);
+                        objectDetectionUtil.detectWorkpiece(stitchedMat.clone(), objectTemplatePath);
 
                 if (!detectionResult.success) {
                     response.put("status", "error");
@@ -465,11 +452,17 @@ public class InspectController {
                 }
 
                 // 4. 根据检测到的位置裁剪图像
-                Mat croppedMat = objectDetectionUtil.cropImageByCorners(tempImagePath, detectionResult.corners, null, 10);
+                Mat croppedMat = objectDetectionUtil.cropImageByCorners(stitchedMat, detectionResult.corners, null, 10);
+                logger.info("Cropped image size: {}x{}", croppedMat.cols(), croppedMat.rows());
+
                 // 5. 使用 detailInferenceEngine 识别裁剪的图像
                 detailDetections = detailInferenceEngine.predict(croppedMat);
                 stitchedMat.release();
                 stitchedMat=croppedMat;
+
+                // 保存裁剪尺寸用于坐标归一化
+                actualCropWidth = croppedMat.cols();
+                actualCropHeight = croppedMat.rows();
             } else {
                 // 原有逻辑：直接对整图进行检测
                 detailDetections = detailInferenceEngine.predict(stitchedMat);
@@ -480,9 +473,9 @@ public class InspectController {
 
             List<DetectedObject> detectedObjects = convertDetectionsToDetectedObjects(detailDetections);
             try {
-                // 直接调用 evaluateWithTemplate，内部会根据 match-strategy 选择对应 Matcher
+                // 直接调用 evaluateWithTemplate，传递实际裁剪尺寸用于坐标归一化
                 evaluationResult = qualityStandardService.evaluateWithTemplate(
-                        request.getConfirmedPartName(), detectedObjects);
+                        request.getConfirmedPartName(), detectedObjects, actualCropWidth, actualCropHeight);
                 // 如果返回了模板比对结果，说明使用了新模式
                 if (evaluationResult.getTemplateComparisons() != null &&
                         !evaluationResult.getTemplateComparisons().isEmpty()) {
@@ -859,6 +852,17 @@ public class InspectController {
                 double centerY = (bbox[1] + bbox[3]) / 2.0;
                 double width = bbox[2] - bbox[0];
                 double height = bbox[3] - bbox[1];
+
+                logger.info("DETECTION: label={}, bbox=[{},{},{}], center=({},{}), size={}x{}",
+                    detection.getLabel(),
+                    String.format("%.2f", bbox[0]),
+                    String.format("%.2f", bbox[1]),
+                    String.format("%.2f", bbox[2]),
+                    String.format("%.2f", bbox[3]),
+                    String.format("%.1f", centerX),
+                    String.format("%.1f", centerY),
+                    String.format("%.1f", width),
+                    String.format("%.1f", height));
 
                 obj.setCenter(new com.edge.vision.core.template.model.Point(centerX, centerY));
                 obj.setWidth(width);

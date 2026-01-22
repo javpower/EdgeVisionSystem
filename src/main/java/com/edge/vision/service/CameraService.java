@@ -300,7 +300,8 @@ public class CameraService {
                 stitched=frames.get(0);
             }
             MatOfByte mob = new MatOfByte();
-            Imgcodecs.imencode(".jpg", stitched, mob);
+            int[] params = new int[]{Imgcodecs.IMWRITE_JPEG_QUALITY, 100};
+            Imgcodecs.imencode(".jpg", stitched, mob,new MatOfInt(params));
             byte[] bytes = mob.toArray();
             mob.release();
             stitched.release();
