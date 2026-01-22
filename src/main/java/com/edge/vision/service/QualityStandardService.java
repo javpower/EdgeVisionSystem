@@ -97,7 +97,7 @@ public class QualityStandardService {
                                                                    List<InspectionRequest.DetectedObject> requestDetections) {
         // 转换 DTO 为模型对象后调用主方法
         List<DetectedObject> modelObjects = convertDtoToModel(requestDetections);
-        return evaluateWithTemplate(partType, modelObjects, null);
+        return evaluateWithTemplate(partType, modelObjects);
     }
 
     /**
