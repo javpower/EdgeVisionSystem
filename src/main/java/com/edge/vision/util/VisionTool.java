@@ -4,7 +4,6 @@ import com.edge.vision.core.quality.FeatureComparison;
 import com.edge.vision.core.template.model.Point;
 import com.edge.vision.core.template.model.*;
 import com.edge.vision.service.QualityStandardService;
-import com.google.gson.*;
 import org.opencv.calib3d.Calib3d;
 import org.opencv.core.*;
 import org.opencv.features2d.DescriptorMatcher;
@@ -12,15 +11,11 @@ import org.opencv.features2d.Feature2D;
 import org.opencv.features2d.SIFT;
 import org.opencv.imgcodecs.Imgcodecs;
 
-import java.io.File;
-import java.io.FileReader;
 import java.io.IOException;
-import java.lang.reflect.Type;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
@@ -30,32 +25,6 @@ import java.util.UUID;
  * 适配模型: BoundingBox(min/max), DetectedObject, Template
  */
 public class VisionTool {
-
-    static {
-        try {
-            // 加载 OpenCV 库 (OpenPnP 或 本地库)
-            nu.pattern.OpenCV.loadShared();
-        } catch (Throwable e) {
-            System.err.println("OpenCV Load Failed: " + e.getMessage());
-        }
-    }
-
-    // 配置 Gson: 增加 LocalDateTime 适配器防止序列化报错
-    private static final Gson gson = new GsonBuilder()
-            .setPrettyPrinting()
-            .registerTypeAdapter(LocalDateTime.class, new JsonSerializer<LocalDateTime>() {
-                @Override
-                public JsonElement serialize(LocalDateTime src, Type typeOfSrc, JsonSerializationContext context) {
-                    return new JsonPrimitive(src.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
-                }
-            })
-            .registerTypeAdapter(LocalDateTime.class, new JsonDeserializer<LocalDateTime>() {
-                @Override
-                public LocalDateTime deserialize(JsonElement json, Type typeOfT, JsonDeserializationContext context) throws JsonParseException {
-                    return LocalDateTime.parse(json.getAsString(), DateTimeFormatter.ISO_LOCAL_DATE_TIME);
-                }
-            })
-            .create();
 
     // 算法参数
     private static final double RANSAC_THRESH = 5.0;
@@ -165,23 +134,16 @@ public class VisionTool {
     /**
      * 基于模板计算新图中的坐标 (SIFT + Homography)
      *
-     * @param templateJsonPath 模板 JSON 文件路径
      * @param base64Scene      新场景图 Base64
      * @return 预测的特征列表 (DetectedObject格式)
      */
-    public static List<DetectedObject> calculateTemplateCoordinates(String templateJsonPath, String base64Scene) {
+    public static List<DetectedObject> calculateTemplateCoordinates(Template template, String base64Scene) {
         Mat imgTpl = null;
         Mat imgScene = null;
         Mat hMatrix = null;
 
         try {
-            // 1. 加载模板
-            File jsonFile = new File(templateJsonPath);
-            if (!jsonFile.exists()) throw new IllegalArgumentException("Template JSON not found: " + templateJsonPath);
-
-            Template template = gson.fromJson(new FileReader(jsonFile), Template.class);
-            String tplImgPath = new File(jsonFile.getParent(), template.getImagePath()).getAbsolutePath();
-
+            String tplImgPath = template.getImagePath();
             // 2. 加载图片 (灰度图用于计算)
             imgTpl = Imgcodecs.imread(tplImgPath, Imgcodecs.IMREAD_GRAYSCALE);
             imgScene = base64ToMat(base64Scene, Imgcodecs.IMREAD_GRAYSCALE);
@@ -297,12 +259,7 @@ public class VisionTool {
      */
     public static List<QualityStandardService.QualityEvaluationResult.TemplateComparison> compareResults(
             List<DetectedObject> templateObjs,
-            List<DetectedObject> yoloObjs) {
-
-        // 默认容差，实际项目中可从 Template 对象或 Feature 的 Tolerance 字段获取
-        double defaultToleranceX = 10.0;
-        double defaultToleranceY = 10.0;
-
+            List<DetectedObject> yoloObjs,double defaultToleranceX,double defaultToleranceY) {
         List<QualityStandardService.QualityEvaluationResult.TemplateComparison> results = new ArrayList<>();
         boolean[] yoloMatched = new boolean[yoloObjs.size()];
 
@@ -364,6 +321,7 @@ public class VisionTool {
             } else {
                 // 漏检 (Missing)
                 comp.setStatus(FeatureComparison.ComparisonStatus.MISSING);
+                comp.setDetectedPosition(tObj.getCenter());
                 comp.setWithinTolerance(false);
             }
             results.add(comp);

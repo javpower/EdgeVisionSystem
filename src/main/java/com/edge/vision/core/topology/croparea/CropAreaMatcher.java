@@ -43,7 +43,7 @@ public class CropAreaMatcher {
         logger.info("Template: {}", template.getTemplateId());
         logger.info("Detected objects: {}", detectedObjects.size());
 
-        List<QualityStandardService.QualityEvaluationResult.TemplateComparison> comp = VisionTool.compareResults(templateObjects, detectedObjects);
+        List<QualityStandardService.QualityEvaluationResult.TemplateComparison> comp = VisionTool.compareResults(templateObjects, detectedObjects,template.getToleranceX(),template.getToleranceY());
         for (QualityStandardService.QualityEvaluationResult.TemplateComparison templateComparison : comp) {
             FeatureComparison featureComparison=new FeatureComparison();
             BeanUtils.copyProperties(templateComparison,featureComparison);

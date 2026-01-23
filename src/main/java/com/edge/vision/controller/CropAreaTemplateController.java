@@ -8,7 +8,6 @@ import com.edge.vision.dto.CropAreaPreviewResponse;
 import com.edge.vision.dto.CropAreaTemplateRequest;
 import com.edge.vision.model.Detection;
 import com.edge.vision.service.CameraService;
-import com.edge.vision.util.ObjectDetectionUtil;
 import com.edge.vision.util.VisionTool;
 import org.opencv.core.Mat;
 import org.opencv.core.MatOfByte;
@@ -50,9 +49,6 @@ public class CropAreaTemplateController {
     private CameraService cameraService;
 
     @Autowired
-    private ObjectDetectionUtil objectDetectionUtil;
-
-    @Autowired
     private TemplateManager templateManager;
 
     @Value("${upload.path:uploads}")
@@ -70,10 +66,11 @@ public class CropAreaTemplateController {
         if (config.getModels().getDetailModel() != null && !config.getModels().getDetailModel().isEmpty()) {
             try {
                 detailInferenceEngine = new YOLOInferenceEngine(
-                    config.getModels().getDetailModel(),
-                    config.getModels().getConfThres(),
-                    config.getModels().getIouThres(),
-                    config.getModels().getDevice()
+                        config.getModels().getDetailModel(),
+                        config.getModels().getConfThres(),
+                        config.getModels().getIouThres(),
+                        config.getModels().getDevice(),
+                        1280, 1280
                 );
                 logger.info("Detail inference engine initialized successfully");
             } catch (Exception e) {
@@ -172,19 +169,18 @@ public class CropAreaTemplateController {
             }
 
             // 截图
-            Mat cropped = objectDetectionUtil.cropImageByCorners(
-                originalImagePath, corners, null, 0);
+            Mat fullImage = Imgcodecs.imread(originalImagePath);
 
             // 调用 YOLOInferenceEngine 识别
-            List<com.edge.vision.model.Detection> detections = detailInferenceEngine.predict(cropped);
+            List<com.edge.vision.model.Detection> detections = detailInferenceEngine.predict(fullImage);
 
             // 在图片上绘制检测框
-            Mat resultMat = drawDetections(cropped.clone(), detections);
+            Mat resultMat = drawDetections(fullImage.clone(), detections);
 
             // 转换为 base64
             String resultImageBase64 = matToBase64(resultMat);
             resultMat.release();
-            cropped.release();
+            fullImage.release();
 
             // 转换 Detection 为 FeatureInfo
             List<CropAreaPreviewResponse.FeatureInfo> features = new ArrayList<>();
@@ -213,8 +209,8 @@ public class CropAreaTemplateController {
             return ResponseEntity.ok(CropAreaPreviewResponse.success(
                 "data:image/jpeg;base64," + resultImageBase64,
                 features,
-                cropped.cols(),
-                cropped.rows()
+                    fullImage.cols(),
+                    fullImage.rows()
             ));
 
         } catch (Exception e) {
@@ -256,6 +252,8 @@ public class CropAreaTemplateController {
             template.setMetadata(metadata);
             // 关联工件类型
             template.setPartType(request.getTemplateId());
+            template.setToleranceX(request.getToleranceX());
+            template.setToleranceY(request.getToleranceY());
             // 使用 TemplateManager 保存模板
             templateManager.save(template);
             templateManager.setCurrentTemplate(template);

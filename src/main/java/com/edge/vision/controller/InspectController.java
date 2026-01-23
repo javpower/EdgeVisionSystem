@@ -194,8 +194,14 @@ public class InspectController {
                 response.put("message", "Cameras are not running. Please start cameras first.");
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
             }
-
-            String stitchedImageBase64 = cameraService.getStitchedImageBase64();
+            String stitchedImageBase64 = null;
+            // 最多尝试 2 次
+            for (int i = 0; i < 2; i++) {
+                stitchedImageBase64 = cameraService.getStitchedImageBase64();
+                if (stitchedImageBase64 != null) {
+                    break;          // 拿到就退出
+                }
+            }
             if (stitchedImageBase64 == null) {
                 response.put("status", "error");
                 response.put("message", "Failed to capture stitched image.");
@@ -413,9 +419,7 @@ public class InspectController {
             List<DetectedObject> templateObjects=null;
             if (strategy == MatchStrategy.CROP_AREA &&
                     detailInferenceEngine != null) {
-
                 logger.info("Using CROP_AREA match strategy");
-
                 // 2. 加载 croparea 模板（从模板系统获取 objectTemplatePath）
                 Template template = templateManager.load(request.getConfirmedPartName());
                 if (template == null || template.getMetadata() == null) {
@@ -424,25 +428,16 @@ public class InspectController {
                     stitchedMat.release();
                     return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
                 }
-                String objectTemplatePath = (String) template.getMetadata().get("objectTemplatePath");
-                if (objectTemplatePath == null) {
-                    response.put("status", "error");
-                    response.put("message", "objectTemplatePath not found in template metadata");
-                    stitchedMat.release();
-                    return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
-                }
                 // 3. 使用 ObjectDetectionUtil 检测工件位置
-                templateObjects = VisionTool.calculateTemplateCoordinates(objectTemplatePath, stitchedImageBase64);
+                templateObjects = VisionTool.calculateTemplateCoordinates(template, stitchedImageBase64);
                 if (!(templateObjects.size()>0)) {
                     response.put("status", "error");
                     response.put("message", "工件检测失败");
                     stitchedMat.release();
                     return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
                 }
-
                 // 5. 使用 detailInferenceEngine 识别裁剪的图像
                 detailDetections = detailInferenceEngine.predict(stitchedMat);
-                stitchedMat.release();
             } else {
                 // 原有逻辑：直接对整图进行检测
                 detailDetections = detailInferenceEngine.predict(stitchedMat);
