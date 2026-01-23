@@ -1,5 +1,6 @@
 package com.edge.vision.service;
 
+import com.edge.vision.config.YamlConfig;
 import com.edge.vision.core.quality.FeatureComparison;
 import com.edge.vision.core.quality.InspectionResult;
 import com.edge.vision.core.quality.MatchStrategy;
@@ -8,7 +9,6 @@ import com.edge.vision.core.template.TemplateManager;
 import com.edge.vision.core.template.model.DetectedObject;
 import com.edge.vision.core.template.model.Point;
 import com.edge.vision.core.template.model.Template;
-import com.edge.vision.config.YamlConfig;
 import com.edge.vision.dto.InspectionRequest;
 import com.edge.vision.model.Detection;
 import org.slf4j.Logger;
@@ -60,7 +60,7 @@ public class QualityStandardService {
      */
     public QualityEvaluationResult evaluateWithTemplate(String partType,
                                                          List<DetectedObject> detectedObjects) {
-        return evaluateWithTemplate(partType, detectedObjects, 0, 0);
+        return evaluateWithTemplate(partType, detectedObjects,null);
     }
 
     /**
@@ -68,18 +68,12 @@ public class QualityStandardService {
      *
      * @param partType         工件类型
      * @param detectedObjects  检测到的对象列表
-     * @param actualCropWidth  实际检测时的裁剪宽度
-     * @param actualCropHeight 实际检测时的裁剪高度
+     * @param templateObjects  模板对象列表（转换后的）Crop 模式才有效
      * @return 质检评估结果
      */
     public QualityEvaluationResult evaluateWithTemplate(String partType,
                                                          List<DetectedObject> detectedObjects,
-                                                         int actualCropWidth,
-                                                         int actualCropHeight) {
-        logger.info("Evaluating with template matching for part type: {}", partType);
-        if (actualCropWidth > 0 && actualCropHeight > 0) {
-            logger.info("Actual crop dimensions: {}x{}", actualCropWidth, actualCropHeight);
-        }
+                                                         List<DetectedObject> templateObjects) {
 
         // 检查模板系统是否可用
         if (templateManager == null || qualityInspector == null) {
@@ -105,7 +99,7 @@ public class QualityStandardService {
 
             // 使用指定策略进行匹配
             InspectionResult inspectionResult = qualityInspector.inspect(
-                template, detectedObjects, strategy, actualCropWidth, actualCropHeight);
+                template, detectedObjects, strategy, templateObjects);
             return convertToQualityEvaluationResult(partType, inspectionResult);
 
         } catch (Exception e) {

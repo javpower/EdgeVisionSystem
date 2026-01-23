@@ -10,7 +10,7 @@ import com.edge.vision.model.*;
 import com.edge.vision.service.CameraService;
 import com.edge.vision.service.DataManager;
 import com.edge.vision.service.QualityStandardService;
-import com.edge.vision.util.ObjectDetectionUtil;
+import com.edge.vision.util.VisionTool;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -66,10 +66,6 @@ public class InspectController {
 
     @Autowired(required = false)
     private TemplateManager templateManager;
-
-    @Autowired(required = false)
-    private ObjectDetectionUtil objectDetectionUtil;
-
     @Value("${upload.path:uploads}")
     private String uploadPath;
 
@@ -412,13 +408,10 @@ public class InspectController {
             long inferenceStart = System.currentTimeMillis();
             List<Detection> detailDetections;
             QualityStandardService.QualityEvaluationResult evaluationResult = null;  // 提前声明
-            int actualCropWidth = 0;  // 实际裁剪宽度（用于坐标归一化）
-            int actualCropHeight = 0; // 实际裁剪高度
-
             // 检查是否使用 croparea 模式
             MatchStrategy strategy = config.getInspection().getMatchStrategy();
+            List<DetectedObject> templateObjects=null;
             if (strategy == MatchStrategy.CROP_AREA &&
-                    objectDetectionUtil != null &&
                     detailInferenceEngine != null) {
 
                 logger.info("Using CROP_AREA match strategy");
@@ -431,7 +424,6 @@ public class InspectController {
                     stitchedMat.release();
                     return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
                 }
-
                 String objectTemplatePath = (String) template.getMetadata().get("objectTemplatePath");
                 if (objectTemplatePath == null) {
                     response.put("status", "error");
@@ -439,30 +431,18 @@ public class InspectController {
                     stitchedMat.release();
                     return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
                 }
-
                 // 3. 使用 ObjectDetectionUtil 检测工件位置
-                ObjectDetectionUtil.DetectionResult detectionResult =
-                        objectDetectionUtil.detectWorkpiece(stitchedMat.clone(), objectTemplatePath);
-
-                if (!detectionResult.success) {
+                templateObjects = VisionTool.calculateTemplateCoordinates(objectTemplatePath, stitchedImageBase64);
+                if (!(templateObjects.size()>0)) {
                     response.put("status", "error");
-                    response.put("message", "工件检测失败: " + detectionResult.message);
+                    response.put("message", "工件检测失败");
                     stitchedMat.release();
                     return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
                 }
 
-                // 4. 根据检测到的位置裁剪图像
-                Mat croppedMat = objectDetectionUtil.cropImageByCorners(stitchedMat, detectionResult.corners, null, 0);
-                logger.info("Cropped image size: {}x{}", croppedMat.cols(), croppedMat.rows());
-
                 // 5. 使用 detailInferenceEngine 识别裁剪的图像
-                detailDetections = detailInferenceEngine.predict(croppedMat);
+                detailDetections = detailInferenceEngine.predict(stitchedMat);
                 stitchedMat.release();
-                stitchedMat=croppedMat;
-
-                // 保存裁剪尺寸用于坐标归一化
-                actualCropWidth = croppedMat.cols();
-                actualCropHeight = croppedMat.rows();
             } else {
                 // 原有逻辑：直接对整图进行检测
                 detailDetections = detailInferenceEngine.predict(stitchedMat);
@@ -475,7 +455,7 @@ public class InspectController {
             try {
                 // 直接调用 evaluateWithTemplate，传递实际裁剪尺寸用于坐标归一化
                 evaluationResult = qualityStandardService.evaluateWithTemplate(
-                        request.getConfirmedPartName(), detectedObjects, actualCropWidth, actualCropHeight);
+                        request.getConfirmedPartName(), detectedObjects, templateObjects);
                 // 如果返回了模板比对结果，说明使用了新模式
                 if (evaluationResult.getTemplateComparisons() != null &&
                         !evaluationResult.getTemplateComparisons().isEmpty()) {

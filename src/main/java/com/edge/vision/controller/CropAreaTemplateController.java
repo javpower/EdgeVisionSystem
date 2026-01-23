@@ -2,12 +2,14 @@ package com.edge.vision.controller;
 
 import com.edge.vision.core.infer.YOLOInferenceEngine;
 import com.edge.vision.core.template.TemplateManager;
+import com.edge.vision.core.template.model.DetectedObject;
 import com.edge.vision.core.template.model.Template;
-import com.edge.vision.core.template.model.TemplateFeature;
 import com.edge.vision.dto.CropAreaPreviewResponse;
 import com.edge.vision.dto.CropAreaTemplateRequest;
+import com.edge.vision.model.Detection;
 import com.edge.vision.service.CameraService;
 import com.edge.vision.util.ObjectDetectionUtil;
+import com.edge.vision.util.VisionTool;
 import org.opencv.core.Mat;
 import org.opencv.core.MatOfByte;
 import org.opencv.core.MatOfInt;
@@ -228,93 +230,37 @@ public class CropAreaTemplateController {
     public ResponseEntity<?> save(@RequestBody CropAreaTemplateRequest request) {
         try {
             logger.info("保存模板: templateId={}", request.getTemplateId());
-
-            // 获取原始图片路径（使用 {partType}_temp.jpg）
-            String originalImagePath = Paths.get(uploadPath, "crop-area-temp", request.getTemplateId() + "_temp.jpg").toString();
-
-            // 转换 corners
-            double[][] corners = new double[4][2];
+            // 转换 cropRect
             List<Double> cornersList = request.getCorners();
-            for (int i = 0; i < 4; i++) {
-                corners[i][0] = cornersList.get(i * 2);
-                corners[i][1] = cornersList.get(i * 2 + 1);
-            }
-
-            // 重新截图（不带标注）
-            Mat cropped = objectDetectionUtil.cropImageByCorners(
-                originalImagePath, corners, null, 0);
-
-            // 保存模板截图到 templates/images/ 目录（使用最高质量）
-            Path imagesDir = Paths.get("templates", "images");
-            Files.createDirectories(imagesDir);
-            String imageFileName = request.getTemplateId() + ".jpg";
-            String templateImagePath = imagesDir.resolve(imageFileName).toString();
-            MatOfByte mob = new MatOfByte();
-            int[] params = new int[]{Imgcodecs.IMWRITE_JPEG_QUALITY, 100};
-            Imgcodecs.imencode(".jpg", cropped, mob, new MatOfInt(params));
-            byte[] outBytes = mob.toArray();
-            mob.release();
-            try {
-                java.nio.file.Files.write(java.nio.file.Paths.get(templateImagePath), outBytes);
-            } catch (Exception e) {
-                logger.warn("高质量保存失败，使用默认方式: {}", e.getMessage());
-                Imgcodecs.imwrite(templateImagePath, cropped);
-            }
-
+            int x = (int) Math.min(Math.min(cornersList.get(0), cornersList.get(2)),
+                    Math.min(cornersList.get(4), cornersList.get(6)));
+            int y = (int) Math.min(Math.min(cornersList.get(1), cornersList.get(3)),
+                    Math.min(cornersList.get(5), cornersList.get(7)));
+            int maxX = (int) Math.max(Math.max(cornersList.get(0), cornersList.get(2)),
+                    Math.max(cornersList.get(4), cornersList.get(6)));
+            int maxY = (int) Math.max(Math.max(cornersList.get(1), cornersList.get(3)),
+                    Math.max(cornersList.get(5), cornersList.get(7)));
+            int[] cropRect = new int[]{x, y, maxX - x, maxY - y};
+            String stitchedImageBase64 = cameraService.getStitchedImageBase64();
+            Mat base64ToMat = base64ToMat(stitchedImageBase64);
             // 调用 YOLOInferenceEngine 识别
-            List<com.edge.vision.model.Detection> detections = detailInferenceEngine.predict(cropped);
-
-            // 转换 Detection 为 TemplateFeature
-            List<TemplateFeature> features = new ArrayList<>();
-            for (int i = 0; i < detections.size(); i++) {
-                com.edge.vision.model.Detection det = detections.get(i);
-
-                // 从 bbox 计算中心点和边界框
-                float[] bbox = det.getBbox();
-                double centerX = (bbox[0] + bbox[2]) / 2.0;
-                double centerY = (bbox[1] + bbox[3]) / 2.0;
-
-                TemplateFeature feature = new TemplateFeature(
-                    "feature_" + i,
-                    det.getLabel(),
-                    new com.edge.vision.core.template.model.Point(centerX, centerY),
-                    det.getClassId()
-                );
-                // 保存边界框信息（用于 IoU 匹配）
-                feature.setBbox(TemplateFeature.BoundingBox.fromYolo(bbox));
-                feature.setTolerance(new TemplateFeature.Tolerance(
-                    request.getToleranceX(), request.getToleranceY()));
-
-                features.add(feature);
-            }
-
-            // 创建 Template，将裁剪区域信息存入 metadata
-            Template template = new Template();
-            template.setTemplateId(request.getTemplateId());
-            template.setImagePath("templates/images/" + imageFileName);  // 相对路径
-            template.setFeatures(features);
-            // 设置图像尺寸
-            template.setImageSize(new com.edge.vision.core.template.model.ImageSize(cropped.cols(), cropped.rows()));
-
-
+            List<com.edge.vision.model.Detection> detections = detailInferenceEngine.predict(base64ToMat);
+            List<DetectedObject> detectedObjects = convertDetectionsToDetectedObjects(detections);
+            Template template = VisionTool.createTemplate(stitchedImageBase64, cropRect, detectedObjects, request.getTemplateId());
             // 将裁剪区域信息存入 metadata
             java.util.Map<String, Object> metadata = new java.util.HashMap<>();
-            metadata.put("cropWidth", cropped.cols());
-            metadata.put("cropHeight", cropped.rows());
+            metadata.put("cropWidth", base64ToMat.cols());
+            metadata.put("cropHeight", base64ToMat.rows());
             metadata.put("objectTemplatePath", template.getImagePath());
             metadata.put("matchStrategy", "CROP_AREA");
             template.setMetadata(metadata);
             // 关联工件类型
             template.setPartType(request.getTemplateId());
-
             // 使用 TemplateManager 保存模板
             templateManager.save(template);
             templateManager.setCurrentTemplate(template);
-
-            cropped.release();
-
+            base64ToMat.release();
             logger.info("模板保存成功: {}", template);
-
             return ResponseEntity.ok(new Response(true, "保存成功", template));
 
         } catch (Exception e) {
@@ -415,5 +361,45 @@ public class CropAreaTemplateController {
 
         public String getImageUrl() { return imageUrl; }
         public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
+    }
+    private Mat base64ToMat(String base64) {
+        byte[] bytes = Base64.getDecoder().decode(base64);
+        return Imgcodecs.imdecode(new MatOfByte(bytes), Imgcodecs.IMREAD_COLOR);
+    }
+    private List<DetectedObject> convertDetectionsToDetectedObjects(List<Detection> detections) {
+        List<DetectedObject> result = new ArrayList<>();
+        for (Detection detection : detections) {
+            DetectedObject obj = new DetectedObject();
+            obj.setClassName(detection.getLabel());
+            obj.setClassId(detection.getClassId());
+            obj.setConfidence(detection.getConfidence());
+
+            // 从 bbox 计算 center 和 width/height
+            float[] bbox = detection.getBbox();
+            if (bbox != null && bbox.length >= 4) {
+                double centerX = (bbox[0] + bbox[2]) / 2.0;
+                double centerY = (bbox[1] + bbox[3]) / 2.0;
+                double width = bbox[2] - bbox[0];
+                double height = bbox[3] - bbox[1];
+
+                logger.info("DETECTION: label={}, bbox=[{},{},{}], center=({},{}), size={}x{}",
+                        detection.getLabel(),
+                        String.format("%.2f", bbox[0]),
+                        String.format("%.2f", bbox[1]),
+                        String.format("%.2f", bbox[2]),
+                        String.format("%.2f", bbox[3]),
+                        String.format("%.1f", centerX),
+                        String.format("%.1f", centerY),
+                        String.format("%.1f", width),
+                        String.format("%.1f", height));
+
+                obj.setCenter(new com.edge.vision.core.template.model.Point(centerX, centerY));
+                obj.setWidth(width);
+                obj.setHeight(height);
+            }
+
+            result.add(obj);
+        }
+        return result;
     }
 }
