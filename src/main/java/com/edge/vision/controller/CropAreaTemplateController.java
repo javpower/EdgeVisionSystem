@@ -60,6 +60,8 @@ public class CropAreaTemplateController {
     @Autowired
     private com.edge.vision.config.YamlConfig config;
 
+    private List<com.edge.vision.model.Detection> detectionsTemp;//临时
+
     @jakarta.annotation.PostConstruct
     public void init() {
         // 初始化细节检测引擎
@@ -173,7 +175,7 @@ public class CropAreaTemplateController {
 
             // 调用 YOLOInferenceEngine 识别
             List<com.edge.vision.model.Detection> detections = detailInferenceEngine.predict(fullImage);
-
+            detectionsTemp=detections;
             // 在图片上绘制检测框
             Mat resultMat = drawDetections(fullImage.clone(), detections);
 
@@ -237,10 +239,14 @@ public class CropAreaTemplateController {
             int maxY = (int) Math.max(Math.max(cornersList.get(1), cornersList.get(3)),
                     Math.max(cornersList.get(5), cornersList.get(7)));
             int[] cropRect = new int[]{x, y, maxX - x, maxY - y};
-            String stitchedImageBase64 = cameraService.getStitchedImageBase64();
-            Mat base64ToMat = base64ToMat(stitchedImageBase64);
+//            String stitchedImageBase64 = cameraService.getStitchedImageBase64();
+            String originalImagePath = Paths.get(uploadPath, "crop-area-temp", request.getTemplateId() + "_temp.jpg").toString();
+            Mat base64ToMat = Imgcodecs.imread(originalImagePath);
+            String stitchedImageBase64 = matToBase64(base64ToMat);
+            List<com.edge.vision.model.Detection> detections=detectionsTemp;
+//            Mat base64ToMat = base64ToMat(stitchedImageBase64);
             // 调用 YOLOInferenceEngine 识别
-            List<com.edge.vision.model.Detection> detections = detailInferenceEngine.predict(base64ToMat);
+//            List<com.edge.vision.model.Detection> detections = detailInferenceEngine.predict(base64ToMat);
             List<DetectedObject> detectedObjects = convertDetectionsToDetectedObjects(detections);
             Template template = VisionTool.createTemplate(stitchedImageBase64, cropRect, detectedObjects, request.getTemplateId());
             // 将裁剪区域信息存入 metadata

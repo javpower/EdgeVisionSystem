@@ -6,7 +6,7 @@ edge-vision:
 
   cameras:
     # 本地摄像头[0, 1] 或 视频流["rtsp://..."] 或视频["/Volumes/.mp4"] 或 MVS 摄像头["mvs:0"]
-    sources: ["/Volumes/macEx/训练/视频/EKS_4_hevc.mp4"] # CX756601，"/Volumes/macEx/训练/视频/EKS.mp4"
+    sources: ["/Volumes/macEx/训练/视频/CX7564001_2.mp4"] # CX756601，"/Volumes/macEx/训练/视频/EKS.mp4"
   # 图像拼接配置
   stitching:
     # 拼接策略: simple（简单拼接）, auto（自动拼接）, manual（手动拼接）

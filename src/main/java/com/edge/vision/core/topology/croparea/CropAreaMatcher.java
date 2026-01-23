@@ -61,8 +61,10 @@ public class CropAreaMatcher {
     private void setResultMessage(InspectionResult result, int totalFeatures, int matchedCount) {
         InspectionResult.InspectionSummary summary = result.getSummary();
         boolean allPassed = summary.totalFeatures == summary.passed;
-
-        if (allPassed) {
+        boolean hasExtra = summary.extra > 0;
+        boolean hasMissing = summary.missing > 0;
+        boolean hasDeviation = summary.deviation > 0;
+        if (allPassed && !hasExtra && !hasMissing && !hasDeviation) {
             result.setPassed(true);
             result.setMessage(String.format("区域匹配通过 - %d/%d 特征匹配成功",
                 matchedCount, totalFeatures));
