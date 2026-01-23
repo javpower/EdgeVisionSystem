@@ -171,7 +171,7 @@ public class CropAreaTemplateController {
 
             // 截图
             Mat cropped = objectDetectionUtil.cropImageByCorners(
-                originalImagePath, corners, null, 10);
+                originalImagePath, corners, null, 0);
 
             // 调用 YOLOInferenceEngine 识别
             List<com.edge.vision.model.Detection> detections = detailInferenceEngine.predict(cropped);
@@ -242,7 +242,7 @@ public class CropAreaTemplateController {
 
             // 重新截图（不带标注）
             Mat cropped = objectDetectionUtil.cropImageByCorners(
-                originalImagePath, corners, null, 10);
+                originalImagePath, corners, null, 0);
 
             // 保存模板截图到 templates/images/ 目录（使用最高质量）
             Path imagesDir = Paths.get("templates", "images");

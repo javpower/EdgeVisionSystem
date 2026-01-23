@@ -1,8 +1,6 @@
 package com.edge.vision.util;
 
-import org.opencv.core.Mat;
-import org.opencv.core.MatOfByte;
-import org.opencv.core.MatOfInt;
+import org.opencv.core.*;
 import org.opencv.imgcodecs.Imgcodecs;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -161,34 +159,48 @@ public class ObjectDetectionUtil {
         return cropImageByCorners(fullImage,corners,outputPath,padding);
     }
     public Mat cropImageByCorners(Mat fullImage, double[][] corners, String outputPath, int padding) {
-        // 计算边界框
-        double minX = Double.MAX_VALUE;
-        double maxX = Double.MIN_VALUE;
-        double minY = Double.MAX_VALUE;
-        double maxY = Double.MIN_VALUE;
+        // corners 顺序：[左上, 右上, 右下, 左下]
+        // 使用透视变换把倾斜的工件"摆正"
 
-        for (double[] corner : corners) {
-            minX = Math.min(minX, corner[0]);
-            maxX = Math.max(maxX, corner[0]);
-            minY = Math.min(minY, corner[1]);
-            maxY = Math.max(maxY, corner[1]);
-        }
+        // 计算目标矩形的宽度和高度
+        double widthTop = Math.sqrt(Math.pow(corners[1][0] - corners[0][0], 2) + Math.pow(corners[1][1] - corners[0][1], 2));
+        double widthBottom = Math.sqrt(Math.pow(corners[2][0] - corners[3][0], 2) + Math.pow(corners[2][1] - corners[3][1], 2));
+        double heightLeft = Math.sqrt(Math.pow(corners[3][0] - corners[0][0], 2) + Math.pow(corners[3][1] - corners[0][1], 2));
+        double heightRight = Math.sqrt(Math.pow(corners[2][0] - corners[1][0], 2) + Math.pow(corners[2][1] - corners[1][1], 2));
 
-        // 添加 padding
-        int x0 = Math.max(0, (int)(minX - padding));
-        int y0 = Math.max(0, (int)(minY - padding));
-        int x1 = Math.min(fullImage.cols(), (int)(maxX + padding) + 1);
-        int y1 = Math.min(fullImage.rows(), (int)(maxY + padding) + 1);
+        int width = (int) Math.max(widthTop, widthBottom) + padding * 2;
+        int height = (int) Math.max(heightLeft, heightRight) + padding * 2;
 
-        int width = x1 - x0;
-        int height = y1 - y0;
+        // 源点（图像中的四个角）
+        Mat srcPoints = new Mat(4, 1, CvType.CV_32FC2);
+        srcPoints.put(0, 0, corners[0][0], corners[0][1]); // 左上
+        srcPoints.put(1, 0, corners[1][0], corners[1][1]); // 右上
+        srcPoints.put(2, 0, corners[2][0], corners[2][1]); // 右下
+        srcPoints.put(3, 0, corners[3][0], corners[3][1]); // 左下
 
-        // 裁剪
-        org.opencv.core.Rect roi = new org.opencv.core.Rect(x0, y0, width, height);
-        Mat cropped = new Mat(fullImage, roi).clone();
+        // 目标点（摆正后的矩形）
+        Mat dstPoints = new Mat(4, 1, CvType.CV_32FC2);
+        dstPoints.put(0, 0, padding, padding);                          // 左上
+        dstPoints.put(1, 0, width - padding, padding);                  // 右上
+        dstPoints.put(2, 0, width - padding, height - padding);         // 右下
+        dstPoints.put(3, 0, padding, height - padding);                 // 左下
 
-        logger.info("裁剪完成: original=({},{}), crop=({},{},{}x{}), result=({}x{})",
-            fullImage.cols(), fullImage.rows(), x0, y0, width, height, cropped.cols(), cropped.rows());
+        // 计算透视变换矩阵
+        Mat perspectiveMatrix = org.opencv.calib3d.Calib3d.findHomography(
+            new MatOfPoint2f(srcPoints),
+            new MatOfPoint2f(dstPoints)
+        );
+
+        // 执行透视变换
+        Mat cropped = new Mat();
+        org.opencv.imgproc.Imgproc.warpPerspective(fullImage, cropped, perspectiveMatrix, new org.opencv.core.Size(width, height));
+
+        srcPoints.release();
+        dstPoints.release();
+        perspectiveMatrix.release();
+
+        logger.info("透视变换裁剪完成: original=({}x{}), result=({}x{})",
+            fullImage.cols(), fullImage.rows(), cropped.cols(), cropped.rows());
 
         // 保存（如果指定了输出路径）- 使用 PNG 无损格式
         if (outputPath != null && !outputPath.isEmpty()) {

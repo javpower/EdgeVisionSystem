@@ -115,10 +115,10 @@ public class QualityInspector {
                 result.setMatchStrategy(MatchStrategy.TOPOLOGY);
             }else {
                 // CROP_AREA 策略：传递实际裁剪尺寸用于坐标归一化
-//                result=cropAreaMatcher.match(template, detectedObjects, actualCropWidth, actualCropHeight);
-//                result.setMatchStrategy(MatchStrategy.CROP_AREA);
-                result = coordinateBasedMatcher.match(template, detectedObjects);
-                result.setMatchStrategy(MatchStrategy.COORDINATE);
+                result=cropAreaMatcher.match(template, detectedObjects, actualCropWidth, actualCropHeight);
+                result.setMatchStrategy(MatchStrategy.CROP_AREA);
+//                result = coordinateBasedMatcher.match(template, detectedObjects);
+//                result.setMatchStrategy(MatchStrategy.COORDINATE);
             }
 
             logger.info("Inspection completed: {}", result.getMessage());

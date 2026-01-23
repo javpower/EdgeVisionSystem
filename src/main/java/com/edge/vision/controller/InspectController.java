@@ -452,7 +452,7 @@ public class InspectController {
                 }
 
                 // 4. 根据检测到的位置裁剪图像
-                Mat croppedMat = objectDetectionUtil.cropImageByCorners(stitchedMat, detectionResult.corners, null, 10);
+                Mat croppedMat = objectDetectionUtil.cropImageByCorners(stitchedMat, detectionResult.corners, null, 0);
                 logger.info("Cropped image size: {}x{}", croppedMat.cols(), croppedMat.rows());
 
                 // 5. 使用 detailInferenceEngine 识别裁剪的图像
