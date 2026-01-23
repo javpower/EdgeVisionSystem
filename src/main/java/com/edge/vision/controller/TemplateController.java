@@ -259,7 +259,7 @@ public class TemplateController {
             ImageSize imageSize = new ImageSize(imageMat.cols(), imageMat.rows());
 
             // 8. 从检测结果构建模板
-            String templateId = partType + "_" + System.currentTimeMillis();
+            String templateId = partType;
 
             // 获取容差值（优先使用请求参数，否则使用配置默认值）
             double toleranceX = 20.0;
