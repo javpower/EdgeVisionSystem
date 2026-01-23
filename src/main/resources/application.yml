@@ -31,7 +31,7 @@ edge-vision:
 
   # 质检配置
   inspection:
-    # 匹配策略: topology（拓扑图匹配）, coordinate（坐标直接匹配，CROP_AREA
+    # 匹配策略: topology（拓扑图匹配）, coordinate（坐标直接匹配，CROP_AREA，CROSS_RATIO
     # topology: 支持旋转/平移/尺度变化，适合复杂场景
     # coordinate: 一对一关系明确，错检漏检一目了然
     match-strategy: coordinate

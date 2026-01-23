@@ -4,6 +4,7 @@ import com.edge.vision.config.YamlConfig;
 import com.edge.vision.core.template.model.DetectedObject;
 import com.edge.vision.core.template.model.Template;
 import com.edge.vision.core.topology.CoordinateBasedMatcher;
+import com.edge.vision.core.topology.CrossRatioMatcher;
 import com.edge.vision.core.topology.TopologyTemplateMatcher;
 import com.edge.vision.core.topology.croparea.CropAreaMatcher;
 import org.slf4j.Logger;
@@ -16,9 +17,11 @@ import java.util.List;
 /**
  * 质量检测器
  * <p>
- * 支持两种匹配策略：
+ * 支持四种匹配策略：
  * 1. 拓扑图匹配（topology）：基于拓扑关系（相对角度、相对距离比），使用匈牙利算法进行全局最优匹配
  * 2. 坐标直接匹配（coordinate）：每个模板特征找最近的检测点，一对一关系明确
+ * 3. 裁剪区域匹配（crop_area）：建模图和识别图在同一坐标系，直接比对
+ * 4. 射影几何指纹匹配（cross_ratio）：基于交比不变性，完全支持射影变换
  */
 @Component
 public class QualityInspector {
@@ -35,6 +38,9 @@ public class QualityInspector {
 
     @Autowired(required = false)
     private CropAreaMatcher cropAreaMatcher;
+
+    @Autowired
+    private CrossRatioMatcher crossRatioMatcher;
 
     @Autowired
     private YamlConfig yamlConfig;
@@ -113,7 +119,11 @@ public class QualityInspector {
                 // 使用拓扑图匹配（默认）
                 result = topologyTemplateMatcher.match(template, detectedObjects);
                 result.setMatchStrategy(MatchStrategy.TOPOLOGY);
-            }else {
+            } else if(strategy==MatchStrategy.CROSS_RATIO){
+                // 使用射影几何指纹匹配
+                result = crossRatioMatcher.match(template, detectedObjects);
+                result.setMatchStrategy(MatchStrategy.CROSS_RATIO);
+            } else {
                 // CROP_AREA 策略：传递实际裁剪尺寸用于坐标归一化
                 result=cropAreaMatcher.match(template, detectedObjects, actualCropWidth, actualCropHeight);
                 result.setMatchStrategy(MatchStrategy.CROP_AREA);
@@ -142,6 +152,13 @@ public class QualityInspector {
 
         // 配置拓扑匹配器
         topologyTemplateMatcher.setTreatExtraAsError(config.isTreatExtraAsError());
+
+        // 配置射影几何指纹匹配器
+        // fingerprint-tolerance 范围 0.1-1.0，直接映射为 baseTolerance
+        double fpTolerance = config.getFingerprintTolerance();
+        if (fpTolerance > 0) {
+            crossRatioMatcher.setBaseTolerance(fpTolerance);
+        }
     }
 
     /**
@@ -173,5 +190,12 @@ public class QualityInspector {
      */
     public CoordinateBasedMatcher getCoordinateBasedMatcher() {
         return coordinateBasedMatcher;
+    }
+
+    /**
+     * 获取射影几何指纹匹配器
+     */
+    public CrossRatioMatcher getCrossRatioMatcher() {
+        return crossRatioMatcher;
     }
 }

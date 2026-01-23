@@ -24,5 +24,13 @@ public enum MatchStrategy {
      * 缺点：需要先检测工件位置并裁剪
      * 适用场景：工件位置可能变化，但可以通过模板匹配定位
      */
-    CROP_AREA
+    CROP_AREA,
+
+    /**
+     * 射影几何指纹匹配（Cross-Ratio Fingerprint Matching）
+     * 优点：基于交比不变性，完全支持射影变换（平移、旋转、缩放、透视），计算量O(N)
+     * 缺点：需要画布四角可见，适用于刚体变换
+     * 适用场景：存在透视变换的场景，如倾斜视角拍摄
+     */
+    CROSS_RATIO
 }
