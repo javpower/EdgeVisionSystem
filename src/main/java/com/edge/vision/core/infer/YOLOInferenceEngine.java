@@ -6,8 +6,8 @@ import org.opencv.core.Mat;
 import org.opencv.core.Size;
 import org.opencv.imgproc.Imgproc;
 
-import java.util.*;
-import java.util.stream.Collectors;
+import java.util.ArrayList;
+import java.util.List;
 
 public class YOLOInferenceEngine extends InferEngineTemplate {
 
@@ -19,208 +19,199 @@ public class YOLOInferenceEngine extends InferEngineTemplate {
         this.confThreshold = conf;
         this.nmsThreshold = nms;
     }
-    public YOLOInferenceEngine(String modelPath, float conf, float nms, String device,int inputH,int inputW) throws OrtException {
+
+    public YOLOInferenceEngine(String modelPath, float conf, float nms, String device, int inputH, int inputW) throws OrtException {
         super(modelPath, device);
         this.confThreshold = conf;
         this.nmsThreshold = nms;
-        super.inputH=inputH;
-        super.inputW=inputW;
+        super.inputH = inputH;
+        super.inputW = inputW;
     }
 
     @Override
     protected PreProcessResult preprocess(Mat img) {
-        // === 1. Letterbox 实现 (保持长宽比缩放) ===
         int width = img.cols();
         int height = img.rows();
 
-        // 计算缩放比例
+        // 1. 计算 Letterbox 参数
         float scale = Math.min((float)inputW / width, (float)inputH / height);
-
-        // 计算新尺寸
         int newW = Math.round(width * scale);
         int newH = Math.round(height * scale);
-
-        // 计算填充 (Padding)
         float dw = (inputW - newW) / 2.0f;
         float dh = (inputH - newH) / 2.0f;
 
-        // Resize
+        // 2. Resize
         Mat resized = new Mat();
         Imgproc.resize(img, resized, new Size(newW, newH));
 
-        // CopyMakeBorder (填充灰色/黑色)
+        // 3. Padding
         Mat padded = new Mat();
         int top = Math.round(dh - 0.1f);
         int bottom = Math.round(dh + 0.1f);
         int left = Math.round(dw - 0.1f);
         int right = Math.round(dw + 0.1f);
-        org.opencv.core.Core.copyMakeBorder(resized, padded, top, bottom, left, right, org.opencv.core.Core.BORDER_CONSTANT, new org.opencv.core.Scalar(114, 114, 114));
+        org.opencv.core.Core.copyMakeBorder(resized, padded, top, bottom, left, right,
+                org.opencv.core.Core.BORDER_CONSTANT, new org.opencv.core.Scalar(114, 114, 114));
 
-        // === 2. 转换为 float[] 并在循环中归一化 (HWC -> CHW) ===
-        // 参考代码是手动循环处理的，这里保持一致
+        // 4. BGR -> RGB
+        Imgproc.cvtColor(padded, padded, Imgproc.COLOR_BGR2RGB);
+
+        // === 极致优化区域：消除 JNI 循环 ===
         int rows = padded.rows();
         int cols = padded.cols();
         int channels = padded.channels();
-        float[] pixels = new float[channels * rows * cols];
+        int area = rows * cols;
 
-        // 必须转为 RGB
-        Imgproc.cvtColor(padded, padded, Imgproc.COLOR_BGR2RGB);
+        // Step A: 一次性读取所有字节 (1次 JNI 调用)
+        byte[] srcData = new byte[rows * cols * channels];
+        padded.get(0, 0, srcData);
 
-        // 这是一个比较耗时的操作，但在 Java 中如果不使用 unsafe，这样写逻辑最清晰
-        // 也可以使用 padded.get(0,0, byteArr) 然后再循环，会快一点
-        for (int i = 0; i < rows; i++) {
-            for (int j = 0; j < cols; j++) {
-                double[] pixel = padded.get(i, j);
-                for (int k = 0; k < channels; k++) {
-                    // CHW 顺序: Planar format
-                    pixels[rows * cols * k + i * cols + j] = (float) pixel[k] / 255.0f;
-                }
-            }
+        // Step B: 准备目标数组
+        float[] pixels = new float[channels * area];
+
+        // Step C: 纯 Java 循环进行 HWC -> CHW 和 归一化
+        // 这种连续内存访问比 Mat.get(i,j) 快 10-20 倍
+        for (int i = 0; i < area; i++) {
+            // R 通道 (Planar 0)
+            pixels[i] = (srcData[i * 3] & 0xFF) / 255.0f;
+            // G 通道 (Planar 1)
+            pixels[i + area] = (srcData[i * 3 + 1] & 0xFF) / 255.0f;
+            // B 通道 (Planar 2)
+            pixels[i + 2 * area] = (srcData[i * 3 + 2] & 0xFF) / 255.0f;
         }
+
+        // 释放 Mat
+        resized.release();
+        padded.release();
 
         PreProcessResult result = new PreProcessResult();
         result.pixelData = pixels;
         result.ratio = scale;
         result.dw = dw;
         result.dh = dh;
-
-        // 释放 Mat 防止内存泄漏
-        resized.release();
-        padded.release();
-
         return result;
     }
 
     @Override
     protected List<Detection> postprocess(float[][] outputData, PreProcessResult preResult) {
-        // YOLOv8 输出是 [Channels][Anchors] -> [84][8400]
-        // 我们需要转置为 [Anchors][Channels] -> [8400][84] 方便遍历
-        float[][] transposed = transposeMatrix(outputData);
+        // outputData 结构: [Channels][Anchors] -> e.g. [84][8400]
+        // Row 0-3: x, y, w, h
+        // Row 4-83: class scores
 
-        Map<Integer, List<float[]>> class2Bbox = new HashMap<>();
+        int numClasses = outputData.length - 4; // 80
+        int numAnchors = outputData[0].length;  // 8400
 
-        for (float[] row : transposed) {
-            // row: [x, y, w, h, class0_score, class1_score, ...]
+        // 使用 float数组存储候选框，避免创建 Detection 对象，节省内存
+        // 结构: [x1, y1, x2, y2, score, classId]
+        List<float[]> candidates = new ArrayList<>();
 
-            // 找到最大类别分数
-            // 注意：YOLOv8 没有 objectness score，直接看 class scores
-            // 复制出类别分数部分 (从索引4开始)
-            float[] classScores = Arrays.copyOfRange(row, 4, row.length);
+        // === 极致优化区域：移除转置，按列遍历 ===
+        for (int i = 0; i < numAnchors; i++) {
+            // 1. 寻找最大 Class Score
+            // 只有当 maxScore > confThreshold 时，才去读取坐标
+            float maxScore = -Float.MAX_VALUE;
+            int maxClassId = -1;
 
-            int labelId = argmax(classScores);
-            float maxScore = classScores[labelId];
+            // 遍历类别分数行 (从第4行开始)
+            for (int c = 0; c < numClasses; c++) {
+                float score = outputData[4 + c][i];
+                if (score > maxScore) {
+                    maxScore = score;
+                    maxClassId = c;
+                }
+            }
 
+            // Fail-Fast: 阈值过滤
             if (maxScore < confThreshold) continue;
 
-            // 暂存 bbox [x, y, w, h, score]
-            float[] bbox = new float[]{row[0], row[1], row[2], row[3], maxScore};
+            // 2. 读取并转换坐标 (xywh -> xyxy)
+            float x = outputData[0][i];
+            float y = outputData[1][i];
+            float w = outputData[2][i];
+            float h = outputData[3][i];
 
-            // 转换中心点坐标到左上角坐标 (xywh -> xyxy)
-            xywh2xyxy(bbox);
+            float x1 = x - w * 0.5f;
+            float y1 = y - h * 0.5f;
+            float x2 = x + w * 0.5f;
+            float y2 = y + h * 0.5f;
 
-            // 基础校验
-            if (bbox[0] >= bbox[2] || bbox[1] >= bbox[3]) continue;
-
-            class2Bbox.putIfAbsent(labelId, new ArrayList<>());
-            class2Bbox.get(labelId).add(bbox);
+            candidates.add(new float[]{x1, y1, x2, y2, maxScore, (float)maxClassId});
         }
 
+        // 3. 执行优化的 NMS
+        return nms(candidates, preResult);
+    }
+
+    /**
+     * 优化的 NMS (移除 Stream，使用原生循环)
+     */
+    private List<Detection> nms(List<float[]> bboxes, PreProcessResult pre) {
         List<Detection> results = new ArrayList<>();
+        if (bboxes.isEmpty()) return results;
 
-        // 对每个类别单独做 NMS
-        for (Map.Entry<Integer, List<float[]>> entry : class2Bbox.entrySet()) {
-            int classId = entry.getKey();
-            List<float[]> bboxes = entry.getValue();
+        // 1. 按分数降序排序 (TimSort/DualPivotQuicksort)
+        bboxes.sort((a, b) -> Float.compare(b[4], a[4]));
 
-            // 执行 NMS
-            bboxes = nonMaxSuppression(bboxes, nmsThreshold);
+        int size = bboxes.size();
+        boolean[] suppressed = new boolean[size]; // 标记是否被抑制
 
-            // 还原坐标并创建 Detection 对象
-            for (float[] bbox : bboxes) {
-                // 还原坐标 (逆 Letterbox)
-                // bbox 是 [x1, y1, x2, y2, score]
-                float x1 = (bbox[0] - preResult.dw) / preResult.ratio;
-                float y1 = (bbox[1] - preResult.dh) / preResult.ratio;
-                float x2 = (bbox[2] - preResult.dw) / preResult.ratio;
-                float y2 = (bbox[3] - preResult.dh) / preResult.ratio;
+        for (int i = 0; i < size; i++) {
+            if (suppressed[i]) continue;
 
-                results.add(new Detection(
-                        getLabelName(classId),
-                        classId,
-                        new float[]{x1, y1, x2, y2},
-                        (x1 + x2) / 2,
-                        (y1 + y2) / 2,
-                        bbox[4]
-                ));
+            float[] best = bboxes.get(i);
+
+            // 2. 将符合条件的框还原到原图坐标并输出
+            // 坐标还原: (x - dw) / ratio
+            float x1 = (best[0] - pre.dw) / pre.ratio;
+            float y1 = (best[1] - pre.dh) / pre.ratio;
+            float x2 = (best[2] - pre.dw) / pre.ratio;
+            float y2 = (best[3] - pre.dh) / pre.ratio;
+
+            results.add(new Detection(
+                    getLabelName((int) best[5]),
+                    (int) best[5],
+                    new float[]{x1, y1, x2, y2},
+                    (x1 + x2) / 2,
+                    (y1 + y2) / 2,
+                    best[4]
+            ));
+
+            // 3. 抑制 IoU 过高的框
+            for (int j = i + 1; j < size; j++) {
+                if (suppressed[j]) continue;
+
+                float[] curr = bboxes.get(j);
+
+                // 优化：仅对比同类别的框 (Class-Agnostic=False)
+                // 如果需要 Class-Agnostic NMS (不分种类抑制)，注释掉下面这行
+                if ((int)best[5] != (int)curr[5]) continue;
+
+                if (computeIoU(best, curr) > nmsThreshold) {
+                    suppressed[j] = true;
+                }
             }
         }
-
         return results;
     }
 
-    // === 辅助工具方法 ===
+    /**
+     * 静态 IoU 计算，无对象创建
+     */
+    private static float computeIoU(float[] boxA, float[] boxB) {
+        float xA = Math.max(boxA[0], boxB[0]);
+        float yA = Math.max(boxA[1], boxB[1]);
+        float xB = Math.min(boxA[2], boxB[2]);
+        float yB = Math.min(boxA[3], boxB[3]);
 
-    private float[][] transposeMatrix(float[][] m) {
-        float[][] temp = new float[m[0].length][m.length];
-        for (int i = 0; i < m.length; i++)
-            for (int j = 0; j < m[0].length; j++)
-                temp[j][i] = m[i][j];
-        return temp;
-    }
+        float interW = Math.max(0, xB - xA);
+        float interH = Math.max(0, yB - yA);
+        float interArea = interW * interH;
 
-    private void xywh2xyxy(float[] bbox) {
-        float x = bbox[0];
-        float y = bbox[1];
-        float w = bbox[2];
-        float h = bbox[3];
+        if (interArea <= 0) return 0f;
 
-        bbox[0] = x - w * 0.5f;
-        bbox[1] = y - h * 0.5f;
-        bbox[2] = x + w * 0.5f;
-        bbox[3] = y + h * 0.5f;
-    }
+        float boxAArea = (boxA[2] - boxA[0]) * (boxA[3] - boxA[1]);
+        float boxBArea = (boxB[2] - boxB[0]) * (boxB[3] - boxB[1]);
 
-    private int argmax(float[] a) {
-        float max = -Float.MAX_VALUE;
-        int idx = -1;
-        for (int i = 0; i < a.length; i++) {
-            if (a[i] > max) {
-                max = a[i];
-                idx = i;
-            }
-        }
-        return idx;
-    }
-
-    private List<float[]> nonMaxSuppression(List<float[]> bboxes, float iouThres) {
-        List<float[]> bestBboxes = new ArrayList<>();
-        // 按置信度排序
-        bboxes.sort(Comparator.comparing((float[] a) -> a[4])); // 升序，后面remove最后一个
-
-        while (!bboxes.isEmpty()) {
-            float[] best = bboxes.remove(bboxes.size() - 1);
-            bestBboxes.add(best);
-
-            // 移除 IoU 过高的框
-            bboxes = bboxes.stream()
-                    .filter(a -> computeIOU(a, best) < iouThres)
-                    .collect(Collectors.toList());
-        }
-        return bestBboxes;
-    }
-
-    private float computeIOU(float[] box1, float[] box2) {
-        float area1 = (box1[2] - box1[0]) * (box1[3] - box1[1]);
-        float area2 = (box2[2] - box2[0]) * (box2[3] - box2[1]);
-
-        float left = Math.max(box1[0], box2[0]);
-        float top = Math.max(box1[1], box2[1]);
-        float right = Math.min(box1[2], box2[2]);
-        float bottom = Math.min(box1[3], box2[3]);
-
-        float interArea = Math.max(right - left, 0) * Math.max(bottom - top, 0);
-        float unionArea = area1 + area2 - interArea;
-
-        return Math.max(interArea / unionArea, 1e-8f);
+        return interArea / (boxAArea + boxBArea - interArea);
     }
 }
