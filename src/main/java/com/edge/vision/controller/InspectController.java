@@ -436,6 +436,8 @@ public class InspectController {
                     stitchedMat.release();
                     return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
                 }
+                long templateObjectsTime = System.currentTimeMillis() - inferenceStart;
+                logger.info("TemplateCoordinates time: {} ms",templateObjectsTime);
                 // 5. 使用 detailInferenceEngine 识别裁剪的图像
                 detailDetections = detailInferenceEngine.predict(stitchedMat);
             } else {
