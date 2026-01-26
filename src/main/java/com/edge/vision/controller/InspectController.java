@@ -9,6 +9,7 @@ import com.edge.vision.core.template.model.Template;
 import com.edge.vision.model.*;
 import com.edge.vision.service.CameraService;
 import com.edge.vision.service.DataManager;
+import com.edge.vision.service.InferenceEngineService;
 import com.edge.vision.service.QualityStandardService;
 import com.edge.vision.util.VisionTool;
 import io.swagger.v3.oas.annotations.Operation;
@@ -66,53 +67,15 @@ public class InspectController {
 
     @Autowired(required = false)
     private TemplateManager templateManager;
+
+    @Autowired
+    private InferenceEngineService inferenceEngineService;
+
     @Value("${upload.path:uploads}")
     private String uploadPath;
 
-    // 类型识别引擎（可选）
-    private YOLOInferenceEngine typeInferenceEngine;
-
-    // 细节检测引擎（必须）
-    private YOLOInferenceEngine detailInferenceEngine;
-
     // 临时存储预检数据
     private final Map<String, PreCheckData> preCheckStore = new ConcurrentHashMap<>();
-
-    @PostConstruct
-    public void init() {
-        // 初始化类型识别引擎（可选）
-        if (config.getModels().getTypeModel() != null && !config.getModels().getTypeModel().isEmpty()) {
-            try {
-                typeInferenceEngine = new YOLOInferenceEngine(
-                        config.getModels().getTypeModel(),
-                        config.getModels().getConfThres(),
-                        config.getModels().getIouThres(),
-                        config.getModels().getDevice()
-                );
-                logger.info("Type inference engine initialized successfully");
-            } catch (Exception e) {
-                logger.warn("Failed to initialize type inference engine: {}", e.getMessage());
-            }
-        }
-
-        // 初始化细节检测引擎（必须）
-        if (config.getModels().getDetailModel() != null && !config.getModels().getDetailModel().isEmpty()) {
-            try {
-                detailInferenceEngine = new YOLOInferenceEngine(
-                        config.getModels().getDetailModel(),
-                        config.getModels().getConfThres(),
-                        config.getModels().getIouThres(),
-                        config.getModels().getDevice(),
-                        1280, 1280
-                );
-                logger.info("Detail inference engine initialized successfully");
-            } catch (Exception e) {
-                logger.warn("Failed to initialize detail inference engine: {}", e.getMessage());
-            }
-        } else {
-            logger.warn("Detail model not configured - detection features will be disabled");
-        }
-    }
 
     /**
      * 预检接口
@@ -224,9 +187,9 @@ public class InspectController {
                 logger.debug("Actual image shape: [h={}, w={}, c={}]", imageShape[0], imageShape[1], imageShape[2]);
 
                 // 检测工件整体并获取工件类型（使用类型识别引擎）
-                if (typeInferenceEngine != null) {
+                if (inferenceEngineService.isTypeEngineAvailable()) {
                     try {
-                        List<Detection> typeDetections = typeInferenceEngine.predict(stitchedMat);
+                        List<Detection> typeDetections = inferenceEngineService.getTypeInferenceEngine().predict(stitchedMat);
                         if (!typeDetections.isEmpty()) {
                             // 取置信度最高的检测结果作为工件整体
                             Detection bestDetection = typeDetections.stream()
@@ -387,7 +350,7 @@ public class InspectController {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
             }
 
-            if (detailInferenceEngine == null) {
+            if (!inferenceEngineService.isDetailEngineAvailable()) {
                 response.put("status", "error");
                 response.put("message", "Detail inference engine not available.");
                 return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(response);
@@ -418,7 +381,7 @@ public class InspectController {
             MatchStrategy strategy = config.getInspection().getMatchStrategy();
             List<DetectedObject> templateObjects=null;
             if (strategy == MatchStrategy.CROP_AREA &&
-                    detailInferenceEngine != null) {
+                    inferenceEngineService.isDetailEngineAvailable()) {
                 logger.info("Using CROP_AREA match strategy");
                 // 2. 加载 croparea 模板（从模板系统获取 objectTemplatePath）
                 Template template = templateManager.load(request.getConfirmedPartName());
@@ -439,10 +402,10 @@ public class InspectController {
                 long templateObjectsTime = System.currentTimeMillis() - inferenceStart;
                 logger.info("TemplateCoordinates time: {} ms",templateObjectsTime);
                 // 5. 使用 detailInferenceEngine 识别裁剪的图像
-                detailDetections = detailInferenceEngine.predict(stitchedMat);
+                detailDetections = inferenceEngineService.getDetailInferenceEngine().predict(stitchedMat);
             } else {
                 // 原有逻辑：直接对整图进行检测
-                detailDetections = detailInferenceEngine.predict(stitchedMat);
+                detailDetections = inferenceEngineService.getDetailInferenceEngine().predict(stitchedMat);
             }
 
             long inferenceTime = System.currentTimeMillis() - inferenceStart;
@@ -792,8 +755,8 @@ public class InspectController {
             Map<String, Object> stats = dataManager.getStatistics();
             stats.put("cameraCount", cameraService.getCameraCount());
             stats.put("running", cameraService.isRunning());
-            stats.put("typeModelEnabled", typeInferenceEngine != null);
-            stats.put("detailModelEnabled", detailInferenceEngine != null);
+            stats.put("typeModelEnabled", inferenceEngineService.isTypeEngineAvailable());
+            stats.put("detailModelEnabled", inferenceEngineService.isDetailEngineAvailable());
 
             response.put("status", "success");
             response.put("data", stats);
@@ -1076,16 +1039,6 @@ public class InspectController {
         byte[] data = ((DataBufferByte) image.getRaster().getDataBuffer()).getData();
         mat.get(0, 0, data);
         return image;
-    }
-
-    @PreDestroy
-    public void cleanup() {
-        if (typeInferenceEngine != null) {
-            typeInferenceEngine.close();
-        }
-        if (detailInferenceEngine != null) {
-            detailInferenceEngine.close();
-        }
     }
 
     // 内部类

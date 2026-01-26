@@ -13,6 +13,7 @@ import com.edge.vision.dto.InspectionResponse;
 import com.edge.vision.dto.TemplateBuildResponse;
 import com.edge.vision.model.Detection;
 import com.edge.vision.service.CameraService;
+import com.edge.vision.service.InferenceEngineService;
 import com.edge.vision.service.QualityStandardService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -54,8 +55,8 @@ public class TemplateController {
     @Autowired
     private YamlConfig yamlConfig;
 
-    // 细节检测引擎（用于一键建模）
-    private YOLOInferenceEngine detailInferenceEngine;
+    @Autowired
+    private InferenceEngineService inferenceEngineService;
 
     /**
      * 预览识别结果（用于一键建模前确认）
@@ -74,22 +75,10 @@ public class TemplateController {
                     .body(Map.of("success", false, "message", "摄像头未启动，请先启动摄像头"));
             }
 
-            // 2. 初始化检测引擎（如果尚未初始化）
-            if (detailInferenceEngine == null) {
-                try {
-                    detailInferenceEngine = new YOLOInferenceEngine(
-                        yamlConfig.getModels().getDetailModel(),
-                        yamlConfig.getModels().getConfThres(),
-                        yamlConfig.getModels().getIouThres(),
-                        yamlConfig.getModels().getDevice(),
-                        1280, 1280
-                    );
-                    logger.info("Detail inference engine initialized for preview");
-                } catch (Exception e) {
-                    logger.error("Failed to initialize detail inference engine", e);
-                    return ResponseEntity.internalServerError()
-                        .body(Map.of("success", false, "message", "检测引擎初始化失败: " + e.getMessage()));
-                }
+            // 2. 检查检测引擎是否可用
+            if (!inferenceEngineService.isDetailEngineAvailable()) {
+                return ResponseEntity.internalServerError()
+                    .body(Map.of("success", false, "message", "检测引擎未初始化"));
             }
 
             // 3. 截取当前拼接图像
@@ -109,7 +98,7 @@ public class TemplateController {
             }
 
             // 5. 调用YOLO模型进行检测
-            List<Detection> detections = detailInferenceEngine.predict(imageMat);
+            List<Detection> detections = inferenceEngineService.getDetailInferenceEngine().predict(imageMat);
             logger.info("Detected {} objects", detections.size());
 
             // 6. 绘制检测框
@@ -181,24 +170,10 @@ public class TemplateController {
                     .body(TemplateBuildResponse.error("摄像头未启动，请先启动摄像头"));
             }
 
-            // 2. 初始化检测引擎（如果尚未初始化）
-
-            // 2.2 初始化细节检测引擎（必须，用于检测特征）
-            if (detailInferenceEngine == null) {
-                try {
-                    detailInferenceEngine = new YOLOInferenceEngine(
-                        yamlConfig.getModels().getDetailModel(),
-                        yamlConfig.getModels().getConfThres(),
-                        yamlConfig.getModels().getIouThres(),
-                        yamlConfig.getModels().getDevice(),
-                        1280, 1280
-                    );
-                    logger.info("Detail inference engine initialized for one-click build");
-                } catch (Exception e) {
-                    logger.error("Failed to initialize detail inference engine", e);
-                    return ResponseEntity.internalServerError()
-                        .body(TemplateBuildResponse.error("检测引擎初始化失败: " + e.getMessage()));
-                }
+            // 2. 检查检测引擎是否可用
+            if (!inferenceEngineService.isDetailEngineAvailable()) {
+                return ResponseEntity.internalServerError()
+                    .body(TemplateBuildResponse.error("检测引擎未初始化"));
             }
 
             // 3. 截取当前拼接图像
@@ -220,7 +195,7 @@ public class TemplateController {
             logger.info("Image size: {}x{}", imageMat.cols(), imageMat.rows());
 
             // 5. 调用YOLO模型进行检测
-            List<Detection> detections = detailInferenceEngine.predict(imageMat);
+            List<Detection> detections = inferenceEngineService.getDetailInferenceEngine().predict(imageMat);
             logger.info("Detected {} objects", detections.size());
 
             if (detections.isEmpty()) {

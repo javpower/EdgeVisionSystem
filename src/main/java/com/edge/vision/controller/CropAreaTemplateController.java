@@ -8,6 +8,7 @@ import com.edge.vision.dto.CropAreaPreviewResponse;
 import com.edge.vision.dto.CropAreaTemplateRequest;
 import com.edge.vision.model.Detection;
 import com.edge.vision.service.CameraService;
+import com.edge.vision.service.InferenceEngineService;
 import com.edge.vision.util.VisionTool;
 import org.opencv.core.Mat;
 import org.opencv.core.MatOfByte;
@@ -54,39 +55,13 @@ public class CropAreaTemplateController {
     @Value("${upload.path:uploads}")
     private String uploadPath;
 
-    // 细节检测引擎
-    private YOLOInferenceEngine detailInferenceEngine;
+    @Autowired
+    private InferenceEngineService inferenceEngineService;
 
     @Autowired
     private com.edge.vision.config.YamlConfig config;
 
     private List<com.edge.vision.model.Detection> detectionsTemp;//临时
-
-    @jakarta.annotation.PostConstruct
-    public void init() {
-        // 初始化细节检测引擎
-        if (config.getModels().getDetailModel() != null && !config.getModels().getDetailModel().isEmpty()) {
-            try {
-                detailInferenceEngine = new YOLOInferenceEngine(
-                        config.getModels().getDetailModel(),
-                        config.getModels().getConfThres(),
-                        config.getModels().getIouThres(),
-                        config.getModels().getDevice(),
-                        1280, 1280
-                );
-                logger.info("Detail inference engine initialized successfully");
-            } catch (Exception e) {
-                logger.warn("Failed to initialize detail inference engine: {}", e.getMessage());
-            }
-        }
-    }
-
-    @jakarta.annotation.PreDestroy
-    public void cleanup() {
-        if (detailInferenceEngine != null) {
-            detailInferenceEngine.close();
-        }
-    }
 
     /**
      * 第一步：调用摄像头截图，返回给前端
@@ -174,7 +149,7 @@ public class CropAreaTemplateController {
             Mat fullImage = Imgcodecs.imread(originalImagePath);
 
             // 调用 YOLOInferenceEngine 识别
-            List<com.edge.vision.model.Detection> detections = detailInferenceEngine.predict(fullImage);
+            List<com.edge.vision.model.Detection> detections = inferenceEngineService.getDetailInferenceEngine().predict(fullImage);
             detectionsTemp=detections;
             // 在图片上绘制检测框
             Mat resultMat = drawDetections(fullImage.clone(), detections);
