@@ -214,8 +214,6 @@ public class InspectController {
 
             // 类型识别逻辑 + 获取实际图像尺寸 + 检测工件整体（使用类型识别引擎）
             Mat stitchedMat = base64ToMat(stitchedImageBase64);
-            List<List<Double>> workpieceCorners = null;
-            List<Double> workpieceBbox = null;
 
             if (!stitchedMat.empty()) {
                 imageShape = new int[]{
@@ -251,11 +249,6 @@ public class InspectController {
                 }
             }
             stitchedMat.release();
-
-//            PreCheckData preCheckData = new PreCheckData();
-//            preCheckData.setStitchedImage(stitchedImageBase64);
-//            preCheckData.setTimestamp(LocalDateTime.now());
-//            preCheckStore.put(requestId, preCheckData);
 
             PreCheckResponse preCheckResponse = new PreCheckResponse();
             preCheckResponse.setRequestId(requestId);
@@ -399,10 +392,17 @@ public class InspectController {
                 response.put("message", "Detail inference engine not available.");
                 return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(response);
             }
-            String stitchedImageBase64 = cameraService.getStitchedImageBase64();
+            // 最多重试 3 次
+            String stitchedImageBase64 = null;
+            for (int i = 0; i < 3; i++) {
+                stitchedImageBase64 = cameraService.getStitchedImageBase64();
+                if (stitchedImageBase64 != null) {
+                    break;
+                }
+            }
             if (stitchedImageBase64 == null) {
                 response.put("status", "error");
-                response.put("message", "Failed to capture stitched image.");
+                response.put("message", "Failed to capture stitched image after 3 attempts.");
                 return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
             }
             // 执行检测
