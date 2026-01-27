@@ -5,6 +5,7 @@ import com.edge.vision.event.UploadEvent;
 import com.edge.vision.model.InspectionEntity;
 import com.edge.vision.repository.InspectionRepository;
 import com.google.gson.Gson;
+import jakarta.annotation.PostConstruct;
 import okhttp3.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,7 +16,6 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
-import jakarta.annotation.PostConstruct;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -136,14 +136,17 @@ public class DataManager implements ApplicationListener<UploadEvent> {
         // 构建 multipart/form-data 请求
         MultipartBody.Builder bodyBuilder = new MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
+                .addFormDataPart("id", entity.getId())
                 .addFormDataPart("device_id", config.getSystem().getDeviceId())
                 .addFormDataPart("timestamp", String.valueOf(entity.getTimestamp().toEpochSecond(java.time.ZoneOffset.UTC)))
-                .addFormDataPart("batch_id", entity.getBatchId())
                 .addFormDataPart("part_name", entity.getPartName());
         
         // 添加操作员（如果有）
         if (entity.getOperator() != null) {
             bodyBuilder.addFormDataPart("operator", entity.getOperator());
+        }
+        if(entity.getBatchId()!=null){
+            bodyBuilder.addFormDataPart("batch_id", entity.getBatchId());
         }
         
         // 添加分析结果
