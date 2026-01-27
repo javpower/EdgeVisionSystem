@@ -729,4 +729,35 @@ public class InspectionRepository {
         }
         return results;
     }
+
+    /**
+     * 查询指定日期未上传的记录
+     */
+    public List<InspectionEntity> findUnuploadedByDate(LocalDate date) {
+        if (!saveLocal) {
+            return Collections.emptyList();
+        }
+
+        Path targetFile = getRecordsFileForDate(date);
+        if (!Files.exists(targetFile)) {
+            return Collections.emptyList();
+        }
+
+        try (Stream<String> lines = Files.lines(targetFile)) {
+            return lines
+                    .filter(line -> !line.trim().isEmpty())
+                    .map(line -> {
+                        try {
+                            return gson.fromJson(line, InspectionEntity.class);
+                        } catch (Exception e) {
+                            return null;
+                        }
+                    })
+                    .filter(Objects::nonNull)
+                    .filter(entity -> !entity.isUploaded())
+                    .collect(Collectors.toList());
+        } catch (IOException e) {
+            return Collections.emptyList();
+        }
+    }
 }

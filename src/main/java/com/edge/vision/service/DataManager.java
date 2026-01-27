@@ -126,9 +126,9 @@ public class DataManager implements ApplicationListener<UploadEvent> {
     }
     
     /**
-     * 执行异步上传
+     * 执行异步上传（公开供定时任务调用）
      */
-    private void asyncUpload(InspectionEntity entity) throws IOException {
+    public void asyncUpload(InspectionEntity entity) throws IOException {
         if (!StringUtils.hasText(config.getRemote().getUploadUrl())) {
             return;
         }
