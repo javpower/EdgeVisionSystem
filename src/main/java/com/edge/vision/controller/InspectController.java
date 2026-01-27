@@ -37,6 +37,9 @@ import org.springframework.web.bind.annotation.*;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.awt.image.DataBufferByte;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.*;
@@ -158,17 +161,23 @@ public class InspectController {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
             }
 
-            // 最多尝试 2 次
+            // 获取拼接图像（增加重试次数和延迟）
             Mat stitchedMat = null;
-            for (int i = 0; i < 2; i++) {
+            for (int i = 0; i < 10; i++) {
                 stitchedMat = cameraService.getStitchedImage();
                 if (stitchedMat != null && !stitchedMat.empty()) {
                     break;
                 }
+                // 等待50ms让摄像头准备新帧
+                try {
+                    Thread.sleep(50);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
             }
             if (stitchedMat == null || stitchedMat.empty()) {
                 response.put("status", "error");
-                response.put("message", "Failed to capture stitched image.");
+                response.put("message", "无法获取图像，请检查摄像头是否正常运行");
                 return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
             }
 
@@ -352,17 +361,23 @@ public class InspectController {
                 response.put("message", "Detail inference engine not available.");
                 return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(response);
             }
-            // 最多重试 3 次
+            // 获取拼接图像（增加重试次数和延迟）
             Mat stitchedMat = null;
-            for (int i = 0; i < 3; i++) {
+            for (int i = 0; i < 10; i++) {
                 stitchedMat = cameraService.getStitchedImage();
                 if (stitchedMat != null && !stitchedMat.empty()) {
                     break;
                 }
+                // 等待50ms让摄像头准备新帧
+                try {
+                    Thread.sleep(50);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
             }
             if (stitchedMat == null || stitchedMat.empty()) {
                 response.put("status", "error");
-                response.put("message", "Failed to capture stitched image after 3 attempts.");
+                response.put("message", "无法获取图像，请检查摄像头是否正常运行");
                 return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
             }
 
@@ -507,6 +522,206 @@ public class InspectController {
             response.put("status", "error");
             response.put("message", "Inspection failed: " + e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+        }
+    }
+
+    /**
+     * 数据采集接口
+     * 执行检测，如果失败则保存原始图片和基于模板的标注 JSON（用于训练数据收集）
+     */
+    @PostMapping("/collect-data")
+    @Operation(
+            summary = "数据采集",
+            description = """
+                    执行检测流程，如果检测失败则保存原始图片和基于模板的标注 JSON。
+
+                    **功能说明**：
+                    1. 走类似 /confirm 的检测流程
+                    2. 检查检测结果是否 PASS
+                    3. 如果 FAIL，保存：
+                       - 原始图片（无标注绘制）
+                       - 基于模板的标注 JSON（兼容 YOLO 训练格式）
+
+                    **JSON 格式**：
+                    ```json
+                    {
+                      "labels": [
+                        {"name": "hole", "x1": 100, "y1": 200, "x2": 150, "y2": 250},
+                        {"name": "nut", "x1": 300, "y1": 400, "x2": 350, "y2": 450}
+                      ]
+                    }
+                    ```
+                    """
+    )
+    public ResponseEntity<Map<String, Object>> collectData(@RequestBody com.edge.vision.model.CollectDataRequest request) {
+        Map<String, Object> response = new HashMap<>();
+
+        Mat stitchedMat = null;
+        try {
+            if (request.getConfirmedPartName() == null) {
+                response.put("status", "error");
+                response.put("message", "Missing required fields");
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+            }
+
+            if (!inferenceEngineService.isDetailEngineAvailable()) {
+                response.put("status", "error");
+                response.put("message", "Detail inference engine not available.");
+                return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(response);
+            }
+
+            // 获取拼接图像（增加重试次数和延迟）
+            for (int i = 0; i < 10; i++) {
+                stitchedMat = cameraService.getStitchedImage();
+                if (stitchedMat != null && !stitchedMat.empty()) {
+                    break;
+                }
+                // 等待50ms让摄像头准备新帧
+                try {
+                    Thread.sleep(50);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            if (stitchedMat == null || stitchedMat.empty()) {
+                response.put("status", "error");
+                response.put("message", "无法获取图像，请检查摄像头是否正常运行");
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+            }
+
+            // 执行检测（复用 confirm 的逻辑）
+            List<Detection> detailDetections;
+            QualityStandardService.QualityEvaluationResult evaluationResult = null;
+            List<DetectedObject> templateObjects = null;
+
+            MatchStrategy strategy = config.getInspection().getMatchStrategy();
+            if (strategy == MatchStrategy.CROP_AREA && inferenceEngineService.isDetailEngineAvailable()) {
+                Template template = templateManager.load(request.getConfirmedPartName());
+                if (template == null || template.getMetadata() == null) {
+                    response.put("status", "error");
+                    response.put("message", "Template not found: " + request.getConfirmedPartName());
+                    return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+                }
+                templateObjects = VisionTool.calculateTemplateCoordinates(template, stitchedMat);
+                detailDetections = inferenceEngineService.getDetailInferenceEngine().predict(stitchedMat);
+            } else {
+                detailDetections = inferenceEngineService.getDetailInferenceEngine().predict(stitchedMat);
+            }
+
+            List<DetectedObject> detectedObjects = convertDetectionsToDetectedObjects(detailDetections);
+            evaluationResult = qualityStandardService.evaluateWithTemplate(
+                    request.getConfirmedPartName(), detectedObjects, templateObjects);
+
+            // 检查检测是否失败
+            if (evaluationResult.isPassed()) {
+                // 检测成功，不保存数据
+                response.put("status", "success");
+                response.put("message", "检测成功，无需采集数据");
+                response.put("collected", false);
+                response.put("qualityStatus", "PASS");
+                return ResponseEntity.ok(response);
+            }
+
+            // 检测失败，保存数据
+            String partType = request.getConfirmedPartName();
+
+            // 生成友好的时间格式: EKS_20250127_143052
+            java.time.LocalDateTime now = java.time.LocalDateTime.now();
+            java.time.format.DateTimeFormatter formatter = java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss");
+            String timeStr = now.format(formatter);
+            String fileBaseName = partType + "_" + timeStr;
+
+            // 创建保存目录（前端可指定）
+            Path collectDir;
+            if (request.getSaveDir() != null && !request.getSaveDir().isEmpty()) {
+                collectDir = Paths.get(request.getSaveDir());
+            } else {
+                collectDir = Paths.get("data", "collected", partType);
+            }
+            Files.createDirectories(collectDir);
+
+            // 保存原始图片
+            String imageFileName = fileBaseName + ".jpg";
+            Path imagePath = collectDir.resolve(imageFileName);
+            Imgcodecs.imwrite(imagePath.toString(), stitchedMat);
+
+            // 生成基于模板的标注 JSON（使用 templateObjects 的坐标）
+            List<Map<String, Object>> labels = new ArrayList<>();
+
+            if (templateObjects != null) {
+                // 使用 CROP_AREA 模式计算出的坐标
+                for (DetectedObject obj : templateObjects) {
+                    Map<String, Object> label = new HashMap<>();
+                    label.put("name", obj.getClassName());
+
+                    // 从中心点和宽高计算边界框
+                    double cx = obj.getCenter().x;
+                    double cy = obj.getCenter().y;
+                    double w = obj.getWidth();
+                    double h = obj.getHeight();
+
+                    label.put("x1", (int) (cx - w / 2));
+                    label.put("y1", (int) (cy - h / 2));
+                    label.put("x2", (int) (cx + w / 2));
+                    label.put("y2", (int) (cy + h / 2));
+
+                    labels.add(label);
+                }
+            } else {
+                // 非CROP_AREA模式，使用模板中的原始坐标
+                Template template = templateManager.load(partType);
+                if (template != null && template.getFeatures() != null) {
+                    for (com.edge.vision.core.template.model.TemplateFeature feature : template.getFeatures()) {
+                        Map<String, Object> label = new HashMap<>();
+                        label.put("name", feature.getName());
+
+                        // 获取边界框坐标
+                        if (feature.getBbox() != null) {
+                            double x = feature.getBbox().getX();
+                            double y = feature.getBbox().getY();
+                            double w = feature.getBbox().getWidth();
+                            double h = feature.getBbox().getHeight();
+                            label.put("x1", (int) x);
+                            label.put("y1", (int) y);
+                            label.put("x2", (int) (x + w));
+                            label.put("y2", (int) (y + h));
+                        }
+                        labels.add(label);
+                    }
+                }
+            }
+
+            // 简化的 JSON 格式：只有 labels
+            Map<String, Object> jsonData = new HashMap<>();
+            jsonData.put("labels", labels);
+
+            // 保存 JSON
+            String jsonFileName = fileBaseName + ".json";
+            Path jsonPath = collectDir.resolve(jsonFileName);
+            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            mapper.writerWithDefaultPrettyPrinter().writeValue(jsonPath.toFile(), jsonData);
+
+            logger.info("数据采集成功: 图片={}, JSON={}, 标签数={}", imagePath, jsonPath, labels.size());
+
+            response.put("status", "success");
+            response.put("message", "数据采集成功");
+            response.put("collected", true);
+            response.put("qualityStatus", "FAIL");
+            response.put("imagePath", imagePath.toString());
+            response.put("jsonPath", jsonPath.toString());
+            response.put("labelCount", labels.size());
+
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            logger.error("Data collection failed", e);
+            response.put("status", "error");
+            response.put("message", "Data collection failed: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+        } finally {
+            if (stitchedMat != null) {
+                stitchedMat.release();
+            }
         }
     }
 

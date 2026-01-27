@@ -584,6 +584,8 @@
         .btn-secondary:hover { background: #e8e8e8; }
         .btn-success { background: var(--success-color); color: white; }
         .btn-success:hover { background: #73d13d; }
+        .btn-info { background: #1890ff; color: white; }
+        .btn-info:hover { background: #40a9ff; }
 
         .toast {
             position: fixed;
@@ -825,9 +827,14 @@
                 <label>操作员</label>
                 <input type="text" id="operator" value="Admin" style="padding: 12px; font-size: 14px;">
             </div>
+            <div class="form-item">
+                <label>数据采集目录</label>
+                <input type="text" id="save-dir" placeholder="例如: data/collected/EKS" style="padding: 12px; font-size: 14px;">
+            </div>
         </div>
         <div class="modal-footer">
             <button class="btn btn-secondary" onclick="closeModal()">取消</button>
+            <button class="btn btn-info" onclick="collectData()">数据采集</button>
             <button class="btn btn-primary" onclick="confirmInspection()">开始分析</button>
         </div>
     </div>
@@ -1002,12 +1009,12 @@
         document.getElementById('clock').innerText = new Date().toLocaleTimeString();
     }, 1000);
 
-    function showToast(message, type = 'success') {
+    function showToast(message, type = 'success', duration = 3000) {
         const toast = document.getElementById('toast');
         toast.textContent = message;
         toast.className = `toast ${type}`;
         toast.style.display = 'block';
-        setTimeout(() => { toast.style.display = 'none'; }, 3000);
+        setTimeout(() => { toast.style.display = 'none'; }, duration);
     }
 
     // --- 摄像头控制 ---
@@ -1268,6 +1275,51 @@
             if(data.status === 'success') showResults(data.data);
             else showToast(data.message, 'error');
         } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    // 数据采集功能
+    async function collectData() {
+        const part = document.getElementById('part-name').value;
+        const batch = document.getElementById('batch-id').value;
+        const op = document.getElementById('operator').value;
+        const saveDir = document.getElementById('save-dir').value;
+
+        if(!part) {
+            showToast('请输入工件名称', 'error');
+            return;
+        }
+
+        // 不关闭模态框，方便连续采集
+
+        showToast('正在执行数据采集...', 'info');
+
+        try {
+            const res = await fetch(`${API_BASE}/api/inspect/collect-data`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    confirmed_part_name: part,
+                    batch_id: batch || '',
+                    operator: op || 'Admin',
+                    save_dir: saveDir || ''
+                })
+            });
+            const data = await res.json();
+
+            if(data.status === 'success') {
+                if(data.collected) {
+                    // 检测失败，数据已采集
+                    showToast(`✓ 采集成功！保存 ${data.labelCount} 个标签`, 'success', 1500);
+                } else {
+                    // 检测成功，无需采集
+                    showToast('检测成功，跳过采集', 'info', 1500);
+                }
+            } else {
+                showToast('采集失败: ' + data.message, 'error');
+            }
+        } catch(e) {
+            showToast('采集失败: ' + e.message, 'error');
+        }
     }
 
     function showResults(data) {
