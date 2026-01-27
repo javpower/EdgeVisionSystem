@@ -157,7 +157,7 @@ public class DataManager implements ApplicationListener<UploadEvent> {
         
         // 添加图像文件（如果有）
         if (entity.getImagePath() != null) {
-            Path imagePath = Paths.get(entity.getImagePath().replace("api","data"));
+            Path imagePath = Paths.get(entity.getImagePath().replace("/api","data"));
             if (Files.exists(imagePath)) {
                 String filename = imagePath.getFileName().toString();
                 byte[] imageBytes = Files.readAllBytes(imagePath);
