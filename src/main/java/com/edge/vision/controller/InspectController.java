@@ -1,7 +1,6 @@
 package com.edge.vision.controller;
 
 import com.edge.vision.config.YamlConfig;
-import com.edge.vision.core.infer.YOLOInferenceEngine;
 import com.edge.vision.core.quality.MatchStrategy;
 import com.edge.vision.core.template.TemplateManager;
 import com.edge.vision.core.template.model.DetectedObject;
@@ -20,8 +19,6 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.annotation.PostConstruct;
-import jakarta.annotation.PreDestroy;
 import org.opencv.core.Mat;
 import org.opencv.core.MatOfByte;
 import org.opencv.core.MatOfInt;
@@ -570,13 +567,12 @@ public class InspectController {
                 return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(response);
             }
 
-            // 获取拼接图像（增加重试次数和延迟）
+            // 1. 获取拼接图像
             for (int i = 0; i < 10; i++) {
                 stitchedMat = cameraService.getStitchedImage();
                 if (stitchedMat != null && !stitchedMat.empty()) {
                     break;
                 }
-                // 等待50ms让摄像头准备新帧
                 try {
                     Thread.sleep(50);
                 } catch (InterruptedException e) {
@@ -589,49 +585,58 @@ public class InspectController {
                 return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
             }
 
-            // 执行检测（复用 confirm 的逻辑）
-            List<Detection> detailDetections;
-            QualityStandardService.QualityEvaluationResult evaluationResult = null;
+            // 2. 尝试加载模板
+            String partType = request.getConfirmedPartName();
+            Template template=null;
+            try {
+                template = templateManager.load(partType);
+            }catch (IllegalArgumentException e){
+                logger.warn("no template");
+            }
+            // 判断模板是否有效
+            boolean hasValidTemplate = (template != null && template.getMetadata() != null);
+
+            List<Detection> detailDetections = null;
             List<DetectedObject> templateObjects = null;
 
-            MatchStrategy strategy = config.getInspection().getMatchStrategy();
-            if (strategy == MatchStrategy.CROP_AREA && inferenceEngineService.isDetailEngineAvailable()) {
-                Template template = templateManager.load(request.getConfirmedPartName());
-                if (template == null || template.getMetadata() == null) {
-                    response.put("status", "error");
-                    response.put("message", "Template not found: " + request.getConfirmedPartName());
-                    return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+            // 3. 如果有模板，执行完整的检测和质量评估逻辑
+            if (hasValidTemplate) {
+                MatchStrategy strategy = config.getInspection().getMatchStrategy();
+
+                // 执行推理
+                if (strategy == MatchStrategy.CROP_AREA && inferenceEngineService.isDetailEngineAvailable()) {
+                    templateObjects = VisionTool.calculateTemplateCoordinates(template, stitchedMat);
+                    detailDetections = inferenceEngineService.getDetailInferenceEngine().predict(stitchedMat);
+                } else {
+                    detailDetections = inferenceEngineService.getDetailInferenceEngine().predict(stitchedMat);
                 }
-                templateObjects = VisionTool.calculateTemplateCoordinates(template, stitchedMat);
-                detailDetections = inferenceEngineService.getDetailInferenceEngine().predict(stitchedMat);
-            } else {
-                detailDetections = inferenceEngineService.getDetailInferenceEngine().predict(stitchedMat);
+
+                // 执行质量评估
+                List<DetectedObject> detectedObjects = convertDetectionsToDetectedObjects(detailDetections);
+                QualityStandardService.QualityEvaluationResult evaluationResult = qualityStandardService.evaluateWithTemplate(
+                        partType, detectedObjects, templateObjects);
+
+                // 检查检测是否通过
+                if (evaluationResult.isPassed()) {
+                    // 检测成功，不保存数据
+                    response.put("status", "success");
+                    response.put("message", "检测成功，无需采集数据");
+                    response.put("collected", false);
+                    response.put("qualityStatus", "PASS");
+                    return ResponseEntity.ok(response);
+                }
+                // 如果检测失败，代码继续向下执行，进入保存流程
             }
 
-            List<DetectedObject> detectedObjects = convertDetectionsToDetectedObjects(detailDetections);
-            evaluationResult = qualityStandardService.evaluateWithTemplate(
-                    request.getConfirmedPartName(), detectedObjects, templateObjects);
+            // --- 保存数据流程 ---
 
-            // 检查检测是否失败
-            if (evaluationResult.isPassed()) {
-                // 检测成功，不保存数据
-                response.put("status", "success");
-                response.put("message", "检测成功，无需采集数据");
-                response.put("collected", false);
-                response.put("qualityStatus", "PASS");
-                return ResponseEntity.ok(response);
-            }
-
-            // 检测失败，保存数据
-            String partType = request.getConfirmedPartName();
-
-            // 生成友好的时间格式: EKS_20250127_143052
+            // 生成文件基础信息
             java.time.LocalDateTime now = java.time.LocalDateTime.now();
             java.time.format.DateTimeFormatter formatter = java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss");
             String timeStr = now.format(formatter);
             String fileBaseName = partType + "_" + timeStr;
 
-            // 创建保存目录（前端可指定）
+            // 创建保存目录
             Path collectDir;
             if (request.getSaveDir() != null && !request.getSaveDir().isEmpty()) {
                 collectDir = Paths.get(request.getSaveDir());
@@ -640,76 +645,82 @@ public class InspectController {
             }
             Files.createDirectories(collectDir);
 
-            // 保存原始图片
+            // 4. 保存原始图片 (无论有无模板都保存)
             String imageFileName = fileBaseName + ".jpg";
             Path imagePath = collectDir.resolve(imageFileName);
             Imgcodecs.imwrite(imagePath.toString(), stitchedMat);
 
-            // 生成基于模板的标注 JSON（使用 templateObjects 的坐标）
-            List<Map<String, Object>> labels = new ArrayList<>();
+            String jsonPathStr = null;
+            int labelCount = 0;
 
-            if (templateObjects != null) {
-                // 使用 CROP_AREA 模式计算出的坐标
-                for (DetectedObject obj : templateObjects) {
-                    Map<String, Object> label = new HashMap<>();
-                    label.put("name", obj.getClassName());
+            // 5. 只有在有模板的情况下，才生成并保存 JSON
+            if (hasValidTemplate) {
+                List<Map<String, Object>> labels = new ArrayList<>();
 
-                    // 从中心点和宽高计算边界框
-                    double cx = obj.getCenter().x;
-                    double cy = obj.getCenter().y;
-                    double w = obj.getWidth();
-                    double h = obj.getHeight();
-
-                    label.put("x1", (int) (cx - w / 2));
-                    label.put("y1", (int) (cy - h / 2));
-                    label.put("x2", (int) (cx + w / 2));
-                    label.put("y2", (int) (cy + h / 2));
-
-                    labels.add(label);
-                }
-            } else {
-                // 非CROP_AREA模式，使用模板中的原始坐标
-                Template template = templateManager.load(partType);
-                if (template != null && template.getFeatures() != null) {
-                    for (com.edge.vision.core.template.model.TemplateFeature feature : template.getFeatures()) {
+                if (templateObjects != null) {
+                    // 使用 CROP_AREA 模式计算出的坐标
+                    for (DetectedObject obj : templateObjects) {
                         Map<String, Object> label = new HashMap<>();
-                        label.put("name", feature.getName());
-
-                        // 获取边界框坐标
-                        if (feature.getBbox() != null) {
-                            double x = feature.getBbox().getX();
-                            double y = feature.getBbox().getY();
-                            double w = feature.getBbox().getWidth();
-                            double h = feature.getBbox().getHeight();
-                            label.put("x1", (int) x);
-                            label.put("y1", (int) y);
-                            label.put("x2", (int) (x + w));
-                            label.put("y2", (int) (y + h));
-                        }
+                        label.put("name", obj.getClassName());
+                        double cx = obj.getCenter().x;
+                        double cy = obj.getCenter().y;
+                        double w = obj.getWidth();
+                        double h = obj.getHeight();
+                        label.put("x1", (int) (cx - w / 2));
+                        label.put("y1", (int) (cy - h / 2));
+                        label.put("x2", (int) (cx + w / 2));
+                        label.put("y2", (int) (cy + h / 2));
                         labels.add(label);
                     }
+                } else {
+                    // 非 CROP_AREA 模式，使用模板原始坐标
+                    if (template.getFeatures() != null) {
+                        for (com.edge.vision.core.template.model.TemplateFeature feature : template.getFeatures()) {
+                            Map<String, Object> label = new HashMap<>();
+                            label.put("name", feature.getName());
+                            if (feature.getBbox() != null) {
+                                double x = feature.getBbox().getX();
+                                double y = feature.getBbox().getY();
+                                double w = feature.getBbox().getWidth();
+                                double h = feature.getBbox().getHeight();
+                                label.put("x1", (int) x);
+                                label.put("y1", (int) y);
+                                label.put("x2", (int) (x + w));
+                                label.put("y2", (int) (y + h));
+                            }
+                            labels.add(label);
+                        }
+                    }
                 }
+
+                // 保存 JSON 文件
+                Map<String, Object> jsonData = new HashMap<>();
+                jsonData.put("labels", labels);
+
+                String jsonFileName = fileBaseName + ".json";
+                Path jsonPath = collectDir.resolve(jsonFileName);
+                com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                mapper.writerWithDefaultPrettyPrinter().writeValue(jsonPath.toFile(), jsonData);
+
+                jsonPathStr = jsonPath.toString();
+                labelCount = labels.size();
+            } else {
+                logger.info("未找到模板 [{}]，仅保存图片，跳过 JSON 生成。", partType);
             }
 
-            // 简化的 JSON 格式：只有 labels
-            Map<String, Object> jsonData = new HashMap<>();
-            jsonData.put("labels", labels);
-
-            // 保存 JSON
-            String jsonFileName = fileBaseName + ".json";
-            Path jsonPath = collectDir.resolve(jsonFileName);
-            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-            mapper.writerWithDefaultPrettyPrinter().writeValue(jsonPath.toFile(), jsonData);
-
-            logger.info("数据采集成功: 图片={}, JSON={}, 标签数={}", imagePath, jsonPath, labels.size());
-
+            // 构建响应
+            logger.info("数据采集成功: 图片={}", imagePath);
             response.put("status", "success");
-            response.put("message", "数据采集成功");
+            response.put("message", hasValidTemplate ? "数据采集成功" : "无模板，仅保存图片");
             response.put("collected", true);
-            response.put("qualityStatus", "FAIL");
+            // 如果没有模板，状态设为 UNKNOWN 或 FAIL，视具体需求而定，这里保持 FAIL 意味着"未通过验证"
+            response.put("qualityStatus", hasValidTemplate ? "FAIL" : "UNKNOWN");
             response.put("imagePath", imagePath.toString());
-            response.put("jsonPath", jsonPath.toString());
-            response.put("labelCount", labels.size());
+
+            if (jsonPathStr != null) {
+                response.put("jsonPath", jsonPathStr);
+                response.put("labelCount", labelCount);
+            }
 
             return ResponseEntity.ok(response);
 
