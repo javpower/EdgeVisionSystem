@@ -270,16 +270,9 @@ public class CameraService {
 
     /**
      * 获取拼接后的图像（用于检测）
+     * 返回 Mat，调用方负责释放
      */
-    public String getStitchedImageBase64() {
-        return getStitchedImageBase64FromOriginalFrames();
-
-    }
-
-    /**
-     * 从原始帧获取拼接图像
-     */
-    private String getStitchedImageBase64FromOriginalFrames() {
+    public Mat getStitchedImage() {
         List<Mat> frames = new ArrayList<>();
         for (int i = 0; i < cameraSources.size(); i++) {
             Mat frame = currentFrames.get(i);
@@ -287,26 +280,19 @@ public class CameraService {
                 frames.add(frame.clone());
             }
         }
-        if (frames.size()==0) {
+        if (frames.size() == 0) {
             return null;
         }
         try {
             Mat stitched;
             // 使用配置的拼接策略
-            if(frames.size()>=2){
+            if (frames.size() >= 2) {
                 StitchStrategy stitchStrategy = (StitchStrategy) stitchConfigService.getStitchStrategy();
                 stitched = stitchStrategy.stitch(frames);
-            }else {
-                stitched=frames.get(0);
+            } else {
+                stitched = frames.get(0).clone();
             }
-            MatOfByte mob = new MatOfByte();
-            int[] params = new int[]{Imgcodecs.IMWRITE_JPEG_QUALITY, 100};
-            Imgcodecs.imencode(".jpg", stitched, mob,new MatOfInt(params));
-            byte[] bytes = mob.toArray();
-            mob.release();
-            stitched.release();
-
-            return Base64.getEncoder().encodeToString(bytes);
+            return stitched;
         } catch (Exception e) {
             logger.error("Failed to stitch images", e);
             return null;
@@ -314,6 +300,29 @@ public class CameraService {
             for (Mat frame : frames) {
                 frame.release();
             }
+        }
+    }
+
+    /**
+     * 获取拼接后的图像（Base64 格式，用于 HTTP 响应）
+     */
+    public String getStitchedImageBase64() {
+        Mat stitched = getStitchedImage();
+        if (stitched == null) {
+            return null;
+        }
+        try {
+            MatOfByte mob = new MatOfByte();
+            int[] params = new int[]{Imgcodecs.IMWRITE_JPEG_QUALITY, 100};
+            Imgcodecs.imencode(".jpg", stitched, mob, new MatOfInt(params));
+            byte[] bytes = mob.toArray();
+            mob.release();
+            return Base64.getEncoder().encodeToString(bytes);
+        } catch (Exception e) {
+            logger.error("Failed to encode stitched image to base64", e);
+            return null;
+        } finally {
+            stitched.release();
         }
     }
 

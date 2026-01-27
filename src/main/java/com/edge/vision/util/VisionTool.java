@@ -135,8 +135,11 @@ public class VisionTool {
     // =========================================================
     /**
      * 基于模板计算新图中的坐标 (SIFT + Homography + Downsampling + Caching)
+     * @param template 模板对象
+     * @param sceneMat 场景图 Mat（调用方负责释放）
+     * @return 检测对象列表
      */
-    public static List<DetectedObject> calculateTemplateCoordinates(Template template, String base64Scene) {
+    public static List<DetectedObject> calculateTemplateCoordinates(Template template, Mat sceneMat) {
         Mat imgScene = null;
         Mat imgSceneResized = null; // 用于存储缩小后的图
         Mat hMatrix = null;
@@ -154,9 +157,15 @@ public class VisionTool {
             TemplateCacheData tplData = getOrComputeTemplateFeatures(template);
             if (tplData == null || tplData.descriptors.empty()) return new ArrayList<>();
 
-            // 2. 加载场景图 (IO耗时不可避免，但后续计算会变快)
-            imgScene = base64ToMat(base64Scene, Imgcodecs.IMREAD_GRAYSCALE);
-            if (imgScene == null || imgScene.empty()) return new ArrayList<>();
+            // 2. 准备场景图（转灰度图）
+            if (sceneMat.channels() > 1) {
+                imgScene = new Mat();
+                Imgproc.cvtColor(sceneMat, imgScene, Imgproc.COLOR_BGR2GRAY);
+            } else {
+                imgScene = sceneMat; // 引用传递，不释放
+            }
+
+            if (imgScene.empty()) return new ArrayList<>();
 
             // --- 优化点 2: 图像降采样 (Downsampling) ---
             double scaleFactor = 1.0;
@@ -262,10 +271,10 @@ public class VisionTool {
             e.printStackTrace();
             return new ArrayList<>();
         } finally {
-            // 资源释放 (注意不要释放缓存中的 tplData)
-            if (imgScene != null) imgScene.release();
+            // 资源释放 (注意不要释放缓存中的 tplData 和传入的 sceneMat)
+            if (imgScene != null && imgScene != sceneMat) imgScene.release();
             // 只有当 imgSceneResized 是独立创建的对象时才释放
-            if (imgSceneResized != null && imgSceneResized != imgScene) imgSceneResized.release();
+            if (imgSceneResized != null && imgSceneResized != imgScene && imgSceneResized != sceneMat) imgSceneResized.release();
             if (hMatrix != null) hMatrix.release();
             if (kpScene != null) kpScene.release();
             if (descScene != null) descScene.release();
@@ -273,6 +282,24 @@ public class VisionTool {
             if (matPtsScene != null) matPtsScene.release();
             if (srcMat != null) srcMat.release();
             if (dstMat != null) dstMat.release();
+        }
+    }
+
+    /**
+     * 基于模板计算新图中的坐标 (SIFT + Homography + Downsampling + Caching)
+     * @param template 模板对象
+     * @param base64Scene 场景图 base64 字符串
+     * @return 检测对象列表
+     */
+    public static List<DetectedObject> calculateTemplateCoordinates(Template template, String base64Scene) {
+        Mat sceneMat = base64ToMat(base64Scene, Imgcodecs.IMREAD_COLOR);
+        if (sceneMat == null || sceneMat.empty()) {
+            return new ArrayList<>();
+        }
+        try {
+            return calculateTemplateCoordinates(template, sceneMat);
+        } finally {
+            sceneMat.release();
         }
     }
 

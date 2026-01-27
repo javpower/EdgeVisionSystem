@@ -78,9 +78,9 @@ public class CropAreaTemplateController {
                 return ResponseEntity.ok(new Response(false, "摄像头未启动", null));
             }
 
-            // 获取拼接图像的 base64
-            String stitchedImageBase64 = cameraService.getStitchedImageBase64();
-            if (stitchedImageBase64 == null) {
+            // 获取拼接图像
+            Mat mat = cameraService.getStitchedImage();
+            if (mat == null || mat.empty()) {
                 return ResponseEntity.ok(new Response(false, "获取图像失败", null));
             }
 
@@ -91,9 +91,7 @@ public class CropAreaTemplateController {
             String filename = partType + "_temp.jpg";
             Path filePath = dir.resolve(filename);
 
-            // 将 base64 转换为 Mat 并保存（使用最高质量）
-            byte[] bytes = Base64.getDecoder().decode(stitchedImageBase64);
-            Mat mat = Imgcodecs.imdecode(new org.opencv.core.MatOfByte(bytes), Imgcodecs.IMREAD_COLOR);
+            // 保存图像（使用最高质量）
             MatOfByte mob = new MatOfByte();
             int[] params = new int[]{Imgcodecs.IMWRITE_JPEG_QUALITY, 100};
             Imgcodecs.imencode(".jpg", mat, mob, new MatOfInt(params));
@@ -105,6 +103,9 @@ public class CropAreaTemplateController {
                 logger.warn("高质量保存失败，使用默认方式: {}", e.getMessage());
                 Imgcodecs.imwrite(filePath.toString(), mat);
             }
+
+            // 生成 base64 用于返回
+            String stitchedImageBase64 = matToBase64(mat);
             mat.release();
 
             logger.info("摄像头截图保存成功: {}", filePath);

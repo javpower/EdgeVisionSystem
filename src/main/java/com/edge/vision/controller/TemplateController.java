@@ -82,19 +82,10 @@ public class TemplateController {
             }
 
             // 3. 截取当前拼接图像
-            String stitchedImageBase64 = cameraService.getStitchedImageBase64();
-            if (stitchedImageBase64 == null) {
+            Mat imageMat = cameraService.getStitchedImage();
+            if (imageMat == null || imageMat.empty()) {
                 return ResponseEntity.internalServerError()
                     .body(Map.of("success", false, "message", "无法获取当前画面"));
-            }
-
-            // 4. 解码图像
-            byte[] imageBytes = Base64.getDecoder().decode(stitchedImageBase64);
-            Mat imageMat = Imgcodecs.imdecode(new MatOfByte(imageBytes), Imgcodecs.IMREAD_COLOR);
-
-            if (imageMat.empty()) {
-                return ResponseEntity.internalServerError()
-                    .body(Map.of("success", false, "message", "图像解码失败"));
             }
 
             // 5. 调用YOLO模型进行检测
@@ -177,19 +168,10 @@ public class TemplateController {
             }
 
             // 3. 截取当前拼接图像
-            String stitchedImageBase64 = cameraService.getStitchedImageBase64();
-            if (stitchedImageBase64 == null) {
+            Mat imageMat = cameraService.getStitchedImage();
+            if (imageMat == null || imageMat.empty()) {
                 return ResponseEntity.internalServerError()
                     .body(TemplateBuildResponse.error("无法获取当前画面"));
-            }
-
-            // 4. 解码图像
-            byte[] imageBytes = Base64.getDecoder().decode(stitchedImageBase64);
-            Mat imageMat = Imgcodecs.imdecode(new MatOfByte(imageBytes), Imgcodecs.IMREAD_COLOR);
-
-            if (imageMat.empty()) {
-                return ResponseEntity.internalServerError()
-                    .body(TemplateBuildResponse.error("图像解码失败"));
             }
 
             logger.info("Image size: {}x{}", imageMat.cols(), imageMat.rows());

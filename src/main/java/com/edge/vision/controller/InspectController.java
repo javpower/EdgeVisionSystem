@@ -157,15 +157,16 @@ public class InspectController {
                 response.put("message", "Cameras are not running. Please start cameras first.");
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
             }
-            String stitchedImageBase64 = null;
+
             // 最多尝试 2 次
+            Mat stitchedMat = null;
             for (int i = 0; i < 2; i++) {
-                stitchedImageBase64 = cameraService.getStitchedImageBase64();
-                if (stitchedImageBase64 != null) {
-                    break;          // 拿到就退出
+                stitchedMat = cameraService.getStitchedImage();
+                if (stitchedMat != null && !stitchedMat.empty()) {
+                    break;
                 }
             }
-            if (stitchedImageBase64 == null) {
+            if (stitchedMat == null || stitchedMat.empty()) {
                 response.put("status", "error");
                 response.put("message", "Failed to capture stitched image.");
                 return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
@@ -173,44 +174,40 @@ public class InspectController {
 
             String requestId = UUID.randomUUID().toString();
             String suggestedType = null;
-            int[] imageShape = new int[]{720, 1280, 3};
+            int[] imageShape = new int[]{
+                    stitchedMat.rows(),
+                    stitchedMat.cols(),
+                    stitchedMat.channels()
+            };
+            logger.debug("Actual image shape: [h={}, w={}, c={}]", imageShape[0], imageShape[1], imageShape[2]);
 
-            // 类型识别逻辑 + 获取实际图像尺寸 + 检测工件整体（使用类型识别引擎）
-            Mat stitchedMat = base64ToMat(stitchedImageBase64);
+            // 类型识别逻辑 + 检测工件整体（使用类型识别引擎）
+            if (inferenceEngineService.isTypeEngineAvailable()) {
+                try {
+                    List<Detection> typeDetections = inferenceEngineService.getTypeInferenceEngine().predict(stitchedMat);
+                    if (!typeDetections.isEmpty()) {
+                        // 取置信度最高的检测结果作为工件整体
+                        Detection bestDetection = typeDetections.stream()
+                                .max(Comparator.comparing(Detection::getConfidence))
+                                .orElse(null);
 
-            if (!stitchedMat.empty()) {
-                imageShape = new int[]{
-                        stitchedMat.rows(),
-                        stitchedMat.cols(),
-                        stitchedMat.channels()
-                };
-                logger.debug("Actual image shape: [h={}, w={}, c={}]", imageShape[0], imageShape[1], imageShape[2]);
-
-                // 检测工件整体并获取工件类型（使用类型识别引擎）
-                if (inferenceEngineService.isTypeEngineAvailable()) {
-                    try {
-                        List<Detection> typeDetections = inferenceEngineService.getTypeInferenceEngine().predict(stitchedMat);
-                        if (!typeDetections.isEmpty()) {
-                            // 取置信度最高的检测结果作为工件整体
-                            Detection bestDetection = typeDetections.stream()
-                                    .max(Comparator.comparing(Detection::getConfidence))
-                                    .orElse(null);
-
-                            if (bestDetection != null) {
-                                // 获取工件类型
-                                if (bestDetection.getConfidence() > 0.5) {
-                                    suggestedType = bestDetection.getLabel();
-                                    logger.info("Suggested type: {} (confidence: {})", suggestedType, bestDetection.getConfidence());
-                                }
+                        if (bestDetection != null) {
+                            // 获取工件类型
+                            if (bestDetection.getConfidence() > 0.5) {
+                                suggestedType = bestDetection.getLabel();
+                                logger.info("Suggested type: {} (confidence: {})", suggestedType, bestDetection.getConfidence());
                             }
                         }
-                    } catch (Exception e) {
-                        logger.warn("Type model detection failed", e);
                     }
-                } else {
-                    logger.debug("Type inference engine not available, skipping workpiece detection");
+                } catch (Exception e) {
+                    logger.warn("Type model detection failed", e);
                 }
+            } else {
+                logger.debug("Type inference engine not available, skipping workpiece detection");
             }
+
+            // 转换为 base64 用于返回
+            String stitchedImageBase64 = matToBase64(stitchedMat);
             stitchedMat.release();
 
             PreCheckResponse preCheckResponse = new PreCheckResponse();
@@ -356,23 +353,20 @@ public class InspectController {
                 return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(response);
             }
             // 最多重试 3 次
-            String stitchedImageBase64 = null;
+            Mat stitchedMat = null;
             for (int i = 0; i < 3; i++) {
-                stitchedImageBase64 = cameraService.getStitchedImageBase64();
-                if (stitchedImageBase64 != null) {
+                stitchedMat = cameraService.getStitchedImage();
+                if (stitchedMat != null && !stitchedMat.empty()) {
                     break;
                 }
             }
-            if (stitchedImageBase64 == null) {
+            if (stitchedMat == null || stitchedMat.empty()) {
                 response.put("status", "error");
                 response.put("message", "Failed to capture stitched image after 3 attempts.");
                 return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
             }
-            // 执行检测
-            long decodeStart = System.currentTimeMillis();
-            Mat stitchedMat = base64ToMat(stitchedImageBase64);
-            long decodeTime = System.currentTimeMillis() - decodeStart;
-            logger.info("Base64 decode time: {} ms, Image size: {}x{}", decodeTime, stitchedMat.width(), stitchedMat.height());
+
+            logger.info("Image size: {}x{}", stitchedMat.width(), stitchedMat.height());
 
             long inferenceStart = System.currentTimeMillis();
             List<Detection> detailDetections;
@@ -392,7 +386,7 @@ public class InspectController {
                     return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
                 }
                 // 3. 使用 ObjectDetectionUtil 检测工件位置
-                templateObjects = VisionTool.calculateTemplateCoordinates(template, stitchedImageBase64);
+                templateObjects = VisionTool.calculateTemplateCoordinates(template, stitchedMat);
                 if (!(templateObjects.size()>0)) {
                     response.put("status", "error");
                     response.put("message", "工件检测失败");
