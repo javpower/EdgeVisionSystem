@@ -19,6 +19,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.opencv.core.CvType;
 import org.opencv.core.Mat;
 import org.opencv.core.MatOfByte;
 import org.opencv.core.MatOfInt;
@@ -1093,6 +1094,30 @@ public class InspectController {
     }
 
     /**
+     * 获取跨平台中文字体
+     */
+    private Font getChineseFont(float size) {
+        String[] fontNames = {
+            "Microsoft YaHei",      // Windows
+            "PingFang SC",          // macOS
+            "WenQuanYi Micro Hei",  // Linux
+            "SimSun",               // Windows 备选
+            "Arial Unicode MS"      // 通用备选
+        };
+
+        for (String name : fontNames) {
+            Font font = new Font(name, Font.PLAIN, (int) size);
+            // 如果字体不是默认的 Dialog，说明找到了指定字体
+            if (!font.getFamily().equalsIgnoreCase("Dialog")) {
+                logger.debug("使用字体: {} (实际: {})", name, font.getFamily());
+                return font;
+            }
+        }
+        logger.debug("使用默认字体");
+        return new Font(Font.SANS_SERIF, Font.PLAIN, (int) size);
+    }
+
+    /**
      * 绘制质检结果（包含模板比对结果）
      * 性能优化：只做一次 Mat <-> BufferedImage 转换，所有绘制在 Graphics2D 上完成
      *
@@ -1109,7 +1134,7 @@ public class InspectController {
         Graphics2D g2d = bufferedImage.createGraphics();
         g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         g2d.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-        g2d.setFont(new Font("Microsoft YaHei", Font.PLAIN, 14));
+        g2d.setFont(getChineseFont(14));
 
         // 1. 绘制所有检测结果（绿色框）
         for (Detection detection : detections) {
@@ -1132,11 +1157,22 @@ public class InspectController {
 
         g2d.dispose();
 
-        // BufferedImage -> Mat 转换（覆盖原 Mat）
+        // BufferedImage -> Mat 转换
+        // 注意：如果原始Mat是灰度图，返回的是新的BGR Mat，不能直接写回原Mat
         byte[] data = ((DataBufferByte) bufferedImage.getRaster().getDataBuffer()).getData();
-        image.put(0, 0, data);
+        Mat resultMat;
+        if (image.channels() == 1) {
+            // 原图是灰度图，创建新的BGR Mat
+            resultMat = new Mat(image.rows(), image.cols(), CvType.CV_8UC3);
+            resultMat.put(0, 0, data);
+            image.release(); // 释放原始灰度Mat
+        } else {
+            // 原图是彩色图，直接写回
+            image.put(0, 0, data);
+            resultMat = image;
+        }
 
-        return image;
+        return resultMat;
     }
 
     /**
