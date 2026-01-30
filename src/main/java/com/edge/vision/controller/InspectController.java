@@ -23,6 +23,7 @@ import org.opencv.core.Mat;
 import org.opencv.core.MatOfByte;
 import org.opencv.core.MatOfInt;
 import org.opencv.imgcodecs.Imgcodecs;
+import org.opencv.imgproc.Imgproc;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -1248,10 +1249,25 @@ public class InspectController {
      * Mat 转换为 BufferedImage
      */
     private BufferedImage matToBufferedImage(Mat mat) {
-        int type = BufferedImage.TYPE_3BYTE_BGR;
+        logger.info("matToBufferedImage - channels: {}, type: {}, depth: {}, size: {}x{}",
+            mat.channels(), mat.type(), mat.depth(), mat.cols(), mat.rows());
+
+        // 如果是灰度图（Mono8），先转换为BGR彩色图
         if (mat.channels() == 1) {
-            type = BufferedImage.TYPE_BYTE_GRAY;
-        } else if (mat.channels() == 4) {
+            Mat bgrMat = new Mat();
+            Imgproc.cvtColor(mat, bgrMat, Imgproc.COLOR_GRAY2BGR);
+
+            BufferedImage image = new BufferedImage(bgrMat.cols(), bgrMat.rows(), BufferedImage.TYPE_3BYTE_BGR);
+            byte[] data = ((DataBufferByte) image.getRaster().getDataBuffer()).getData();
+            bgrMat.get(0, 0, data);
+
+            bgrMat.release();
+            return image;
+        }
+
+        // 彩色图（3通道或4通道）
+        int type = BufferedImage.TYPE_3BYTE_BGR;
+        if (mat.channels() == 4) {
             type = BufferedImage.TYPE_4BYTE_ABGR;
         }
 
