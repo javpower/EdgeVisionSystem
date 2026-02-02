@@ -6,7 +6,7 @@ edge-vision:
 
   cameras:
     # 本地摄像头[0, 1] 或 视频流["rtsp://..."] 或视频["/Volumes/.mp4"] 或 MVS 摄像头["mvs:0"]
-    sources: ["/Volumes/macEx/训练/视频/CX7564001_2.mp4"] # CX756601，"/Volumes/macEx/训练/视频/EKS.mp4"
+    sources: ["/Volumes/macEx/训练/视频/EKS.mp4","/Volumes/macEx/训练/视频/EKS.mp4","/Volumes/macEx/训练/视频/EKS.mp4"] # CX756601，"/Volumes/macEx/训练/视频/EKS.mp4"
   # 图像拼接配置
   stitching:
     # 拼接策略: simple（简单拼接）, auto（自动拼接）, manual（手动拼接）
@@ -19,8 +19,8 @@ edge-vision:
   models:
     # 类型识别模型（可选，不配置则跳过类型识别阶段）
 #    type-model: "models/type_classifier.onnx"
-    # 细节检测模型（必须）
-    detail-model: "models/detail_detector.onnx"
+    # 细节检测模型（必须）models/detail_detector.onnx
+    detail-model: "models/128.onnx"
     conf-thres: 0.25
     iou-thres: 0.45
     device: "GPU"  # CPU 或 GPU

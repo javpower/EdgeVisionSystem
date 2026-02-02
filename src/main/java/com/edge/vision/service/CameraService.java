@@ -280,7 +280,7 @@ public class CameraService {
                 frames.add(frame.clone());
             }
         }
-        if (frames.size() == 0) {
+        if (frames.size() == 0||frames.size()!=cameraSources.size()) {
             return null;
         }
         try {
@@ -337,8 +337,7 @@ public class CameraService {
                 frames.add(frame.clone());
             }
         }
-
-        if (frames.size()==0) {
+        if (frames.size() == 0||frames.size()!=cameraSources.size()) {
             return null;
         }
         try {
