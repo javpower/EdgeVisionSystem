@@ -23,6 +23,7 @@ import org.opencv.core.CvType;
 import org.opencv.core.Mat;
 import org.opencv.core.MatOfByte;
 import org.opencv.core.MatOfInt;
+import org.opencv.core.Size;
 import org.opencv.imgcodecs.Imgcodecs;
 import org.opencv.imgproc.Imgproc;
 import org.slf4j.Logger;
@@ -36,6 +37,7 @@ import org.springframework.web.bind.annotation.*;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.awt.image.DataBufferByte;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -642,26 +644,55 @@ public class InspectController {
             Path collectDir;
             if (request.getSaveDir() != null && !request.getSaveDir().isEmpty()) {
                 String saveDirStr = request.getSaveDir();
+                logger.info("Original saveDir from request: {}", saveDirStr);
+                
                 // 对路径进行 URL 解码（处理前端编码的中文路径）
                 try {
                     saveDirStr = java.net.URLDecoder.decode(saveDirStr, java.nio.charset.StandardCharsets.UTF_8.name());
+                    logger.info("After URL decode: {}", saveDirStr);
                 } catch (java.io.UnsupportedEncodingException e) {
                     logger.warn("URL decode failed for saveDir: {}", saveDirStr);
                 }
-                // 规范化路径，移除非法字符
-                saveDirStr = normalizePath(saveDirStr);
-                collectDir = Paths.get(saveDirStr).toAbsolutePath().normalize();
+                
+                // 清理路径字符串
+                saveDirStr = saveDirStr.trim();
+                
+                // 处理 Windows 路径中的反斜杠（前端传过来的可能是正斜杠或反斜杠）
+                // 注意：这里不要替换，让 Paths.get 自行处理
+                // saveDirStr = saveDirStr.replace('/', java.io.File.separatorChar);
+                
+                // 解析路径
+                Path inputPath = Paths.get(saveDirStr);
+                logger.info("Input path isAbsolute: {}, raw path: {}", inputPath.isAbsolute(), inputPath);
+                
+                if (inputPath.isAbsolute()) {
+                    // 用户输入的是绝对路径，直接使用
+                    collectDir = inputPath.normalize();
+                } else {
+                    // 用户输入的是相对路径，转换为绝对路径（基于当前工作目录）
+                    collectDir = inputPath.toAbsolutePath().normalize();
+                }
             } else {
                 collectDir = Paths.get("data", "collected", partType).toAbsolutePath().normalize();
             }
             
-            logger.info("Creating directory: {}", collectDir);
+            logger.info("Final collectDir: {}", collectDir);
             Files.createDirectories(collectDir);
 
-            // 4. 保存原始图片 (无论有无模板都保存)
+            // 4. 图片压缩处理（如果任一边超过 6000，等比例压缩到最大边为 6000）
+            Mat matToSave = resizeIfNeeded(stitchedMat);
+            logger.info("Image size after resize check: {}x{}", matToSave.cols(), matToSave.rows());
+
+            // 5. 保存原始图片 (无论有无模板都保存)
+            // 使用 Java IO 保存，避免 OpenCV imwrite 在 Windows 中文路径上的问题
             String imageFileName = fileBaseName + ".jpg";
             Path imagePath = collectDir.resolve(imageFileName);
-            Imgcodecs.imwrite(imagePath.toString(), stitchedMat);
+            saveMatToFile(matToSave, imagePath);
+            
+            // 如果创建了新的 Mat，释放它
+            if (matToSave != stitchedMat) {
+                matToSave.release();
+            }
 
             String jsonPathStr = null;
             int labelCount = 0;
@@ -1322,6 +1353,66 @@ public class InspectController {
         byte[] data = ((DataBufferByte) image.getRaster().getDataBuffer()).getData();
         mat.get(0, 0, data);
         return image;
+    }
+
+    /**
+     * 等比例压缩图片（如果任一边超过 6000）
+     * 
+     * @param src 原始 Mat
+     * @return 压缩后的 Mat（如果不需要压缩则返回原 Mat）
+     */
+    private Mat resizeIfNeeded(Mat src) {
+        int width = src.cols();
+        int height = src.rows();
+        int maxDim = Math.max(width, height);
+        
+        // 如果最大边不超过 6000，直接返回原图
+        if (maxDim <= 6000) {
+            return src;
+        }
+        
+        // 计算等比例缩放比例
+        double scale = 6000.0 / maxDim;
+        int newWidth = (int) (width * scale);
+        int newHeight = (int) (height * scale);
+        
+        logger.info("Resizing image from {}x{} to {}x{} (scale: {})", 
+                width, height, newWidth, newHeight, String.format("%.4f", scale));
+        
+        // 执行 resize
+        Mat dst = new Mat();
+        Imgproc.resize(src, dst, new Size(newWidth, newHeight), 0, 0, Imgproc.INTER_AREA);
+        
+        return dst;
+    }
+
+    /**
+     * 保存 Mat 到文件（使用 Java IO，支持中文路径）
+     * 避免 OpenCV Imgcodecs.imwrite 在 Windows 中文路径上的问题
+     * 
+     * @param mat 要保存的图像
+     * @param path 目标路径
+     * @throws IOException 保存失败时抛出
+     */
+    private void saveMatToFile(Mat mat, Path path) throws IOException {
+        // 将 Mat 编码为 JPEG 字节数组
+        MatOfByte mob = new MatOfByte();
+        MatOfInt params = new MatOfInt(Imgcodecs.IMWRITE_JPEG_QUALITY, 95);
+        boolean encoded = Imgcodecs.imencode(".jpg", mat, mob, params);
+        
+        if (!encoded) {
+            mob.release();
+            params.release();
+            throw new IOException("Failed to encode image to JPEG");
+        }
+        
+        byte[] imageBytes = mob.toArray();
+        mob.release();
+        params.release();
+        
+        // 使用 Java NIO 写入文件（支持中文路径）
+        Files.write(path, imageBytes);
+        logger.debug("Saved image to: {}", path.toAbsolutePath());
     }
 
     /**
