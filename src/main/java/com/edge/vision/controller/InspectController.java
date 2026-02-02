@@ -638,13 +638,24 @@ public class InspectController {
             String timeStr = now.format(formatter);
             String fileBaseName = partType + "_" + timeStr;
 
-            // 创建保存目录
+            // 处理保存路径（支持中文路径）
             Path collectDir;
             if (request.getSaveDir() != null && !request.getSaveDir().isEmpty()) {
-                collectDir = Paths.get(request.getSaveDir());
+                String saveDirStr = request.getSaveDir();
+                // 对路径进行 URL 解码（处理前端编码的中文路径）
+                try {
+                    saveDirStr = java.net.URLDecoder.decode(saveDirStr, java.nio.charset.StandardCharsets.UTF_8.name());
+                } catch (java.io.UnsupportedEncodingException e) {
+                    logger.warn("URL decode failed for saveDir: {}", saveDirStr);
+                }
+                // 规范化路径，移除非法字符
+                saveDirStr = normalizePath(saveDirStr);
+                collectDir = Paths.get(saveDirStr).toAbsolutePath().normalize();
             } else {
-                collectDir = Paths.get("data", "collected", partType);
+                collectDir = Paths.get("data", "collected", partType).toAbsolutePath().normalize();
             }
+            
+            logger.info("Creating directory: {}", collectDir);
             Files.createDirectories(collectDir);
 
             // 4. 保存原始图片 (无论有无模板都保存)
@@ -1311,6 +1322,47 @@ public class InspectController {
         byte[] data = ((DataBufferByte) image.getRaster().getDataBuffer()).getData();
         mat.get(0, 0, data);
         return image;
+    }
+
+    /**
+     * 规范化路径字符串，处理中文字符和特殊字符
+     * 
+     * @param path 原始路径
+     * @return 规范化后的路径
+     */
+    private String normalizePath(String path) {
+        if (path == null || path.isEmpty()) {
+            return path;
+        }
+        
+        // 1. 去除首尾空白
+        path = path.trim();
+        
+        // 2. 统一路径分隔符为系统默认分隔符
+        path = path.replace('/', java.io.File.separatorChar)
+                   .replace('\\', java.io.File.separatorChar);
+        
+        // 3. 处理 Windows 平台特殊字符
+        String os = System.getProperty("os.name").toLowerCase();
+        if (os.contains("win")) {
+            // Windows 文件名不能包含: < > : " | ? *
+            path = path.replaceAll("[<>:\"|?*]", "_");
+        }
+        
+        // 4. 移除控制字符（保留中文字符和其他 Unicode 字符）
+        StringBuilder sb = new StringBuilder();
+        for (char c : path.toCharArray()) {
+            // 保留可打印字符、中文字符和其他 Unicode 字符
+            if (c >= 0x20 || Character.isWhitespace(c)) {
+                sb.append(c);
+            } else {
+                sb.append('_');
+            }
+        }
+        
+        String result = sb.toString();
+        logger.debug("Normalized path from '{}' to '{}'", path, result);
+        return result;
     }
 
     // 内部类

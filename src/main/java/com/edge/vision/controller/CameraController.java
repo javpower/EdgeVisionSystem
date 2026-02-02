@@ -1,6 +1,7 @@
 package com.edge.vision.controller;
 
 import com.edge.vision.service.CameraService;
+import com.edge.vision.service.CameraService.FrameData;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -16,6 +17,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -23,6 +25,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * 摄像头控制器
@@ -35,6 +40,13 @@ import java.util.Map;
 public class CameraController {
     private static final Logger logger = LoggerFactory.getLogger(CameraController.class);
 
+    // 流控参数
+    private static final int TARGET_FPS = 25; // 目标帧率（略低于采集帧率）
+    private static final int FRAME_INTERVAL_MS = 1000 / TARGET_FPS; // 40ms
+    private static final int MIN_FRAME_INTERVAL_MS = 20; // 最小间隔
+    private static final int MAX_FRAME_INTERVAL_MS = 100; // 最大间隔
+    private static final int STREAM_TIMEOUT_MS = 0; // 流超时时间（0 表示不超时，持续推送）
+
     @Autowired
     private CameraService cameraService;
 
@@ -42,13 +54,6 @@ public class CameraController {
 
     /**
      * 启动摄像头
-     *
-     * 启动所有配置的摄像头。摄像头来源在 application.yml 中配置：
-     * ```yaml
-     * edge-vision:
-     *   cameras:
-     *     sources: [0, 1]  # 摄像头索引或 RTSP URL
-     * ```
      */
     @PostMapping("/start")
     @Operation(
@@ -60,7 +65,7 @@ public class CameraController {
                     - 摄像头来源在 application.yml 中配置
                     - 支持本地摄像头索引（0, 1, 2...）或 RTSP URL
                     - 启动后摄像头会以约 30FPS 的频率采集图像
-                    - 如果摄像头被占用或未连接，启动会失败
+                    - 多摄像头会同步启动，确保帧同步
 
                     **配置示例**：
                     ```yaml
@@ -96,19 +101,7 @@ public class CameraController {
             ),
             @ApiResponse(
                     responseCode = "503",
-                    description = "未找到可用摄像头",
-                    content = @Content(
-                            mediaType = "application/json",
-                            examples = @ExampleObject(
-                                    name = "无摄像头",
-                                    value = """
-                                            {
-                                              "status": "warning",
-                                              "message": "未找到可用摄像头"
-                                            }
-                                            """
-                            )
-                    )
+                    description = "未找到可用摄像头"
             ),
             @ApiResponse(
                     responseCode = "500",
@@ -118,15 +111,21 @@ public class CameraController {
     public ResponseEntity<Map<String, Object>> startCamera() {
         Map<String, Object> response = new HashMap<>();
         try {
+            long startTime = System.currentTimeMillis();
             cameraService.startCameras();
             int count = cameraService.getCameraCount();
+            long duration = System.currentTimeMillis() - startTime;
+            
             if (count == 0) {
                 response.put("status", "warning");
                 response.put("message", "未找到可用摄像头");
                 return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(response);
             }
+            
             response.put("status", "success");
             response.put("cameraCount", count);
+            response.put("startupTimeMs", duration);
+            response.put("targetFps", TARGET_FPS);
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             logger.error("Start failed", e);
@@ -138,35 +137,13 @@ public class CameraController {
 
     /**
      * 停止摄像头
-     *
-     * 停止所有正在运行的摄像头，释放资源
      */
     @PostMapping("/stop")
-    @Operation(
-            summary = "停止摄像头",
-            description = """
-                    停止所有正在运行的摄像头并释放资源。
-
-                    **注意事项**：
-                    - 停止后需要重新调用 /start 接口才能再次使用摄像头
-                    - 停止操作会释放摄像头设备，允许其他程序使用
-                    - 视频流连接会自动断开
-                    """
-    )
+    @Operation(summary = "停止摄像头", description = "停止所有正在运行的摄像头，释放资源")
     @ApiResponses(value = {
             @ApiResponse(
                     responseCode = "200",
-                    description = "摄像头已停止",
-                    content = @Content(
-                            mediaType = "application/json",
-                            examples = @ExampleObject(
-                                    value = """
-                                            {
-                                              "status": "success"
-                                            }
-                                            """
-                            )
-                    )
+                    description = "摄像头已停止"
             )
     })
     public ResponseEntity<Map<String, Object>> stopCamera() {
@@ -184,47 +161,32 @@ public class CameraController {
 
     /**
      * 获取摄像头状态
-     *
-     * 查询摄像头运行状态和数量信息
      */
     @GetMapping("/status")
     @Operation(
             summary = "获取摄像头状态",
-            description = """
-                    获取当前摄像头的运行状态和数量信息。
-
-                    **返回字段说明**：
-                    | 字段 | 类型 | 说明 |
-                    |------|------|------|
-                    | running | boolean | 摄像头是否正在运行 |
-                    | cameraCount | number | 成功启动的摄像头数量 |
-                    """
+            description = "获取当前摄像头的运行状态和数量信息"
     )
     @ApiResponses(value = {
             @ApiResponse(
                     responseCode = "200",
-                    description = "状态查询成功",
-                    content = @Content(
-                            mediaType = "application/json",
-                            examples = @ExampleObject(
-                                    value = """
-                                            {
-                                              "status": "success",
-                                              "data": {
-                                                "running": true,
-                                                "cameraCount": 2
-                                              }
-                                            }
-                                            """
-                            )
-                    )
+                    description = "状态查询成功"
             )
     })
     public ResponseEntity<Map<String, Object>> getStatus() {
         Map<String, Object> response = new HashMap<>();
         Map<String, Object> data = new HashMap<>();
+        
         data.put("running", cameraService.isRunning());
         data.put("cameraCount", cameraService.getCameraCount());
+        data.put("configuredCount", cameraService.getConfiguredCameraCount());
+        data.put("targetFps", cameraService.getCurrentFps());
+        data.put("streamTargetFps", TARGET_FPS);
+        
+        if (cameraService.isRunning()) {
+            data.put("queueSizes", cameraService.getQueueSizes());
+        }
+        
         response.put("status", "success");
         response.put("data", data);
         return ResponseEntity.ok(response);
@@ -233,99 +195,142 @@ public class CameraController {
     // ================== 视频流核心接口 (MJPEG) ==================
 
     /**
-     * 单个摄像头视频流
-     *
-     * 返回指定摄像头的 MJPEG 视频流
-     * 可直接在浏览器中打开或使用 video 标签播放
+     * 单个摄像头视频流（优化版）
      */
     @GetMapping(value = "/stream/{cameraIndex}")
     @Operation(
             summary = "获取单个摄像头视频流",
             description = """
-                    获取指定摄像头的 MJPEG 视频流。
+                    获取指定摄像头的 MJPEG 视频流（优化版）。
+
+                    **优化特性**：
+                    - 自适应帧率控制，保证流畅性
+                    - 连接保活机制，自动检测断开
+                    - 智能缓冲，减少卡顿
 
                     **使用方式**：
-
-                    1. **浏览器直接访问**：
-                    ```
-                    http://localhost:8000/api/camera/stream/0
-                    ```
-
-                    2. **HTML img 标签**：
                     ```html
                     <img src="http://localhost:8000/api/camera/stream/0" />
                     ```
 
-                    3. **HTML video 标签**（部分浏览器）：
-                    ```html
-                    <video src="http://localhost:8000/api/camera/stream/0" />
-                    ```
-
                     **注意事项**：
-                    - 返回的是 MJPEG 流，不是 MP4 文件
                     - 需要先调用 /start 接口启动摄像头
-                    - cameraIndex 从 0 开始，对应配置中 sources 的索引
+                    - cameraIndex 从 0 开始
                     - 流会持续推送直到客户端断开连接
-                    - 建议使用 HTTP 协议访问，HTTPS 可能有兼容性问题
                     """
     )
     @ApiResponses(value = {
             @ApiResponse(
                     responseCode = "200",
                     description = "MJPEG 视频流",
-                    content = @Content(
-                            mediaType = "multipart/x-mixed-replace; boundary=frame"
-                    )
+                    content = @Content(mediaType = "multipart/x-mixed-replace; boundary=frame")
             ),
-            @ApiResponse(
-                    responseCode = "503",
-                    description = "摄像头未运行"
-            )
+            @ApiResponse(responseCode = "503", description = "摄像头未运行")
     })
     public void streamCamera(
-            @Parameter(
-                    description = "摄像头索引（从 0 开始）",
-                    required = true,
-                    example = "0",
-                    schema = @Schema(type = "integer", minimum = "0")
-            )
+            @Parameter(description = "摄像头索引（从 0 开始）", required = true, example = "0")
             @PathVariable int cameraIndex,
             HttpServletResponse response) throws IOException {
+        
         if (!cameraService.isRunning()) {
             response.sendError(HttpServletResponse.SC_SERVICE_UNAVAILABLE, "Cameras not running");
             return;
         }
 
+        if (cameraIndex < 0 || cameraIndex >= cameraService.getCameraCount()) {
+            response.sendError(HttpServletResponse.SC_BAD_REQUEST, "Invalid camera index");
+            return;
+        }
+
+        // 设置响应头
         response.setContentType("multipart/x-mixed-replace; boundary=frame");
         response.setHeader("Cache-Control", "no-cache, no-store, max-age=0, must-revalidate");
         response.setHeader("Pragma", "no-cache");
         response.setHeader("Expires", "0");
+        response.setHeader("Connection", "keep-alive");
 
         OutputStream out = response.getOutputStream();
+        AtomicBoolean clientConnected = new AtomicBoolean(true);
+        AtomicLong frameCount = new AtomicLong(0);
+        AtomicLong lastFrameTime = new AtomicLong(System.currentTimeMillis());
+        long streamStartTime = System.currentTimeMillis();
+
+        // 保活线程 - 检测客户端是否断开
+        Thread keepAliveThread = new Thread(() -> {
+            while (clientConnected.get() && cameraService.isRunning()) {
+                try {
+                    Thread.sleep(5000); // 每5秒检查一次
+                    // 如果超过10秒没有发送帧，可能连接已断开
+                    if (System.currentTimeMillis() - lastFrameTime.get() > 10000) {
+                        logger.warn("Camera {} stream timeout, closing connection", cameraIndex);
+                        clientConnected.set(false);
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }, "Stream-KeepAlive-" + cameraIndex);
+        keepAliveThread.setDaemon(true);
+        keepAliveThread.start();
 
         try {
-            while (cameraService.isRunning()) {
-                byte[] frameData = cameraService.getMjpegFrame(cameraIndex);
+            logger.info("Starting optimized stream for camera {}", cameraIndex);
+            
+            while (clientConnected.get() && cameraService.isRunning()) {
+                long loopStart = System.currentTimeMillis();
+                
+                // 检查流超时（仅在设置了超时时间时生效）
+                if (STREAM_TIMEOUT_MS > 0 && loopStart - streamStartTime > STREAM_TIMEOUT_MS) {
+                    logger.info("Stream timeout for camera {}", cameraIndex);
+                    break;
+                }
 
-                if (frameData != null && frameData.length > 0) {
+                FrameData frameData = cameraService.getMjpegFrameData(cameraIndex);
+
+                if (frameData != null && frameData.getData() != null && frameData.getData().length > 0) {
                     try {
+                        // 发送 MJPEG 帧
                         out.write(("--frame\r\n").getBytes());
                         out.write(("Content-Type: image/jpeg\r\n").getBytes());
-                        out.write(("Content-Length: " + frameData.length + "\r\n").getBytes());
+                        out.write(("Content-Length: " + frameData.getData().length + "\r\n").getBytes());
+                        out.write(("X-Frame-Sequence: " + frameData.getSequence() + "\r\n").getBytes());
+                        out.write(("X-Frame-Timestamp: " + frameData.getTimestamp() + "\r\n").getBytes());
                         out.write(("\r\n").getBytes());
-                        out.write(frameData);
+                        out.write(frameData.getData());
                         out.write(("\r\n").getBytes());
                         out.flush();
+
+                        frameCount.incrementAndGet();
+                        lastFrameTime.set(System.currentTimeMillis());
                     } catch (IOException e) {
-                        logger.info("客户端已断开摄像头 {} 的连接", cameraIndex);
+                        logger.info("Client disconnected from camera {} stream", cameraIndex);
+                        clientConnected.set(false);
                         break;
                     }
-                } else {
-                    Thread.sleep(30);
+                }
+
+                // 帧率控制 - 自适应间隔
+                long elapsed = System.currentTimeMillis() - loopStart;
+                long sleepTime = FRAME_INTERVAL_MS - elapsed;
+                
+                if (sleepTime > MIN_FRAME_INTERVAL_MS) {
+                    Thread.sleep(sleepTime);
+                } else if (sleepTime < 0) {
+                    // 处理耗时超过目标间隔，稍微休息一下避免CPU占用过高
+                    Thread.sleep(MIN_FRAME_INTERVAL_MS);
                 }
             }
         } catch (Exception e) {
-            logger.error("Stream error: " + e.getMessage());
+            if (!(e instanceof IOException)) {
+                logger.error("Stream error for camera {}: {}", cameraIndex, e.getMessage());
+            }
+        } finally {
+            clientConnected.set(false);
+            long duration = System.currentTimeMillis() - streamStartTime;
+            long fps = duration > 0 ? (frameCount.get() * 1000 / duration) : 0;
+            logger.info("Camera {} stream ended - {} frames in {}ms (~{} FPS)", 
+                    cameraIndex, frameCount.get(), duration, fps);
         }
     }
 
@@ -335,59 +340,10 @@ public class CameraController {
     @GetMapping(value = "/frame/{cameraIndex}")
     @Operation(
             summary = "获取单个摄像头当前帧",
-            description = """
-                    获取指定摄像头的当前帧（Base64 编码的 JPEG 图片）。
-
-                    **使用场景**：
-                    - 前端使用 Canvas 实时拼接多个摄像头画面
-                    - 手动拼接参数预览
-                    - 降低服务器负担，由前端处理拼接
-
-                    **返回格式**：
-                    ```json
-                    {
-                      "status": "success",
-                      "data": {
-                        "index": 0,
-                        "frame": "data:image/jpeg;base64,/9j/4AAQSkZJRg...",
-                        "timestamp": 1234567890
-                      }
-                    }
-                    ```
-
-                    **注意事项**：
-                    - 返回的是单帧图片，不是视频流
-                    - 前端需要轮询此接口获取实时画面
-                    - 建议使用 30fps 轮询（约 33ms 间隔）
-                    """
+            description = "获取指定摄像头的当前帧（Base64 编码的 JPEG 图片）"
     )
-    @ApiResponses(value = {
-            @ApiResponse(
-                    responseCode = "200",
-                    description = "获取成功",
-                    content = @Content(
-                            mediaType = "application/json",
-                            examples = @ExampleObject(
-                                    value = """
-                                            {
-                                              "status": "success",
-                                              "data": {
-                                                "index": 0,
-                                                "frame": "data:image/jpeg;base64,/9j/4AAQ...",
-                                                "timestamp": 1234567890
-                                              }
-                                            }
-                                            """
-                            )
-                    )
-            )
-    })
     public ResponseEntity<Map<String, Object>> getCameraFrame(
-            @Parameter(
-                    description = "摄像头索引（从 0 开始）",
-                    required = true,
-                    example = "0"
-            )
+            @Parameter(description = "摄像头索引（从 0 开始）", required = true, example = "0")
             @PathVariable int cameraIndex) {
         Map<String, Object> response = new HashMap<>();
         try {
@@ -415,55 +371,43 @@ public class CameraController {
     }
 
     /**
-     * 获取所有摄像头当前帧（用于前端 Canvas 拼接）
+     * 获取所有摄像头当前帧（同步版）
      */
     @GetMapping(value = "/frames")
     @Operation(
-            summary = "获取所有摄像头当前帧",
+            summary = "获取所有摄像头当前帧（同步版）",
             description = """
-                    一次性获取所有摄像头的当前帧，用于前端 Canvas 拼接。
+                    一次性获取所有摄像头的当前帧，带同步时间戳。
 
-                    **使用场景**：
-                    - 前端 Canvas 拼接全景画面
-                    - 减少网络请求次数
-                    - 手动拼接参数实时预览
-
-                    **返回格式**：
-                    ```json
-                    {
-                      "status": "success",
-                      "data": {
-                        "cameraCount": 2,
-                        "frames": [
-                          { "index": 0, "frame": "data:image/jpeg;base64,..." },
-                          { "index": 1, "frame": "data:image/jpeg;base64,..." }
-                        ]
-                      }
-                    }
-                    ```
+                    **优化特性**：
+                    - 所有帧使用统一的时间戳
+                    - 适合前端 Canvas 拼接
+                    - 减少多摄像头画面不同步问题
                     """
     )
     public ResponseEntity<Map<String, Object>> getAllCameraFrames() {
         Map<String, Object> response = new HashMap<>();
         try {
-            List<String> base64Frames = cameraService.getAllCameraFramesBase64();
+            List<CameraService.FrameResult> frameResults = cameraService.getAllCameraFramesBase64WithSync();
             List<Map<String, Object>> frames = new ArrayList<>();
+            long syncTimestamp = System.currentTimeMillis();
 
-            for (int i = 0; i < base64Frames.size(); i++) {
+            for (CameraService.FrameResult result : frameResults) {
                 Map<String, Object> frameData = new HashMap<>();
-                frameData.put("index", i);
-                if (base64Frames.get(i) != null) {
-                    frameData.put("frame", "data:image/jpeg;base64," + base64Frames.get(i));
+                frameData.put("index", result.getIndex());
+                if (result.getFrame() != null) {
+                    frameData.put("frame", "data:image/jpeg;base64," + result.getFrame());
                 } else {
                     frameData.put("frame", null);
                 }
+                frameData.put("timestamp", syncTimestamp);
                 frames.add(frameData);
             }
 
             Map<String, Object> data = new HashMap<>();
             data.put("cameraCount", frames.size());
             data.put("frames", frames);
-            data.put("timestamp", System.currentTimeMillis());
+            data.put("syncTimestamp", syncTimestamp);
 
             response.put("status", "success");
             response.put("data", data);
@@ -477,61 +421,78 @@ public class CameraController {
     }
 
     /**
-     * 拼接后的全景视频流
-     *
-     * 返回多个摄像头拼接后的 MJPEG 视频流
-     * 拼接策略由配置决定
+     * 获取同步的多摄像头帧（按序列号）
+     */
+    @GetMapping(value = "/frames/sync")
+    @Operation(
+            summary = "获取同步的多摄像头帧",
+            description = """
+                    获取按序列号同步的多摄像头帧。
+
+                    **适用场景**：
+                    - 需要精确帧同步的应用
+                    - 多摄像头拼接时减少画面撕裂
+                    """
+    )
+    public ResponseEntity<Map<String, Object>> getSynchronizedFrames() {
+        Map<String, Object> response = new HashMap<>();
+        try {
+            List<CameraService.SyncFrameData> syncFrames = cameraService.getSynchronizedFrames();
+            List<Map<String, Object>> frames = new ArrayList<>();
+            
+            long minSequence = Long.MAX_VALUE;
+            for (CameraService.SyncFrameData frame : syncFrames) {
+                if (frame.getSequence() < minSequence) {
+                    minSequence = frame.getSequence();
+                }
+            }
+
+            for (CameraService.SyncFrameData frame : syncFrames) {
+                Map<String, Object> frameData = new HashMap<>();
+                frameData.put("index", frame.getCameraIndex());
+                frameData.put("frame", "data:image/jpeg;base64," + 
+                        java.util.Base64.getEncoder().encodeToString(frame.getData()));
+                frameData.put("timestamp", frame.getTimestamp());
+                frameData.put("sequence", frame.getSequence());
+                frameData.put("syncOffset", frame.getSequence() - minSequence);
+                frames.add(frameData);
+            }
+
+            Map<String, Object> data = new HashMap<>();
+            data.put("cameraCount", frames.size());
+            data.put("frames", frames);
+            data.put("referenceSequence", minSequence);
+
+            response.put("status", "success");
+            response.put("data", data);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            logger.error("Failed to get synchronized frames", e);
+            response.put("status", "error");
+            response.put("message", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+        }
+    }
+
+    /**
+     * 拼接后的全景视频流（优化版）
      */
     @GetMapping(value = "/stream")
     @Operation(
             summary = "获取拼接后的全景视频流",
-            description = """
-                    获取多个摄像头拼接后的全景 MJPEG 视频流。
-
-                    **使用方式**：
-
-                    1. **浏览器直接访问**：
-                    ```
-                    http://localhost:8000/api/camera/stream
-                    ```
-
-                    2. **HTML img 标签**：
-                    ```html
-                    <img src="http://localhost:8000/api/camera/stream" />
-                    ```
-
-                    **拼接策略**：
-
-                    拼接策略由配置文件决定，可通过 `/api/stitch/strategy` 接口动态切换：
-
-                    | 策略 | 说明 |
-                    |------|------|
-                    | simple | 简单水平拼接，速度快 |
-                    | auto | 自动特征点检测拼接，效果更好 |
-                    | manual | 手动调节拼接参数 |
-
-                    **注意事项**：
-                    - 至少需要 2 个摄像头才能拼接
-                    - 拼接会增加处理延迟，约 50-100ms
-                    - 手动拼接模式可通过 `/api/stitch/manual` 接口调节参数
-                    """
+            description = "获取多个摄像头拼接后的全景 MJPEG 视频流（优化版）"
     )
     @ApiResponses(value = {
             @ApiResponse(
                     responseCode = "200",
                     description = "拼接后的 MJPEG 视频流",
-                    content = @Content(
-                            mediaType = "multipart/x-mixed-replace; boundary=frame"
-                    )
+                    content = @Content(mediaType = "multipart/x-mixed-replace; boundary=frame")
             ),
-            @ApiResponse(
-                    responseCode = "503",
-                    description = "摄像头未运行或摄像头数量不足"
-            )
+            @ApiResponse(responseCode = "503", description = "摄像头未运行或数量不足")
     })
     public void streamStitched(HttpServletResponse response) throws IOException {
-        if (!cameraService.isRunning() || cameraService.getCameraCount() < 2) {
-            response.sendError(HttpServletResponse.SC_SERVICE_UNAVAILABLE, "Cannot start stitched stream");
+        if (!cameraService.isRunning() || cameraService.getCameraCount() < 1) {
+            response.sendError(HttpServletResponse.SC_SERVICE_UNAVAILABLE, "Cameras not available");
             return;
         }
 
@@ -539,11 +500,25 @@ public class CameraController {
         response.setHeader("Cache-Control", "no-cache, no-store, max-age=0, must-revalidate");
         response.setHeader("Pragma", "no-cache");
         response.setHeader("Expires", "0");
+        response.setHeader("Connection", "keep-alive");
 
         OutputStream out = response.getOutputStream();
+        AtomicBoolean clientConnected = new AtomicBoolean(true);
+        AtomicLong frameCount = new AtomicLong(0);
+        long streamStartTime = System.currentTimeMillis();
 
         try {
-            while (cameraService.isRunning()) {
+            logger.info("Starting optimized stitched stream");
+            
+            while (clientConnected.get() && cameraService.isRunning()) {
+                long loopStart = System.currentTimeMillis();
+                
+                // 检查流超时（仅在设置了超时时间时生效）
+                if (STREAM_TIMEOUT_MS > 0 && loopStart - streamStartTime > STREAM_TIMEOUT_MS) {
+                    logger.info("Stitched stream timeout");
+                    break;
+                }
+
                 byte[] frameData = cameraService.getStitchedMjpegFrame();
 
                 if (frameData != null && frameData.length > 0) {
@@ -555,16 +530,34 @@ public class CameraController {
                         out.write(frameData);
                         out.write(("\r\n").getBytes());
                         out.flush();
+
+                        frameCount.incrementAndGet();
                     } catch (IOException e) {
-                        logger.info("客户端已断开拼接流的连接");
+                        logger.info("Client disconnected from stitched stream");
+                        clientConnected.set(false);
                         break;
                     }
-                } else {
-                    Thread.sleep(50);
+                }
+
+                // 帧率控制
+                long elapsed = System.currentTimeMillis() - loopStart;
+                long sleepTime = FRAME_INTERVAL_MS - elapsed;
+                
+                if (sleepTime > MIN_FRAME_INTERVAL_MS) {
+                    Thread.sleep(sleepTime);
+                } else if (sleepTime < 0) {
+                    Thread.sleep(MIN_FRAME_INTERVAL_MS);
                 }
             }
         } catch (Exception e) {
-            logger.error("Stitched stream error: " + e.getMessage());
+            if (!(e instanceof IOException)) {
+                logger.error("Stitched stream error: {}", e.getMessage());
+            }
+        } finally {
+            long duration = System.currentTimeMillis() - streamStartTime;
+            long fps = duration > 0 ? (frameCount.get() * 1000 / duration) : 0;
+            logger.info("Stitched stream ended - {} frames in {}ms (~{} FPS)", 
+                    frameCount.get(), duration, fps);
         }
     }
 
