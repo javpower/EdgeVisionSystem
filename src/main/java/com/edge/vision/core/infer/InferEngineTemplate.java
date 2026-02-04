@@ -98,7 +98,7 @@ public abstract class InferEngineTemplate {
     }
 
     /**
-     * 推理主入口
+     * 单图推理主入口
      */
     public List<Detection> predict(Mat img) throws OrtException {
         if (img == null || img.empty()) return Collections.emptyList();
@@ -126,6 +126,66 @@ public abstract class InferEngineTemplate {
         result.close();
 
         return detections;
+    }
+
+    /**
+     * 批量推理主入口
+     * @param imgs 图片列表
+     * @return 每张图片的检测结果列表，顺序与输入一致
+     * @throws OrtException 如果任何图片处理失败
+     */
+    public List<List<Detection>> predictBatch(List<Mat> imgs) throws OrtException {
+        if (imgs == null || imgs.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        // 检查所有图片是否有效
+        for (Mat img : imgs) {
+            if (img == null || img.empty()) {
+                throw new IllegalArgumentException("Input image is null or empty");
+            }
+        }
+
+        int batchSize = imgs.size();
+
+        // 1. 批量预处理
+        List<PreProcessResult> preResults = new ArrayList<>(batchSize);
+        for (Mat img : imgs) {
+            preResults.add(preprocess(img));
+        }
+
+        // 2. 创建批量 Tensor
+        // 维度: [batch, 3, H, W]
+        long[] shape = { (long)batchSize, 3L, (long)inputH, (long)inputW };
+        int singleImageSize = 3 * inputH * inputW;
+        float[] batchPixelData = new float[batchSize * singleImageSize];
+
+        // 合并所有图片的像素数据
+        for (int i = 0; i < batchSize; i++) {
+            System.arraycopy(preResults.get(i).pixelData, 0, batchPixelData, i * singleImageSize, singleImageSize);
+        }
+
+        OnnxTensor tensor = OnnxTensor.createTensor(env, FloatBuffer.wrap(batchPixelData), shape);
+
+        // 3. 运行推理
+        OrtSession.Result result = session.run(Collections.singletonMap(inputName, tensor));
+
+        // 4. 获取批量输出
+        // YOLOv8 Output: [batch, 84, 8400] -> Batch, Channels, Anchors
+        float[][][] batchOutputData = (float[][][])result.get(0).getValue();
+
+        // 5. 批量后处理
+        List<List<Detection>> allDetections = new ArrayList<>(batchSize);
+        for (int i = 0; i < batchSize; i++) {
+            List<Detection> detections = postprocess(batchOutputData[i], preResults.get(i));
+            allDetections.add(detections);
+        }
+
+        // 6. 资源释放
+        tensor.close();
+        result.close();
+
+        return allDetections;
     }
 
     // 内部数据结构
