@@ -31,6 +31,8 @@ public class VisionTool {
     private static final float MATCH_RATIO = 0.7f;
     private static final int MIN_MATCH_COUNT = 4;
     private static final double MATCH_DISTANCE_THRESHOLD = 50.0;
+    // 单应性矩阵退化检测：变换后边界框面积最小百分比（低于此值认为匹配失败）
+    private static final double MIN_AREA_RATIO = 0.01;
 
     // --- 性能优化参数 ---
     // 处理时的最大宽度。将4K/2K大图缩小到此宽度进行计算，速度可提升10-20倍。
@@ -238,6 +240,16 @@ public class VisionTool {
             dstMat = new MatOfPoint2f();
             Core.perspectiveTransform(srcMat, dstMat, hMatrix);
             List<org.opencv.core.Point> dstList = dstMat.toList();
+
+            // --- 检测单应性矩阵是否退化（边界框面积检测）---
+            // 计算模板原始特征点的边界框面积
+            double originalArea = calculateBoundingBoxArea(srcPoints);
+            // 计算变换后特征点的边界框面积
+            double transformedArea = calculateBoundingBoxArea(dstList);
+            // 如果变换后的面积小于原始面积的MIN_AREA_RATIO，说明匹配失败
+            if (originalArea > 0 && transformedArea < originalArea * MIN_AREA_RATIO) {
+                return new ArrayList<>();
+            }
 
             // 8. 封装返回结果 (关键：坐标还原)
             List<DetectedObject> result = new ArrayList<>();
@@ -450,6 +462,27 @@ public class VisionTool {
     // =========================================================
     // 辅助工具方法
     // =========================================================
+    /**
+     * 计算点集的边界框面积
+     * @param points 点集列表
+     * @return 边界框面积（宽 x 高）
+     */
+    private static double calculateBoundingBoxArea(List<org.opencv.core.Point> points) {
+        if (points == null || points.isEmpty()) return 0;
+
+        double minX = Double.MAX_VALUE, maxX = Double.MIN_VALUE;
+        double minY = Double.MAX_VALUE, maxY = Double.MIN_VALUE;
+
+        for (org.opencv.core.Point p : points) {
+            if (p.x < minX) minX = p.x;
+            if (p.x > maxX) maxX = p.x;
+            if (p.y < minY) minY = p.y;
+            if (p.y > maxY) maxY = p.y;
+        }
+
+        return (maxX - minX) * (maxY - minY);
+    }
+
     private static Mat base64ToMat(String base64) {
         return base64ToMat(base64, Imgcodecs.IMREAD_COLOR);
     }
