@@ -33,6 +33,10 @@ public class CameraService {
     private static final int STREAM_QUEUE_SIZE = 10; // 增大队列缓冲
     private static final int MAX_FRAME_WAIT_MS = 100; // 最大等待时间
 
+    // 流优化参数
+    private static final int STREAM_JPEG_QUALITY = 50; // 流媒体使用更低的JPEG质量
+    private static final double STREAM_SCALE_FACTOR = 0.25; // 流媒体缩放到1/4 (4K->1080p)
+
     @Autowired
     private YamlConfig config;
 
@@ -415,6 +419,59 @@ public class CameraService {
     public byte[] getMjpegFrame(int cameraIndex) {
         FrameData frameData = getMjpegFrameData(cameraIndex);
         return frameData != null ? frameData.getData() : null;
+    }
+
+    /**
+     * 获取优化的流媒体帧数据（缩放 + 低质量）
+     * 用于多摄像头预览，减少带宽和卡顿
+     *
+     * @param cameraIndex 摄像头索引
+     * @param scale 缩放比例 (0.1-1.0)，例如 0.25 表示缩放到1/4
+     * @param quality JPEG质量 (1-100)
+     * @return 优化的JPEG帧数据
+     */
+    public byte[] getOptimizedStreamFrame(int cameraIndex, double scale, int quality) {
+        if (cameraIndex < 0 || cameraIndex >= currentFrames.size()) {
+            return null;
+        }
+
+        Mat frame = currentFrames.get(cameraIndex);
+        if (frame == null || frame.empty()) {
+            return null;
+        }
+
+        Mat scaledFrame = null;
+        MatOfByte mob = null;
+        try {
+            // 缩放图像
+            if (scale < 1.0) {
+                int newWidth = (int) (frame.cols() * scale);
+                int newHeight = (int) (frame.rows() * scale);
+                scaledFrame = new Mat();
+                org.opencv.imgproc.Imgproc.resize(frame, scaledFrame, new org.opencv.core.Size(newWidth, newHeight),
+                    org.opencv.imgproc.Imgproc.INTER_AREA);
+            } else {
+                scaledFrame = frame;
+            }
+
+            // 编码为JPEG（使用指定质量）
+            mob = new MatOfByte();
+            MatOfInt params = new MatOfInt(Imgcodecs.IMWRITE_JPEG_QUALITY, quality);
+            if (Imgcodecs.imencode(".jpg", scaledFrame, mob, params)) {
+                return mob.toArray();
+            }
+            return null;
+        } catch (Exception e) {
+            logger.error("Failed to get optimized stream frame for camera {}", cameraIndex, e);
+            return null;
+        } finally {
+            if (scaledFrame != null && scaledFrame != frame) {
+                scaledFrame.release();
+            }
+            if (mob != null) {
+                mob.release();
+            }
+        }
     }
 
     /**

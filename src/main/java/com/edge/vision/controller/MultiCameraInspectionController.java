@@ -15,12 +15,15 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.*;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * 多摄像头质检控制器
@@ -96,7 +99,7 @@ public class MultiCameraInspectionController {
                     result.passed,
                     result.imageUrl,
                     result.errorMessage,
-                    features
+                    features,result.details
                 ));
             }
 
@@ -311,11 +314,14 @@ public class MultiCameraInspectionController {
                     cameraDetail.put("errorMessage", result.getErrorMessage());
                 }
                 if (result.getFeatures() != null) {
-                    cameraDetail.put("features", result.getFeatures());
+                    cameraDetail.put("templateComparisons", result.getFeatures());
                 }
+                cameraDetail.put("details", result.getDetails());
                 cameraDetails.add(cameraDetail);
+
             }
             meta.put("cameraDetails", cameraDetails);
+
 
             entity.setMeta(meta);
 

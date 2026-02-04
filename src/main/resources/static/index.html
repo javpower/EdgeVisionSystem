@@ -132,12 +132,15 @@
             align-items: center;
             justify-content: center;
             min-height: 300px;
+            max-height: 80vh;
         }
 
         .panorama-canvas {
             max-width: 100%;
-            max-height: 60vh;
-            object-fit: contain;
+            max-height: 100%;
+            width: auto;
+            height: auto;
+            display: block;
         }
 
         .panorama-overlay {
@@ -879,7 +882,7 @@
                                         摄像头0
                                     </div>
                                     <div style="text-align: center; margin-top: 4px; font-size: 10px; color: #666;">
-                                        保留 0 到 stitchX<br><span style="color: #4CAF50;">stitchX: 900</span>
+                                        保留 0 到 stitchX<br><span style="color: #4CAF50;">stitchX: 225</span>
                                     </div>
                                 </div>
                                 <div style="font-size: 14px; color: #999;">➕</div>
@@ -888,7 +891,7 @@
                                         摄像头1
                                     </div>
                                     <div style="text-align: center; margin-top: 4px; font-size: 10px; color: #666;">
-                                        保留 stitchX 到末尾<br><span style="color: #2196F3;">stitchX: 300</span>
+                                        保留 stitchX 到末尾<br><span style="color: #2196F3;">stitchX: 75</span>
                                     </div>
                                 </div>
                                 <div style="font-size: 14px; color: #999;">=</div>
@@ -2805,9 +2808,9 @@
         cameras.forEach(cam => {
             const config = manualConfigs[cam.index] || {
                 x1: cam.x1 !== undefined ? cam.x1 : 0,
-                x2: cam.x2 !== undefined ? cam.x2 : 5472,
+                x2: cam.x2 !== undefined ? cam.x2 : 1368,
                 y: cam.y !== undefined ? cam.y : 0,
-                h: cam.h !== undefined ? cam.h : 3648
+                h: cam.h !== undefined ? cam.h : 912
             };
             manualConfigs[cam.index] = config;
 
@@ -2819,7 +2822,7 @@
                     <div class="param-item">
                         <label>🔪 左切割线 (x1)</label>
                         <div class="range-wrapper">
-                            <input type="range" min="0" max="6000" value="${config.x1}"
+                            <input type="range" min="0" max="1500" value="${config.x1}"
                                 oninput="updateParam(${cam.index}, 'x1', parseInt(this.value)); updateRangeDisplay(this)">
                             <span class="range-value">${config.x1}</span>
                         </div>
@@ -2828,7 +2831,7 @@
                     <div class="param-item">
                         <label>🔪 右切割线 (x2)</label>
                         <div class="range-wrapper">
-                            <input type="range" min="0" max="6000" value="${config.x2}"
+                            <input type="range" min="0" max="1500" value="${config.x2}"
                                 oninput="updateParam(${cam.index}, 'x2', parseInt(this.value)); updateRangeDisplay(this)">
                             <span class="range-value">${config.x2}</span>
                         </div>
@@ -2837,7 +2840,7 @@
                     <div class="param-item">
                         <label>⬇️ 起始行 (y)</label>
                         <div class="range-wrapper">
-                            <input type="range" min="0" max="4000" value="${config.y}"
+                            <input type="range" min="0" max="1000" value="${config.y}"
                                 oninput="updateParam(${cam.index}, 'y', parseInt(this.value)); updateRangeDisplay(this)">
                             <span class="range-value">${config.y}</span>
                         </div>
@@ -2868,9 +2871,9 @@
         if(!manualConfigs[cameraIndex]) {
             manualConfigs[cameraIndex] = {
                 x1: 0,
-                x2: 5472,
+                x2: 1368,
                 y: 0,
-                h: 3648
+                h: 912
             };
         }
         manualConfigs[cameraIndex][param] = value;

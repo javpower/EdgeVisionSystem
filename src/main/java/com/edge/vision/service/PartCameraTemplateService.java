@@ -4,6 +4,7 @@ import ai.onnxruntime.OrtException;
 import com.edge.vision.core.template.TemplateManager;
 import com.edge.vision.core.template.model.DetectedObject;
 import com.edge.vision.core.template.model.Template;
+import com.edge.vision.model.Detection;
 import com.edge.vision.util.VisionTool;
 import org.opencv.core.CvType;
 import org.opencv.core.Mat;
@@ -501,7 +502,7 @@ public class PartCameraTemplateService {
                         template.getTemplateId(),
                         passed,
                         "data:image/jpeg;base64," + resultImageBase64,
-                        features
+                        features,detections
                     ));
                 } else {
                     results.add(new CameraInspectionResult(
@@ -600,12 +601,23 @@ public class PartCameraTemplateService {
         public String errorMessage;  // 错误信息
         public List<FeatureComparisonInfo> features;
 
+        public java.util.List<Detection> details;
+
+
         public CameraInspectionResult(int cameraId, String templateId, boolean passed, String imageUrl, List<FeatureComparisonInfo> features) {
             this.cameraId = cameraId;
             this.templateId = templateId;
             this.passed = passed;
             this.imageUrl = imageUrl;
             this.features = features;
+        }
+        public CameraInspectionResult(int cameraId, String templateId, boolean passed, String imageUrl, List<FeatureComparisonInfo> features,List<Detection> details) {
+            this.cameraId = cameraId;
+            this.templateId = templateId;
+            this.passed = passed;
+            this.imageUrl = imageUrl;
+            this.features = features;
+            this.details=details;
         }
 
         public CameraInspectionResult(int cameraId, String templateId, boolean passed, String imageUrl, String errorMessage, List<FeatureComparisonInfo> features) {
@@ -615,6 +627,15 @@ public class PartCameraTemplateService {
             this.imageUrl = imageUrl;
             this.errorMessage = errorMessage;
             this.features = features;
+        }
+        public CameraInspectionResult(int cameraId, String templateId, boolean passed, String imageUrl, String errorMessage, List<FeatureComparisonInfo> features,List<Detection> details) {
+            this.cameraId = cameraId;
+            this.templateId = templateId;
+            this.passed = passed;
+            this.imageUrl = imageUrl;
+            this.errorMessage = errorMessage;
+            this.features = features;
+            this.details=details;
         }
     }
 

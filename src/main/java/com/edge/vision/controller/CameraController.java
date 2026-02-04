@@ -1,7 +1,6 @@
 package com.edge.vision.controller;
 
 import com.edge.vision.service.CameraService;
-import com.edge.vision.service.CameraService.FrameData;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -17,7 +16,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -25,7 +23,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -232,6 +229,151 @@ public class CameraController {
             @PathVariable int cameraIndex,
             HttpServletResponse response) throws IOException {
         
+//        if (!cameraService.isRunning()) {
+//            response.sendError(HttpServletResponse.SC_SERVICE_UNAVAILABLE, "Cameras not running");
+//            return;
+//        }
+//
+//        if (cameraIndex < 0 || cameraIndex >= cameraService.getCameraCount()) {
+//            response.sendError(HttpServletResponse.SC_BAD_REQUEST, "Invalid camera index");
+//            return;
+//        }
+//
+//        // 设置响应头
+//        response.setContentType("multipart/x-mixed-replace; boundary=frame");
+//        response.setHeader("Cache-Control", "no-cache, no-store, max-age=0, must-revalidate");
+//        response.setHeader("Pragma", "no-cache");
+//        response.setHeader("Expires", "0");
+//        response.setHeader("Connection", "keep-alive");
+//
+//        OutputStream out = response.getOutputStream();
+//        AtomicBoolean clientConnected = new AtomicBoolean(true);
+//        AtomicLong frameCount = new AtomicLong(0);
+//        AtomicLong lastFrameTime = new AtomicLong(System.currentTimeMillis());
+//        long streamStartTime = System.currentTimeMillis();
+//
+//        // 保活线程 - 检测客户端是否断开
+//        Thread keepAliveThread = new Thread(() -> {
+//            while (clientConnected.get() && cameraService.isRunning()) {
+//                try {
+//                    Thread.sleep(5000); // 每5秒检查一次
+//                    // 如果超过10秒没有发送帧，可能连接已断开
+//                    if (System.currentTimeMillis() - lastFrameTime.get() > 10000) {
+//                        logger.warn("Camera {} stream timeout, closing connection", cameraIndex);
+//                        clientConnected.set(false);
+//                    }
+//                } catch (InterruptedException e) {
+//                    Thread.currentThread().interrupt();
+//                    break;
+//                }
+//            }
+//        }, "Stream-KeepAlive-" + cameraIndex);
+//        keepAliveThread.setDaemon(true);
+//        keepAliveThread.start();
+//
+//        try {
+//            logger.info("Starting optimized stream for camera {}", cameraIndex);
+//
+//            while (clientConnected.get() && cameraService.isRunning()) {
+//                long loopStart = System.currentTimeMillis();
+//
+//                // 检查流超时（仅在设置了超时时间时生效）
+//                if (STREAM_TIMEOUT_MS > 0 && loopStart - streamStartTime > STREAM_TIMEOUT_MS) {
+//                    logger.info("Stream timeout for camera {}", cameraIndex);
+//                    break;
+//                }
+//
+//                FrameData frameData = cameraService.getMjpegFrameData(cameraIndex);
+//
+//                if (frameData != null && frameData.getData() != null && frameData.getData().length > 0) {
+//                    try {
+//                        // 发送 MJPEG 帧
+//                        out.write(("--frame\r\n").getBytes());
+//                        out.write(("Content-Type: image/jpeg\r\n").getBytes());
+//                        out.write(("Content-Length: " + frameData.getData().length + "\r\n").getBytes());
+//                        out.write(("X-Frame-Sequence: " + frameData.getSequence() + "\r\n").getBytes());
+//                        out.write(("X-Frame-Timestamp: " + frameData.getTimestamp() + "\r\n").getBytes());
+//                        out.write(("\r\n").getBytes());
+//                        out.write(frameData.getData());
+//                        out.write(("\r\n").getBytes());
+//                        out.flush();
+//
+//                        frameCount.incrementAndGet();
+//                        lastFrameTime.set(System.currentTimeMillis());
+//                    } catch (IOException e) {
+//                        logger.info("Client disconnected from camera {} stream", cameraIndex);
+//                        clientConnected.set(false);
+//                        break;
+//                    }
+//                }
+//
+//                // 帧率控制 - 自适应间隔
+//                long elapsed = System.currentTimeMillis() - loopStart;
+//                long sleepTime = FRAME_INTERVAL_MS - elapsed;
+//
+//                if (sleepTime > MIN_FRAME_INTERVAL_MS) {
+//                    Thread.sleep(sleepTime);
+//                } else if (sleepTime < 0) {
+//                    // 处理耗时超过目标间隔，稍微休息一下避免CPU占用过高
+//                    Thread.sleep(MIN_FRAME_INTERVAL_MS);
+//                }
+//            }
+//        } catch (Exception e) {
+//            if (!(e instanceof IOException)) {
+//                logger.error("Stream error for camera {}: {}", cameraIndex, e.getMessage());
+//            }
+//        } finally {
+//            clientConnected.set(false);
+//            long duration = System.currentTimeMillis() - streamStartTime;
+//            long fps = duration > 0 ? (frameCount.get() * 1000 / duration) : 0;
+//            logger.info("Camera {} stream ended - {} frames in {}ms (~{} FPS)",
+//                    cameraIndex, frameCount.get(), duration, fps);
+//        }
+
+        //上面原始的不要删除不要修改
+        streamCameraOptimized(cameraIndex,0.25,50,response);
+    }
+
+    /**
+     * 优化的摄像头视频流（支持缩放和质量调整）
+     * 适用于多摄像头4K场景，减少带宽和卡顿
+     */
+    @GetMapping(value = "/stream/{cameraIndex}/optimized")
+    @Operation(
+            summary = "获取优化的摄像头视频流",
+            description = """
+                    获取指定摄像头的优化MJPEG视频流。
+
+                    **优化特性**：
+                    - 支持分辨率缩放（默认0.25，即4K->1080p）
+                    - 支持JPEG质量调整（默认50，降低质量减少带宽）
+                    - 适用于多摄像头预览场景
+
+                    **参数**：
+                    - scale: 缩放比例，默认0.25（4K->1080p），0.125（4K->540p）
+                    - quality: JPEG质量，默认50（范围1-100，越低越小）
+                    推荐配置：
+                      scale=0.25, quality=50  // 1080p @ 15fps，适合大部分场景
+                      scale=0.1875, quality=40 // 720p @ 15fps，更流畅
+                      scale=0.125, quality=30  // 540p @ 15fps，最低带宽                
+                    **使用方式**：
+                    ```html
+                    <!-- 4K->1080p, 质量50 -->
+                    <img src="http://localhost:8000/api/camera/stream/0/optimized" />
+                    <!-- 4K->720p, 质量40 -->
+                    <img src="http://localhost:8000/api/camera/stream/0/optimized?scale=0.1875&quality=40" />
+                    ```
+                    """
+    )
+    public void streamCameraOptimized(
+            @Parameter(description = "摄像头索引", required = true)
+            @PathVariable int cameraIndex,
+            @Parameter(description = "缩放比例 (默认0.25，即4K->1080p)")
+            @RequestParam(defaultValue = "0.25") double scale,
+            @Parameter(description = "JPEG质量 (1-100, 默认50)")
+            @RequestParam(defaultValue = "50") int quality,
+            HttpServletResponse response) throws IOException {
+
         if (!cameraService.isRunning()) {
             response.sendError(HttpServletResponse.SC_SERVICE_UNAVAILABLE, "Cameras not running");
             return;
@@ -241,6 +383,10 @@ public class CameraController {
             response.sendError(HttpServletResponse.SC_BAD_REQUEST, "Invalid camera index");
             return;
         }
+
+        // 参数校验
+        scale = Math.max(0.05, Math.min(1.0, scale)); // 限制在0.05-1.0之间
+        quality = Math.max(1, Math.min(100, quality)); // 限制在1-100之间
 
         // 设置响应头
         response.setContentType("multipart/x-mixed-replace; boundary=frame");
@@ -255,81 +401,59 @@ public class CameraController {
         AtomicLong lastFrameTime = new AtomicLong(System.currentTimeMillis());
         long streamStartTime = System.currentTimeMillis();
 
-        // 保活线程 - 检测客户端是否断开
-        Thread keepAliveThread = new Thread(() -> {
-            while (clientConnected.get() && cameraService.isRunning()) {
-                try {
-                    Thread.sleep(5000); // 每5秒检查一次
-                    // 如果超过10秒没有发送帧，可能连接已断开
-                    if (System.currentTimeMillis() - lastFrameTime.get() > 10000) {
-                        logger.warn("Camera {} stream timeout, closing connection", cameraIndex);
-                        clientConnected.set(false);
-                    }
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    break;
-                }
-            }
-        }, "Stream-KeepAlive-" + cameraIndex);
-        keepAliveThread.setDaemon(true);
-        keepAliveThread.start();
+        // 降低帧率控制 - 优化流使用更低的帧率
+        int optimizedFps = 15; // 15 FPS足够预览
+        long optimizedInterval = 1000 / optimizedFps;
+
+        logger.info("Starting optimized stream for camera {}: scale={}, quality={}, fps={}",
+            cameraIndex, scale, quality, optimizedFps);
 
         try {
-            logger.info("Starting optimized stream for camera {}", cameraIndex);
-            
             while (clientConnected.get() && cameraService.isRunning()) {
                 long loopStart = System.currentTimeMillis();
-                
-                // 检查流超时（仅在设置了超时时间时生效）
-                if (STREAM_TIMEOUT_MS > 0 && loopStart - streamStartTime > STREAM_TIMEOUT_MS) {
-                    logger.info("Stream timeout for camera {}", cameraIndex);
-                    break;
-                }
 
-                FrameData frameData = cameraService.getMjpegFrameData(cameraIndex);
+                // 获取优化的帧数据
+                byte[] jpegBytes = cameraService.getOptimizedStreamFrame(cameraIndex, scale, quality);
 
-                if (frameData != null && frameData.getData() != null && frameData.getData().length > 0) {
+                if (jpegBytes != null && jpegBytes.length > 0) {
                     try {
                         // 发送 MJPEG 帧
                         out.write(("--frame\r\n").getBytes());
                         out.write(("Content-Type: image/jpeg\r\n").getBytes());
-                        out.write(("Content-Length: " + frameData.getData().length + "\r\n").getBytes());
-                        out.write(("X-Frame-Sequence: " + frameData.getSequence() + "\r\n").getBytes());
-                        out.write(("X-Frame-Timestamp: " + frameData.getTimestamp() + "\r\n").getBytes());
+                        out.write(("Content-Length: " + jpegBytes.length + "\r\n").getBytes());
                         out.write(("\r\n").getBytes());
-                        out.write(frameData.getData());
+                        out.write(jpegBytes);
                         out.write(("\r\n").getBytes());
                         out.flush();
 
                         frameCount.incrementAndGet();
                         lastFrameTime.set(System.currentTimeMillis());
                     } catch (IOException e) {
-                        logger.info("Client disconnected from camera {} stream", cameraIndex);
+                        logger.info("Client disconnected from camera {} optimized stream", cameraIndex);
                         clientConnected.set(false);
                         break;
                     }
                 }
 
-                // 帧率控制 - 自适应间隔
+                // 帧率控制
                 long elapsed = System.currentTimeMillis() - loopStart;
-                long sleepTime = FRAME_INTERVAL_MS - elapsed;
-                
-                if (sleepTime > MIN_FRAME_INTERVAL_MS) {
+                long sleepTime = optimizedInterval - elapsed;
+
+                if (sleepTime > 10) {
                     Thread.sleep(sleepTime);
                 } else if (sleepTime < 0) {
-                    // 处理耗时超过目标间隔，稍微休息一下避免CPU占用过高
-                    Thread.sleep(MIN_FRAME_INTERVAL_MS);
+                    Thread.sleep(10);
                 }
             }
         } catch (Exception e) {
             if (!(e instanceof IOException)) {
-                logger.error("Stream error for camera {}: {}", cameraIndex, e.getMessage());
+                logger.error("Optimized stream error for camera {}: {}", cameraIndex, e.getMessage());
             }
         } finally {
             clientConnected.set(false);
             long duration = System.currentTimeMillis() - streamStartTime;
             long fps = duration > 0 ? (frameCount.get() * 1000 / duration) : 0;
-            logger.info("Camera {} stream ended - {} frames in {}ms (~{} FPS)", 
+            logger.info("Camera {} optimized stream ended - {} frames in {}ms (~{} FPS)",
                     cameraIndex, frameCount.get(), duration, fps);
         }
     }

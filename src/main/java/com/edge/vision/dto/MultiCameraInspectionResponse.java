@@ -1,5 +1,7 @@
 package com.edge.vision.dto;
 
+import com.edge.vision.model.Detection;
+
 import java.util.List;
 
 /**
@@ -72,24 +74,30 @@ public class MultiCameraInspectionResponse {
         private String errorMessage;  // 错误信息
         private List<FeatureComparison> features;
 
+        private List<Detection> details;
+
+
+
+
+
         public CameraInspectionResult() {
         }
 
-        public CameraInspectionResult(int cameraId, String templateId, boolean passed, String imageUrl, List<FeatureComparison> features) {
-            this.cameraId = cameraId;
-            this.templateId = templateId;
-            this.passed = passed;
-            this.imageUrl = imageUrl;
-            this.features = features;
-        }
-
-        public CameraInspectionResult(int cameraId, String templateId, boolean passed, String imageUrl, String errorMessage, List<FeatureComparison> features) {
+        public CameraInspectionResult(int cameraId, String templateId, boolean passed, String imageUrl, String errorMessage, List<FeatureComparison> features, List<Detection> details) {
             this.cameraId = cameraId;
             this.templateId = templateId;
             this.passed = passed;
             this.imageUrl = imageUrl;
             this.errorMessage = errorMessage;
             this.features = features;
+            this.details = details;
+        }
+        public List<Detection> getDetails() {
+            return details;
+        }
+
+        public void setDetails(List<Detection> details) {
+            this.details = details;
         }
 
         public int getCameraId() {
