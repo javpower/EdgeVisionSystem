@@ -19,11 +19,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import org.opencv.core.CvType;
-import org.opencv.core.Mat;
-import org.opencv.core.MatOfByte;
-import org.opencv.core.MatOfInt;
-import org.opencv.core.Size;
+import org.opencv.core.*;
 import org.opencv.imgcodecs.Imgcodecs;
 import org.opencv.imgproc.Imgproc;
 import org.slf4j.Logger;
@@ -1048,7 +1044,7 @@ public class InspectController {
             obj.setClassName(detection.getLabel());
             obj.setClassId(detection.getClassId());
             obj.setConfidence(detection.getConfidence());
-
+            obj.setInsideBounds(true);
             // 从 bbox 计算 center 和 width/height
             float[] bbox = detection.getBbox();
             if (bbox != null && bbox.length >= 4) {

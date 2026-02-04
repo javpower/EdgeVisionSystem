@@ -11,6 +11,7 @@ public class DetectedObject {
     private double width;           // 宽度
     private double height;          // 高度
     private double confidence;      // 置信度
+    private boolean insideBounds;   // 是否在图像边界内
 
     public DetectedObject() {
     }
@@ -73,6 +74,9 @@ public class DetectedObject {
 
     public double getConfidence() { return confidence; }
     public void setConfidence(double confidence) { this.confidence = confidence; }
+
+    public boolean isInsideBounds() { return insideBounds; }
+    public void setInsideBounds(boolean insideBounds) { this.insideBounds = insideBounds; }
 
     @Override
     public String toString() {

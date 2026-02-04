@@ -263,6 +263,21 @@ public class VisionTool {
                     obj.setWidth(0); obj.setHeight(0);
                 }
                 obj.setConfidence(1.0);
+
+                // --- 计算 insideBounds ---
+                // 判断边界框是否在图像范围内
+                int imgWidth = sceneMat.cols();
+                int imgHeight = sceneMat.rows();
+                double objWidth = obj.getWidth();
+                double objHeight = obj.getHeight();
+                // 边界框的左上角和右下角
+                double left = realX - objWidth / 2;
+                double top = realY - objHeight / 2;
+                double right = realX + objWidth / 2;
+                double bottom = realY + objHeight / 2;
+                // 判断是否完全在图像内
+                obj.setInsideBounds(left >= 0 && top >= 0 && right <= imgWidth && bottom <= imgHeight);
+
                 result.add(obj);
             }
             return result;
