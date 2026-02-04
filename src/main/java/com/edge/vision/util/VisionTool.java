@@ -334,7 +334,7 @@ public class VisionTool {
      * 辅助方法：从缓存获取模板特征，如果缓存不存在则计算并存入
      * (线程安全)
      */
-    private static TemplateCacheData getOrComputeTemplateFeatures(Template template) {
+    public static TemplateCacheData getOrComputeTemplateFeatures(Template template) {
         String tplId = template.getTemplateId();
 
         return templateCache.computeIfAbsent(tplId, k -> {

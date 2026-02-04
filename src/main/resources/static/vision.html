@@ -1,0 +1,1117 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>多摄像头模板管理 - EDGE VISION</title>
+    <style>
+        :root {
+            --sidebar-bg: #001529;
+            --sidebar-width: 220px;
+            --primary-color: #1890ff;
+            --bg-body: #f0f2f5;
+            --header-height: 48px;
+            --card-radius: 8px;
+            --success-color: #52c41a;
+            --warning-color: #faad14;
+            --danger-color: #ff4d4f;
+            --text-primary: #303133;
+            --text-secondary: #606266;
+            --border-color: #dcdfe6;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-body);
+            color: var(--text-primary);
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: var(--sidebar-width);
+            background: var(--sidebar-bg);
+            display: flex;
+            flex-direction: column;
+            color: white;
+            flex-shrink: 0;
+        }
+
+        .sidebar-header {
+            padding: 20px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .logo {
+            font-size: 18px;
+            font-weight: bold;
+            color: white;
+        }
+
+        .logo span {
+            color: var(--primary-color);
+        }
+
+        .sidebar-nav {
+            flex: 1;
+            padding: 20px 0;
+            overflow-y: auto;
+        }
+
+        .nav-item {
+            padding: 12px 20px;
+            cursor: pointer;
+            transition: background 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .nav-item:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .nav-item.active {
+            background: var(--primary-color);
+        }
+
+        .sidebar-footer {
+            padding: 20px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        /* Main Content */
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* Header */
+        .header {
+            height: var(--header-height);
+            background: white;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 20px;
+            flex-shrink: 0;
+        }
+
+        .header-title {
+            font-size: 18px;
+            font-weight: 500;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: var(--primary-color);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #40a9ff;
+        }
+
+        .btn-success {
+            background: var(--success-color);
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #73d13d;
+        }
+
+        .btn-warning {
+            background: var(--warning-color);
+            color: white;
+        }
+
+        .btn-danger {
+            background: var(--danger-color);
+            color: white;
+        }
+
+        .btn-outline {
+            background: transparent;
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+        }
+
+        .btn-outline:hover {
+            border-color: var(--primary-color);
+            color: var(--primary-color);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Content Area */
+        .content-area {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        /* Cards */
+        .card {
+            background: white;
+            border-radius: var(--card-radius);
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .card-title {
+            font-size: 16px;
+            font-weight: 500;
+        }
+
+        .card-body {
+            min-height: 100px;
+        }
+
+        /* Form */
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: var(--primary-color);
+        }
+
+        .form-textarea {
+            min-height: 80px;
+            resize: vertical;
+        }
+
+        /* Camera Grid */
+        .camera-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .camera-card {
+            background: #f5f7fa;
+            border-radius: 8px;
+            padding: 15px;
+            border: 2px solid transparent;
+            transition: all 0.3s;
+        }
+
+        .camera-card:hover {
+            border-color: var(--primary-color);
+        }
+
+        .camera-card.selected {
+            border-color: var(--primary-color);
+            background: rgba(24, 144, 255, 0.05);
+        }
+
+        .camera-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .camera-title {
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        .camera-status {
+            font-size: 12px;
+            padding: 2px 8px;
+            border-radius: 10px;
+        }
+
+        .camera-status.online {
+            background: rgba(82, 196, 26, 0.1);
+            color: var(--success-color);
+        }
+
+        .camera-status.offline {
+            background: rgba(145, 145, 145, 0.1);
+            color: var(--text-secondary);
+        }
+
+        .camera-image-container {
+            position: relative;
+            width: 100%;
+            padding-top: 56.25%;
+            background: #e4e7ed;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .camera-image {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        .camera-placeholder {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .camera-actions {
+            display: flex;
+            gap: 5px;
+            margin-top: 10px;
+        }
+
+        .camera-actions .btn {
+            flex: 1;
+            padding: 6px 12px;
+            font-size: 12px;
+        }
+
+        /* Result Status */
+        .result-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .result-status.pending {
+            background: rgba(250, 173, 20, 0.1);
+            color: var(--warning-color);
+        }
+
+        .result-status.passed {
+            background: rgba(82, 196, 26, 0.1);
+            color: var(--success-color);
+        }
+
+        .result-status.failed {
+            background: rgba(255, 77, 79, 0.1);
+            color: var(--danger-color);
+        }
+
+        .result-status.error {
+            background: rgba(255, 77, 79, 0.15);
+            color: var(--danger-color);
+        }
+
+        /* Error Message */
+        .error-message {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 40px 20px;
+            gap: 15px;
+        }
+
+        .error-icon {
+            font-size: 48px;
+            color: var(--danger-color);
+        }
+
+        .error-text {
+            font-size: 18px;
+            color: var(--danger-color);
+            font-weight: 500;
+        }
+
+        /* Feature List */
+        .feature-list {
+            margin-top: 10px;
+        }
+
+        .feature-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px;
+            background: #f5f7fa;
+            border-radius: 4px;
+            margin-bottom: 5px;
+            font-size: 13px;
+        }
+
+        .feature-item.passed {
+            border-left: 3px solid var(--success-color);
+        }
+
+        .feature-item.failed {
+            border-left: 3px solid var(--danger-color);
+        }
+
+        .feature-item.extra {
+            border-left: 3px solid var(--warning-color);
+        }
+
+        /* Loading */
+        .loading {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid var(--border-color);
+            border-top-color: var(--primary-color);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 15px 20px;
+            border-radius: 8px;
+            background: white;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            z-index: 9999;
+            animation: slideIn 0.3s ease;
+        }
+
+        .toast.success { border-left: 4px solid var(--success-color); }
+        .toast.error { border-left: 4px solid var(--danger-color); }
+        .toast.warning { border-left: 4px solid var(--warning-color); }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.3s;
+        }
+
+        .tab:hover {
+            color: var(--primary-color);
+        }
+
+        .tab.active {
+            color: var(--primary-color);
+            border-bottom-color: var(--primary-color);
+        }
+
+        /* Tab Content */
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--text-secondary);
+        }
+
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Sidebar -->
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <div class="logo">EDGE<span>VISION</span></div>
+        </div>
+        <nav class="sidebar-nav">
+            <div class="nav-item" onclick="window.location.href='index.html'">
+                <span>← 返回主页</span>
+            </div>
+            <div class="nav-item active" onclick="switchTab('build')">
+                <span>📷 模板建模</span>
+            </div>
+            <div class="nav-item" onclick="switchTab('inspect')">
+                <span>🔍 质检检测</span>
+            </div>
+            <div class="nav-item" onclick="switchTab('template')">
+                <span>📁 模板管理</span>
+            </div>
+        </nav>
+        <div class="sidebar-footer">
+            <a href="index.html" class="btn btn-outline" style="display: block; text-align: center; text-decoration: none;">
+                🏠 主页
+            </a>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main-content">
+        <!-- Header -->
+        <div class="header">
+            <div class="header-title">多摄像头模板管理</div>
+            <div class="header-actions">
+                <button class="btn btn-primary" onclick="getPartTypes()">刷新</button>
+            </div>
+        </div>
+
+        <!-- Content Area -->
+        <div class="content-area">
+            <!-- Build Tab -->
+            <div id="buildTab" class="tab-content active">
+                <!-- Step 1: Capture -->
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">步骤1：截取工件图像</div>
+                    </div>
+                    <div class="card-body">
+                        <div class="form-group">
+                            <label class="form-label">工件类型</label>
+                            <input type="text" class="form-input" id="partTypeInput" placeholder="请输入工件类型，如：工件A">
+                        </div>
+                        <button class="btn btn-primary" onclick="captureImages()">
+                            📸 截取图像
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Step 2: Preview -->
+                <div class="card" id="previewCard" style="display: none;">
+                    <div class="card-header">
+                        <div class="card-title">步骤2：预览识别结果（请在图像上框出模板整体区域）</div>
+                    </div>
+                    <div class="card-body">
+                        <div class="camera-grid" id="previewCameraGrid"></div>
+                        <div style="margin-top: 20px; text-align: right;">
+                            <button class="btn btn-outline" onclick="resetCapture()">重置</button>
+                            <button class="btn btn-primary" onclick="previewDetection()">
+                                🔍 预览识别
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 3: Save -->
+                <div class="card" id="saveCard" style="display: none;">
+                    <div class="card-header">
+                        <div class="card-title">步骤3：保存模板</div>
+                    </div>
+                    <div class="card-body">
+                        <div class="camera-grid" id="saveCameraGrid"></div>
+                        <div style="margin-top: 20px;">
+                            <div class="form-group">
+                                <label class="form-label">容差设置</label>
+                                <div style="display: flex; gap: 10px;">
+                                    <div style="flex: 1;">
+                                        <label class="form-label">X方向容差</label>
+                                        <input type="number" class="form-input" id="toleranceX" value="20" min="0">
+                                    </div>
+                                    <div style="flex: 1;">
+                                        <label class="form-label">Y方向容差</label>
+                                        <input type="number" class="form-input" id="toleranceY" value="20" min="0">
+                                    </div>
+                                </div>
+                            </div>
+                            <div style="text-align: right;">
+                                <button class="btn btn-outline" onclick="resetCapture()">重置</button>
+                                <button class="btn btn-success" onclick="saveTemplates()">
+                                    💾 保存模板
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Inspect Tab -->
+            <div id="inspectTab" class="tab-content">
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">多摄像头质检</div>
+                    </div>
+                    <div class="card-body">
+                        <div class="form-group">
+                            <label class="form-label">工件类型</label>
+                            <select class="form-input" id="inspectPartType">
+                                <option value="">请选择工件类型</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-primary" onclick="startInspection()">
+                            🔍 开始质检
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Inspection Results -->
+                <div class="card" id="resultCard" style="display: none;">
+                    <div class="card-header">
+                        <div class="card-title">质检结果</div>
+                        <div class="result-status" id="overallStatus"></div>
+                    </div>
+                    <div class="card-body">
+                        <div class="camera-grid" id="resultCameraGrid"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Template Management Tab -->
+            <div id="templateTab" class="tab-content">
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">已保存的模板</div>
+                    </div>
+                    <div class="card-body">
+                        <div id="templateList" class="camera-grid"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // API Base URL
+        const API_BASE = '';
+
+        // State
+        let currentPartType = null;
+        let cameraImages = [];  // { cameraId, imageUrl, cropRect }
+        let previewResults = [];
+
+        // ============ Tab Switching ============
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+
+            if (tabName === 'build') {
+                document.getElementById('buildTab').classList.add('active');
+            } else if (tabName === 'inspect') {
+                document.getElementById('inspectTab').classList.add('active');
+                loadPartTypes();
+            } else if (tabName === 'template') {
+                document.getElementById('templateTab').classList.add('active');
+                loadTemplates();
+            }
+        }
+
+        // ============ Build Tab Functions ============
+        async function captureImages() {
+            const partType = document.getElementById('partTypeInput').value.trim();
+            if (!partType) {
+                showToast('请输入工件类型', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/api/multi-camera-template/capture`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ partType })
+                });
+
+                const data = await response.json();
+                if (!data.success) {
+                    showToast(data.message, 'error');
+                    return;
+                }
+
+                currentPartType = data.partType;
+                cameraImages = data.cameras.map(cam => ({
+                    cameraId: cam.cameraId,
+                    imageUrl: cam.imageUrl,
+                    cropRect: null
+                }));
+
+                renderPreviewGrid();
+                document.getElementById('previewCard').style.display = 'block';
+                showToast('截取成功，请框选模板区域', 'success');
+
+            } catch (error) {
+                console.error('Capture failed:', error);
+                showToast('截取失败: ' + error.message, 'error');
+            }
+        }
+
+        function renderPreviewGrid() {
+            const grid = document.getElementById('previewCameraGrid');
+            grid.innerHTML = cameraImages.map(cam => `
+                <div class="camera-card" data-camera-id="${cam.cameraId}">
+                    <div class="camera-card-header">
+                        <span class="camera-title">摄像头 ${cam.cameraId}</span>
+                        <span class="camera-status online">在线</span>
+                    </div>
+                    <div class="camera-image-container" id="imageContainer${cam.cameraId}">
+                        <img src="${cam.imageUrl}" class="camera-image" alt="Camera ${cam.cameraId}">
+                        <div class="selection-rect" id="selectionRect${cam.cameraId}" style="display: none; position: absolute; border: 2px dashed var(--primary-color); background: rgba(24, 144, 255, 0.1); pointer-events: none;"></div>
+                    </div>
+                    <div class="camera-actions">
+                        <button class="btn btn-outline" onclick="clearSelection(${cam.cameraId})">清除</button>
+                    </div>
+                </div>
+            `).join('');
+
+            // Enable crop on images
+            enableCropOnImages();
+        }
+
+        function enableCropOnImages() {
+            cameraImages.forEach(cam => {
+                const container = document.getElementById(`imageContainer${cam.cameraId}`);
+                const img = container.querySelector('.camera-image');
+                const selectionRect = document.getElementById(`selectionRect${cam.cameraId}`);
+
+                let isDrawing = false;
+                let startX, startY;
+
+                img.addEventListener('mousedown', (e) => {
+                    e.preventDefault();
+                    isDrawing = true;
+                    const imgRect = img.getBoundingClientRect();
+                    startX = e.clientX - imgRect.left;
+                    startY = e.clientY - imgRect.top;
+                    selectionRect.style.display = 'block';
+                    selectionRect.style.left = startX + 'px';
+                    selectionRect.style.top = startY + 'px';
+                    selectionRect.style.width = '0';
+                    selectionRect.style.height = '0';
+                });
+
+                img.addEventListener('mousemove', (e) => {
+                    if (!isDrawing) return;
+                    e.preventDefault();
+                    const imgRect = img.getBoundingClientRect();
+                    const currentX = e.clientX - imgRect.left;
+                    const currentY = e.clientY - imgRect.top;
+
+                    const width = currentX - startX;
+                    const height = currentY - startY;
+
+                    selectionRect.style.left = (width > 0 ? startX : currentX) + 'px';
+                    selectionRect.style.top = (height > 0 ? startY : currentY) + 'px';
+                    selectionRect.style.width = Math.abs(width) + 'px';
+                    selectionRect.style.height = Math.abs(height) + 'px';
+                });
+
+                const endDrawing = () => {
+                    if (!isDrawing) return;
+                    isDrawing = false;
+
+                    // 计算缩放比例：实际图片尺寸 vs 显示尺寸
+                    const imgRect = img.getBoundingClientRect();
+                    const scaleX = img.naturalWidth / imgRect.width;
+                    const scaleY = img.naturalHeight / imgRect.height;
+
+                    // 将显示坐标转换为实际图片坐标
+                    const cropRect = [
+                        Math.round(parseFloat(selectionRect.style.left) * scaleX),
+                        Math.round(parseFloat(selectionRect.style.top) * scaleY),
+                        Math.round(parseFloat(selectionRect.style.width) * scaleX),
+                        Math.round(parseFloat(selectionRect.style.height) * scaleY)
+                    ];
+
+                    // 保存 cropRect
+                    const camData = cameraImages.find(c => c.cameraId === cam.cameraId);
+                    if (camData) {
+                        camData.cropRect = cropRect;
+                        console.log(`Camera ${cam.cameraId} cropRect:`, cropRect, `scale: ${scaleX.toFixed(2)}x${scaleY.toFixed(2)}`);
+                    }
+                };
+
+                img.addEventListener('mouseup', endDrawing);
+                img.addEventListener('mouseleave', endDrawing);
+            });
+        }
+
+        function clearSelection(cameraId) {
+            const rect = document.getElementById(`selectionRect${cameraId}`);
+            rect.style.display = 'none';
+            const cam = cameraImages.find(c => c.cameraId === cameraId);
+            if (cam) {
+                cam.cropRect = null;
+            }
+        }
+
+        async function previewDetection() {
+            const camerasWithCrop = cameraImages.filter(cam => cam.cropRect);
+            if (camerasWithCrop.length === 0) {
+                showToast('请先框选至少一个摄像头的模板区域', 'warning');
+                return;
+            }
+
+            try {
+                const request = {
+                    partType: currentPartType,
+                    cameraCrops: camerasWithCrop.map(cam => ({
+                        cameraId: cam.cameraId,
+                        cropRect: cam.cropRect
+                    }))
+                };
+
+                const response = await fetch(`${API_BASE}/api/multi-camera-template/preview`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(request)
+                });
+
+                const data = await response.json();
+                if (!data.success) {
+                    showToast(data.message, 'error');
+                    return;
+                }
+
+                previewResults = data.cameras;
+                renderSaveGrid();
+                document.getElementById('saveCard').style.display = 'block';
+                showToast('识别完成，请确认后保存模板', 'success');
+
+            } catch (error) {
+                console.error('Preview failed:', error);
+                showToast('预览失败: ' + error.message, 'error');
+            }
+        }
+
+        function renderSaveGrid() {
+            const grid = document.getElementById('saveCameraGrid');
+            grid.innerHTML = previewResults.map(cam => `
+                <div class="camera-card">
+                    <div class="camera-card-header">
+                        <span class="camera-title">摄像头 ${cam.cameraId}</span>
+                        <span class="camera-status ${cam.features.length > 0 ? 'online' : 'offline'}">
+                            ${cam.features.length} 个特征
+                        </span>
+                    </div>
+                    <div class="camera-image-container">
+                        <img src="${cam.imageUrl}" class="camera-image" alt="Preview">
+                        ${cam.features.map(f => `
+                            <div style="position: absolute; left: ${f.centerX - f.width/2}px; top: ${f.centerY - f.height/2}px;
+                                        width: ${f.width}px; height: ${f.height}px;
+                                        border: 1px solid #0f0; border-radius: 2px;">
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function saveTemplates() {
+            const camerasWithCrop = cameraImages.filter(cam => cam.cropRect);
+            if (camerasWithCrop.length === 0) {
+                showToast('请先框选至少一个摄像头的模板区域', 'warning');
+                return;
+            }
+
+            const toleranceX = parseFloat(document.getElementById('toleranceX').value) || 20;
+            const toleranceY = parseFloat(document.getElementById('toleranceY').value) || 20;
+
+            try {
+                const request = {
+                    partType: currentPartType,
+                    toleranceX: toleranceX,
+                    toleranceY: toleranceY,
+                    cameraTemplates: camerasWithCrop.map(cam => ({
+                        cameraId: cam.cameraId,
+                        cropRect: cam.cropRect
+                    }))
+                };
+
+                const response = await fetch(`${API_BASE}/api/multi-camera-template/save`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(request)
+                });
+
+                const data = await response.json();
+                if (!data.success) {
+                    showToast(data.message, 'error');
+                    return;
+                }
+
+                showToast(`保存成功！创建了 ${data.templates.length} 个模板`, 'success');
+                resetCapture();
+
+            } catch (error) {
+                console.error('Save failed:', error);
+                showToast('保存失败: ' + error.message, 'error');
+            }
+        }
+
+        function resetCapture() {
+            currentPartType = null;
+            cameraImages = [];
+            previewResults = [];
+            document.getElementById('previewCard').style.display = 'none';
+            document.getElementById('saveCard').style.display = 'none';
+            document.getElementById('partTypeInput').value = '';
+        }
+
+        // ============ Inspect Tab Functions ============
+        async function loadPartTypes() {
+            try {
+                const response = await fetch(`${API_BASE}/api/multi-camera-template/part-types`);
+                const data = await response.json();
+
+                const select = document.getElementById('inspectPartType');
+                select.innerHTML = '<option value="">请选择工件类型</option>';
+
+                if (data.partTypes) {
+                    data.partTypes.forEach(pt => {
+                        const option = document.createElement('option');
+                        option.value = pt.partType;
+                        option.textContent = `${pt.partType} (${pt.cameraCount} 个摄像头)`;
+                        select.appendChild(option);
+                    });
+                }
+            } catch (error) {
+                console.error('Load part types failed:', error);
+            }
+        }
+
+        async function startInspection() {
+            const partType = document.getElementById('inspectPartType').value;
+            if (!partType) {
+                showToast('请选择工件类型', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/api/multi-camera-inspection/inspect`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ partType })
+                });
+
+                const data = await response.json();
+
+                // 检查是否返回错误
+                if (!data.success) {
+                    // 显示错误信息
+                    renderError(data.message);
+                    document.getElementById('resultCard').style.display = 'block';
+                    showToast(data.message || '质检失败', 'error');
+                    return;
+                }
+
+                // 正常显示结果
+                renderResults(data.cameraResults);
+                document.getElementById('resultCard').style.display = 'block';
+                showToast('质检完成', 'success');
+
+            } catch (error) {
+                console.error('Inspection failed:', error);
+                showToast('质检失败: ' + error.message, 'error');
+            }
+        }
+
+        function renderError(message) {
+            const grid = document.getElementById('resultCameraGrid');
+            const overallStatus = document.getElementById('overallStatus');
+
+            overallStatus.className = 'result-status error';
+            overallStatus.textContent = `✗ ${message || '质检失败'}`;
+
+            grid.innerHTML = `
+                <div class="camera-card failed">
+                    <div class="error-message">
+                        <div class="error-icon">⚠</div>
+                        <div class="error-text">${message || '质检失败，请检查工件状态'}</div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderResults(results) {
+            const grid = document.getElementById('resultCameraGrid');
+            const overallStatus = document.getElementById('overallStatus');
+
+            // Count passed/failed
+            const passedCount = results.filter(r => r.passed).length;
+            const failedCount = results.length - passedCount;
+
+            overallStatus.className = 'result-status';
+            if (failedCount === 0 && passedCount > 0) {
+                overallStatus.classList.add('passed');
+                overallStatus.textContent = `✓ 全部通过 (${passedCount}/${results.length})`;
+            } else if (passedCount === 0) {
+                overallStatus.classList.add('failed');
+                overallStatus.textContent = `✗ 全部失败 (${results.length})`;
+            } else {
+                overallStatus.classList.add('failed');
+                overallStatus.textContent = `△ 部分通过 (通过: ${passedCount}, 失败: ${failedCount})`;
+            }
+
+            grid.innerHTML = results.map(r => `
+                <div class="camera-card ${r.passed ? 'passed' : 'failed'}">
+                    <div class="camera-card-header">
+                        <span class="camera-title">摄像头 ${r.cameraId}</span>
+                        <span class="result-status ${r.passed ? 'passed' : 'failed'}">
+                            ${r.passed ? '✓ 通过' : '✗ 失败'}
+                        </span>
+                        ${r.errorMessage ? `<span class="result-status error">${r.errorMessage}</span>` : ''}
+                    </div>
+                    <div class="camera-image-container">
+                        <img src="${r.imageUrl}" class="camera-image" alt="Result">
+                    </div>
+                    ${r.features && r.features.length > 0 ? `
+                        <div class="feature-list">
+                            ${r.features.map(f => `
+                                <div class="feature-item ${f.status === 'PASSED' ? 'passed' : f.status === 'EXTRA' ? 'extra' : 'failed'}">
+                                    ${f.featureName || f.featureId}: ${f.status}
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : ''}
+                </div>
+            `).join('');
+        }
+
+        // ============ Template Management Functions ============
+        async function loadTemplates() {
+            try {
+                const response = await fetch(`${API_BASE}/api/multi-camera-template/part-types`);
+                const data = await response.json();
+
+                if (!data.success || !data.partTypes) {
+                    return;
+                }
+
+                const grid = document.getElementById('templateList');
+                grid.innerHTML = data.partTypes.map(pt => `
+                    <div class="camera-card">
+                        <div class="camera-card-header">
+                            <span class="camera-title">${pt.partType}</span>
+                        </div>
+                        <div class="card-body">
+                            <p>${pt.cameraCount} 个摄像头</p>
+                            <button class="btn btn-danger" onclick="deleteTemplate('${pt.partType}')" style="width: 100%; margin-top: 10px;">
+                                🗑️ 删除模板
+                            </button>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (error) {
+                console.error('Load templates failed:', error);
+            }
+        }
+
+        async function deleteTemplate(partType) {
+            if (!confirm(`确定要删除工件 "${partType}" 的所有模板吗？`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/api/multi-camera-template/${partType}`, {
+                    method: 'DELETE'
+                });
+
+                const data = await response.json();
+                if (data.success) {
+                    showToast('删除成功', 'success');
+                    loadTemplates();
+                } else {
+                    showToast(data.message, 'error');
+                }
+            } catch (error) {
+                console.error('Delete failed:', error);
+                showToast('删除失败: ' + error.message, 'error');
+            }
+        }
+
+        // ============ Utility Functions ============
+        function showToast(message, type = 'info') {
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+
+            setTimeout(() => {
+                toast.remove();
+            }, 3000);
+        }
+
+        // Auto-load part types on inspect tab switch
+        document.addEventListener('DOMContentLoaded', () => {
+            // Initialize
+        });
+    </script>
+</body>
+</html>

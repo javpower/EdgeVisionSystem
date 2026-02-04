@@ -373,6 +373,27 @@ public class CameraService {
     }
 
     /**
+     * 获取单个摄像头的当前帧（Mat，直接返回，避免base64转换）
+     * 注意：调用方需要 clone() 或在不使用时注意原Mat会被更新
+     *
+     * @param cameraIndex 摄像头索引
+     * @return 当前帧的克隆（需要由调用方释放）
+     */
+    public Mat getCameraImageMat(int cameraIndex) {
+        if (cameraIndex < 0 || cameraIndex >= currentFrames.size()) {
+            return null;
+        }
+
+        Mat frame = currentFrames.get(cameraIndex);
+        if (frame == null || frame.empty()) {
+            return null;
+        }
+
+        // 返回克隆，避免原Mat被修改
+        return frame.clone();
+    }
+
+    /**
      * 获取单个摄像头的 MJPEG 帧数据（新版返回 FrameData）
      */
     public FrameData getMjpegFrameData(int cameraIndex) {
