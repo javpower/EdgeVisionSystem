@@ -1,6 +1,7 @@
 package com.edge.vision.model;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.util.List;
 
 /**
  * 数据采集请求
@@ -16,6 +17,17 @@ public class CollectDataRequest {
 
     @JsonProperty("save_dir")
     private String saveDir;  // 保存目录，例如：data/collected/EKS
+
+    @JsonProperty("camera_ids")
+    private List<Integer> cameraIds;  // 指定要采集的摄像头ID列表，为空则采集所有摄像头
+
+    public List<Integer> getCameraIds() {
+        return cameraIds;
+    }
+
+    public void setCameraIds(List<Integer> cameraIds) {
+        this.cameraIds = cameraIds;
+    }
 
     public String getConfirmedPartName() {
         return confirmedPartName;

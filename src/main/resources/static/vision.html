@@ -515,6 +515,9 @@
             <div class="nav-item" onclick="switchTab('inspect')">
                 <span>🔍 质检检测</span>
             </div>
+            <div class="nav-item" onclick="switchTab('collect')">
+                <span>📊 数据采集</span>
+            </div>
             <div class="nav-item" onclick="switchTab('template')">
                 <span>📁 模板管理</span>
             </div>
@@ -613,9 +616,8 @@
                     <div class="card-body">
                         <div class="form-group">
                             <label class="form-label">工件类型</label>
-                            <select class="form-input" id="inspectPartType">
-                                <option value="">请选择工件类型</option>
-                            </select>
+                            <input type="text" class="form-input" id="inspectPartType" list="inspectPartTypeList" placeholder="请选择或输入工件类型">
+                            <datalist id="inspectPartTypeList"></datalist>
                         </div>
                         <button class="btn btn-primary" onclick="startInspection()">
                             🔍 开始质检
@@ -631,6 +633,46 @@
                     </div>
                     <div class="card-body">
                         <div class="camera-grid" id="resultCameraGrid"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Collect Data Tab -->
+            <div id="collectTab" class="tab-content">
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">多摄像头数据采集</div>
+                    </div>
+                    <div class="card-body">
+                        <div class="form-group">
+                            <label class="form-label">工件类型</label>
+                            <input type="text" class="form-input" id="collectPartType" list="collectPartTypeList" placeholder="请选择或输入工件类型">
+                            <datalist id="collectPartTypeList"></datalist>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">摄像头ID（可选，多个用逗号分隔）</label>
+                            <input type="text" class="form-input" id="collectCameraIds" placeholder="如：0,1 或留空采集所有摄像头">
+                            <small style="color: var(--text-secondary);">如果该工件类型有模板，会自动采集有模板的摄像头</small>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">保存目录（可选）</label>
+                            <input type="text" class="form-input" id="collectSaveDir" placeholder="如：D:/data/collected 或留空使用默认目录">
+                        </div>
+                        <button class="btn btn-success" onclick="startCollectData()">
+                            📊 开始采集
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Collection Results -->
+                <div class="card" id="collectResultCard" style="display: none;">
+                    <div class="card-header">
+                        <div class="card-title">采集结果</div>
+                        <div class="result-status" id="collectStatus"></div>
+                    </div>
+                    <div class="card-body">
+                        <div id="collectResultInfo"></div>
+                        <div class="camera-grid" id="collectResultGrid" style="margin-top: 15px;"></div>
                     </div>
                 </div>
             </div>
@@ -668,6 +710,9 @@
             } else if (tabName === 'inspect') {
                 document.getElementById('inspectTab').classList.add('active');
                 loadPartTypes();
+            } else if (tabName === 'collect') {
+                document.getElementById('collectTab').classList.add('active');
+                loadPartTypesForCollect();
             } else if (tabName === 'template') {
                 document.getElementById('templateTab').classList.add('active');
                 loadTemplates();
@@ -930,15 +975,15 @@
                 const response = await fetch(`${API_BASE}/api/multi-camera-template/part-types`);
                 const data = await response.json();
 
-                const select = document.getElementById('inspectPartType');
-                select.innerHTML = '<option value="">请选择工件类型</option>';
+                const datalist = document.getElementById('inspectPartTypeList');
+                datalist.innerHTML = '';
 
                 if (data.partTypes) {
                     data.partTypes.forEach(pt => {
                         const option = document.createElement('option');
                         option.value = pt.partType;
-                        option.textContent = `${pt.partType} (${pt.cameraCount} 个摄像头)`;
-                        select.appendChild(option);
+                        option.label = `${pt.partType} (${pt.cameraCount} 个摄像头)`;
+                        datalist.appendChild(option);
                     });
                 }
             } catch (error) {
@@ -1042,6 +1087,117 @@
                     ` : ''}
                 </div>
             `).join('');
+        }
+
+        // ============ Collect Data Functions ============
+        async function loadPartTypesForCollect() {
+            try {
+                const response = await fetch(`${API_BASE}/api/multi-camera-template/part-types`);
+                const data = await response.json();
+
+                const datalist = document.getElementById('collectPartTypeList');
+                datalist.innerHTML = '';
+
+                if (data.partTypes) {
+                    data.partTypes.forEach(pt => {
+                        const option = document.createElement('option');
+                        option.value = pt.partType;
+                        option.label = `${pt.partType} (${pt.cameraCount} 个摄像头)`;
+                        datalist.appendChild(option);
+                    });
+                }
+            } catch (error) {
+                console.error('Load part types failed:', error);
+            }
+        }
+
+        async function startCollectData() {
+            const partType = document.getElementById('collectPartType').value;
+            if (!partType) {
+                showToast('请选择工件类型', 'error');
+                return;
+            }
+
+            const cameraIdsInput = document.getElementById('collectCameraIds').value.trim();
+            let cameraIds = null;
+            if (cameraIdsInput) {
+                cameraIds = cameraIdsInput.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
+            }
+
+            const saveDir = document.getElementById('collectSaveDir').value.trim();
+
+            try {
+                const request = {
+                    confirmed_part_name: partType
+                };
+                if (cameraIds && cameraIds.length > 0) {
+                    request.camera_ids = cameraIds;
+                }
+                if (saveDir) {
+                    request.save_dir = saveDir;
+                }
+
+                const response = await fetch(`${API_BASE}/api/multi-camera-inspection/collect-data`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(request)
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    renderCollectResult(data);
+                } else {
+                    showToast(data.message || '采集失败', 'error');
+                }
+
+            } catch (error) {
+                console.error('Collect data failed:', error);
+                showToast('采集失败: ' + error.message, 'error');
+            }
+        }
+
+        function renderCollectResult(data) {
+            const resultCard = document.getElementById('collectResultCard');
+            const status = document.getElementById('collectStatus');
+            const info = document.getElementById('collectResultInfo');
+            const grid = document.getElementById('collectResultGrid');
+
+            resultCard.style.display = 'block';
+
+            // 状态显示
+            status.className = 'result-status passed';
+            status.textContent = '✓ 采集成功';
+
+            // 基本信息
+            info.innerHTML = `
+                <div style="margin-bottom: 15px;">
+                    <p><strong>工件类型:</strong> ${data.partType}</p>
+                    <p><strong>文件前缀:</strong> ${data.fileBaseName}</p>
+                    <p><strong>保存目录:</strong> ${data.collectDir}</p>
+                    <p><strong>有模板:</strong> ${data.hasTemplate ? '是（图片+JSON）' : '否（仅图片）'}</p>
+                </div>
+            `;
+
+            // 保存的文件列表
+            if (data.savedFiles && data.savedFiles.length > 0) {
+                grid.innerHTML = data.savedFiles.map(file => `
+                    <div class="camera-card">
+                        <div class="camera-card-header">
+                            <span class="camera-title">摄像头 ${file.cameraId}</span>
+                            <span class="camera-status online">已保存</span>
+                        </div>
+                        <div class="card-body">
+                            <p style="font-size: 13px; color: var(--text-secondary);">文件: ${file.fileName}</p>
+                            ${file.templateId ? `<p style="font-size: 13px; color: var(--text-secondary);">模板: ${file.templateId}</p>` : ''}
+                        </div>
+                    </div>
+                `).join('');
+            } else {
+                grid.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📭</div><p>没有保存任何文件</p></div>';
+            }
+
+            showToast('数据采集成功！', 'success');
         }
 
         // ============ Template Management Functions ============

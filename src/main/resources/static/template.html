@@ -3,1026 +3,1025 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>手动模板创建 - 最终修复版</title>
+    <title>手动模板创建 - 多摄像头版本</title>
     <style>
-        /* ============ 基础样式 ============ */
+        :root {
+            --sidebar-bg: #001529;
+            --sidebar-width: 280px;
+            --primary-color: #1890ff;
+            --success-color: #52c41a;
+            --warning-color: #faad14;
+            --danger-color: #ff4d4f;
+        }
+
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #1a1a2e; color: #eee; overflow: hidden; width: 100vw; height: 100vh; }
-        .container { display: flex; width: 100vw; height: 100vh; }
 
-        /* ============ 左侧侧边栏 ============ */
-        .sidebar { width: 300px; min-width: 300px; background: #16213e; border-right: 1px solid #0f3460; display: flex; flex-direction: column; overflow-y: auto; z-index: 100; }
-        .sidebar-header { padding: 20px; background: #0f3460; }
-        .sidebar-header h1 { font-size: 18px; color: #4cc9f0; }
-        .sidebar-section { padding: 15px; border-bottom: 1px solid #1a1a2e; }
-        .sidebar-section h3 { font-size: 13px; color: #4cc9f0; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 1px; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f0f2f5;
+            color: #303133;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
 
-        /* 表单组件 */
+        .sidebar {
+            width: var(--sidebar-width);
+            background: var(--sidebar-bg);
+            display: flex;
+            flex-direction: column;
+            color: white;
+            flex-shrink: 0;
+            overflow-y: auto;
+        }
+
+        .sidebar-header {
+            padding: 20px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .logo { font-size: 18px; font-weight: bold; }
+        .logo span { color: var(--primary-color); }
+
+        .sidebar-content { padding: 20px; }
+
+        .sidebar-section { margin-bottom: 20px; }
+        .sidebar-section h3 {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.5);
+            margin-bottom: 10px;
+            text-transform: uppercase;
+        }
+
         .form-group { margin-bottom: 12px; }
-        .form-group label { display: block; font-size: 12px; color: #888; margin-bottom: 5px; }
-        .form-group input { width: 100%; padding: 8px 10px; background: #1a1a2e; border: 1px solid #0f3460; border-radius: 4px; color: #eee; font-size: 13px; }
-        .form-group input:focus { outline: none; border-color: #4cc9f0; }
+        .form-group label {
+            display: block;
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.7);
+            margin-bottom: 5px;
+        }
+        .form-group input {
+            width: 100%;
+            padding: 8px 10px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 4px;
+            color: white;
+            font-size: 13px;
+        }
+        .form-group input:focus { outline: none; border-color: var(--primary-color); }
 
-        .btn { width: 100%; padding: 10px 14px; background: #4cc9f0; border: none; border-radius: 4px; color: #1a1a2e; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; margin-bottom: 8px; }
-        .btn:hover:not(:disabled) { background: #3db5d8; }
-        .btn:disabled { background: #444; color: #888; cursor: not-allowed; }
-        .btn-secondary { background: #0f3460; color: #4cc9f0; }
-        .btn-secondary:hover:not(:disabled) { background: #1a1a2e; }
-        .btn-success { background: #00d9a0; color: #1a1a2e; }
-        .btn.active { background: #e94560; color: #fff; }
+        .btn {
+            width: 100%;
+            padding: 10px 14px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            margin-bottom: 8px;
+        }
+        .btn-primary { background: var(--primary-color); color: white; }
+        .btn-success { background: var(--success-color); color: white; }
+        .btn-outline {
+            background: transparent;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: white;
+        }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn.active { background: var(--success-color); border-color: var(--success-color); }
 
-        /* 标注列表 */
-        .annotation-list { max-height: 200px; overflow-y: auto; }
-        .annotation-item { background: #1a1a2e; padding: 10px; margin-bottom: 8px; border-radius: 4px; border: 2px solid transparent; cursor: pointer; transition: 0.2s; }
-        .annotation-item:hover { border-color: #4cc9f0; }
-        .annotation-item.active { border-color: #4cc9f0; background: #0f3460; }
-        .annotation-item-header { display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 13px; font-weight: bold; }
-        .annotation-item-delete { background: none; border: none; color: #e94560; cursor: pointer; font-size: 16px; width: 20px; text-align: center;}
-        .annotation-item-info { font-size: 10px; color: #888; }
+        .mode-toggle { display: flex; gap: 8px; margin-bottom: 12px; }
+        .mode-btn {
+            flex: 1;
+            padding: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .mode-btn.active { background: var(--primary-color); border-color: var(--primary-color); }
 
-        /* ============ 右侧画布区域 ============ */
-        .canvas-area { flex: 1; display: flex; flex-direction: column; background: #0d0d1a; position: relative; overflow: hidden; }
+        .main-content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+        .header {
+            height: 48px;
+            background: white;
+            border-bottom: 1px solid #dcdfe6;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 20px;
+            flex-shrink: 0;
+        }
+        .content-area { flex: 1; padding: 20px; overflow-y: auto; }
 
-        .canvas-toolbar { padding: 10px 15px; background: #16213e; border-bottom: 1px solid #0f3460; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-        .canvas-toolbar-btn { padding: 6px 10px; background: #1a1a2e; border: 1px solid #0f3460; color: #eee; cursor: pointer; border-radius: 4px; font-size: 11px; }
-        .canvas-toolbar-btn.active { background: #4cc9f0; color: #1a1a2e; border-color: #4cc9f0; }
+        .camera-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(500px, 1fr));
+            gap: 20px;
+        }
 
-        /* 核心布局修复：Canvas 始终铺满 */
-        .canvas-container { flex: 1; position: relative; overflow: hidden; background: #0d0d1a; }
-        .canvas-wrapper { position: absolute; top: 0; left: 0; width: 100% !important; height: 100% !important; cursor: crosshair; }
-        canvas { display: block; width: 100%; height: 100%; outline: none; }
+        .camera-card {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+        .camera-card.selected { box-shadow: 0 0 0 3px var(--primary-color); }
 
-        /* ============ 辅助 UI ============ */
-        .status-bar { padding: 8px 15px; background: #16213e; border-top: 1px solid #0f3460; display: flex; justify-content: space-between; font-size: 10px; color: #888; }
-        .mode-indicator { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); padding: 8px 20px; background: rgba(0,0,0,0.8); border-radius: 20px; pointer-events: none; z-index: 50; font-weight: bold; font-size: 13px; }
-        .mode-crop { color: #4cc9f0; }
-        .mode-annotate { color: #00d9a0; }
+        .camera-card-header {
+            padding: 12px 15px;
+            background: #f5f7fa;
+            border-bottom: 1px solid #dcdfe6;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+        }
+        .camera-card-header:hover { background: #e8f4ff; }
+        .camera-title { font-weight: 500; font-size: 14px; }
+        .camera-badge {
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 10px;
+            background: rgba(82, 196, 26, 0.1);
+            color: var(--success-color);
+        }
 
-        .edit-hint { position: absolute; bottom: 130px; right: 20px; background: rgba(0,0,0,0.7); padding: 10px; border-radius: 6px; font-size: 11px; pointer-events: none; z-index: 50; color: #ccc; }
+        .image-viewer {
+            position: relative;
+            width: 100%;
+            height: 450px;
+            background: #1a1a1a;
+            overflow: hidden;
+            user-select: none;
+        }
 
-        .thumbnail-container { position: absolute; bottom: 20px; right: 20px; width: 150px; height: 100px; background: rgba(0,0,0,0.6); border: 1px solid #0f3460; pointer-events: none; z-index: 50; overflow: hidden; }
-        .thumbnail-viewport { position: absolute; border: 2px solid #4cc9f0; background: rgba(76,201,240,0.1); }
+        .image-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            transform-origin: 0 0;
+            will-change: transform;
+        }
 
-        .toast { position: fixed; top: 20px; right: 20px; padding: 12px 18px; border-radius: 6px; z-index: 9999; animation: slideIn 0.3s; font-size: 13px; }
-        .toast-success { background: #00d9a0; color: #1a1a2e; }
-        .toast-error { background: #e94560; color: #fff; }
-        .toast-info { background: #4cc9f0; color: #1a1a2e; }
-        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        .camera-image {
+            display: block;
+            pointer-events: none;
+        }
 
-        .empty-state { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #888; font-size: 15px; text-align: center; }
-        .empty-state-icon { font-size: 48px; margin-bottom: 20px; }
+        .selection-rect, .annotation-rect, .temp-rect {
+            position: absolute;
+            pointer-events: none;
+            box-sizing: border-box;
+        }
+        .selection-rect { border: 3px dashed var(--primary-color); background: rgba(24, 144, 255, 0.2); }
+        .annotation-rect { border: 2px solid #52c41a; background: rgba(82, 196, 26, 0.25); }
+
+        .zoom-controls {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            display: flex;
+            gap: 5px;
+            z-index: 10;
+        }
+        .zoom-btn {
+            width: 36px;
+            height: 36px;
+            background: rgba(0, 0, 0, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            border-radius: 6px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+        }
+        .zoom-btn:hover { background: rgba(0, 0, 0, 0.95); }
+        .zoom-btn.active { background: var(--primary-color); border-color: var(--primary-color); }
+
+        .zoom-level {
+            position: absolute;
+            bottom: 12px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+        }
+
+        .mode-display {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            z-index: 5;
+        }
+        .mode-display.pan { background: rgba(24, 144, 255, 0.9); }
+        .mode-display.crop { background: rgba(82, 196, 26, 0.9); }
+        .mode-display.annotate { background: rgba(250, 173, 20, 0.9); }
+
+        .crop-area-info {
+            padding: 8px 15px;
+            font-size: 11px;
+            color: #606266;
+            background: #f5f7fa;
+            border-top: 1px solid #dcdfe6;
+        }
+
+        .camera-actions {
+            display: flex;
+            gap: 8px;
+            padding: 12px 15px;
+            border-top: 1px solid #dcdfe6;
+        }
+        .camera-actions .btn { flex: 1; padding: 6px 12px; font-size: 12px; margin: 0; }
+
+        .feature-list { max-height: 200px; overflow-y: auto; }
+        .feature-item {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 8px 10px;
+            margin-bottom: 6px;
+            border-radius: 4px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+        }
+        .delete-btn {
+            background: none;
+            border: none;
+            color: var(--danger-color);
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 15px 20px;
+            border-radius: 8px;
+            background: white;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            z-index: 9999;
+        }
+        .toast.success { border-left: 4px solid var(--success-color); }
+        .toast.error { border-left: 4px solid var(--danger-color); }
+        .toast.warning { border-left: 4px solid var(--warning-color); }
+
+        .empty-state { text-align: center; padding: 60px 20px; color: #909399; }
+
+        .step-card { display: none; }
+        .step-card.active { display: block; }
+        .step-card h3 { font-size: 16px; margin-bottom: 15px; }
     </style>
 </head>
 <body>
-<div class="container">
     <div class="sidebar">
-        <div class="sidebar-header"><h1>手动模板创建</h1></div>
-
-        <div class="sidebar-section">
-            <h3>1. 加载图片</h3>
-            <div class="form-group">
-                <label>工件类型</label>
-                <input type="text" id="partType" placeholder="例如: CX756002">
+        <div class="sidebar-header">
+            <div class="logo">MANUAL<span>TEMPLATE</span></div>
+        </div>
+        <div class="sidebar-content">
+            <div class="sidebar-section">
+                <h3>1. 加载图片</h3>
+                <div class="form-group">
+                    <label>工件类型</label>
+                    <input type="text" id="partType" placeholder="例如: CX756002">
+                </div>
+                <button class="btn btn-primary" onclick="captureImages()">📸 摄像头截图</button>
             </div>
-            <button class="btn" onclick="captureImage()">摄像头截图</button>
-            <input type="file" id="fileInput" accept="image/*" style="display: none" onchange="uploadImage(event)">
-            <button class="btn btn-secondary" onclick="document.getElementById('fileInput').click()">上传本地图片</button>
-        </div>
 
-        <div class="sidebar-section">
-            <h3>2. 框选工件整体</h3>
-            <button class="btn btn-secondary" id="cropAreaBtn" onclick="toggleCropAreaMode()" disabled>开始框选</button>
-            <div id="cropAreaInfo" style="font-size: 10px; color: #888; margin-top: 8px;"></div>
-        </div>
-
-        <div class="sidebar-section">
-            <h3>3. 标注细节</h3>
-            <div class="form-group"><label>特征名称</label><input type="text" id="featureName" value="hole"></div>
-            <div class="form-group"><label>类别ID</label><input type="number" id="classId" value="0"></div>
-            <button class="btn btn-success" id="annotateBtn" onclick="toggleAnnotateMode()" disabled>开始标注</button>
-        </div>
-
-        <div class="sidebar-section">
-            <h3>标注列表 (<span id="annotationCount">0</span>)</h3>
-            <div class="annotation-list" id="annotationList">
-                <div style="color: #888; text-align: center; padding: 20px; font-size: 11px;">暂无标注</div>
+            <div class="sidebar-section">
+                <h3>2. 操作模式</h3>
+                <div class="mode-toggle">
+                    <button class="mode-btn active" id="panModeBtn" onclick="setMode('pan')">✋ 抓手</button>
+                    <button class="mode-btn" id="cropModeBtn" onclick="setMode('crop')">⬚ 框选</button>
+                </div>
+                <div class="mode-toggle">
+                    <button class="mode-btn" id="annotateModeBtn" onclick="setMode('annotate')">🎯 标注</button>
+                </div>
+                <p id="modeHint" style="font-size:11px;color:rgba(255,255,255,0.5);margin-bottom:8px;">
+                    选择摄像头后，使用抓手移动，切换模式进行框选/标注
+                </p>
             </div>
-        </div>
 
-        <div class="sidebar-section">
-            <h3>容差设置</h3>
-            <div class="form-group"><label>X容差 (像素)</label><input type="number" id="toleranceX" value="5.0" step="0.5"></div>
-            <div class="form-group"><label>Y容差 (像素)</label><input type="number" id="toleranceY" value="5.0" step="0.5"></div>
-        </div>
+            <div class="sidebar-section" id="annotationSettings" style="display:none;">
+                <h3>3. 标注设置</h3>
+                <div class="form-group">
+                    <label>特征名称</label>
+                    <input type="text" id="featureName" value="hole">
+                </div>
+                <div class="form-group">
+                    <label>类别ID</label>
+                    <input type="number" id="classId" value="0">
+                </div>
+            </div>
 
-        <div class="sidebar-section">
-            <h3>4. 保存</h3>
-            <div class="form-group"><input type="text" id="description" placeholder="模板描述（可选）"></div>
-            <button class="btn" id="previewBtn" onclick="previewTemplate()" disabled>预览</button>
-            <button class="btn btn-success" id="saveBtn" onclick="saveTemplate()" disabled>保存模板</button>
+            <div class="sidebar-section">
+                <h3>标注列表</h3>
+                <div id="selectedCameraInfo" style="font-size:11px;color:rgba(255,255,255,0.5);margin-bottom:8px;">
+                    未选择摄像头
+                </div>
+                <div class="feature-list" id="featureList">
+                    <div style="color:rgba(255,255,255,0.3);text-align:center;padding:20px;font-size:11px;">
+                        暂无标注
+                    </div>
+                </div>
+            </div>
+
+            <div class="sidebar-section">
+                <h3>4. 保存</h3>
+                <div class="form-group"><label>X容差</label><input type="number" id="toleranceX" value="5"></div>
+                <div class="form-group"><label>Y容差</label><input type="number" id="toleranceY" value="5"></div>
+                <div class="form-group"><label>描述</label><input type="text" id="description" placeholder="可选"></div>
+                <button class="btn btn-outline" onclick="previewTemplates()" id="previewBtn" disabled>🔍 预览</button>
+                <button class="btn btn-success" onclick="saveTemplates()" id="saveBtn" disabled>💾 保存</button>
+            </div>
         </div>
     </div>
 
-    <div class="canvas-area">
-        <div class="canvas-toolbar">
-            <button class="canvas-toolbar-btn" id="panTool" onclick="setTool('pan')">抓手 (Space)</button>
-            <button class="canvas-toolbar-btn active" id="selectTool" onclick="setTool('select')">选择 (V)</button>
-            <button class="canvas-toolbar-btn" onclick="zoomIn()">放大 (+)</button>
-            <button class="canvas-toolbar-btn" onclick="zoomOut()">缩小 (-)</button>
-            <button class="canvas-toolbar-btn" onclick="fitToWindow()">适应 (F)</button>
-            <span id="zoomLevel" style="color:#888; font-size:11px; margin-left:auto;">100%</span>
+    <div class="main-content">
+        <div class="header">
+            <div class="header-title">手动模板创建 - 多摄像头版本</div>
+            <button class="btn btn-outline" style="width:auto;" onclick="window.location.href='index.html'">返回主页</button>
         </div>
 
-        <div class="canvas-container" id="canvasContainer">
-            <div class="empty-state" id="emptyState">
-                <div class="empty-state-icon">📷</div>
-                <div>请先加载图片</div>
+        <div class="content-area">
+            <div id="step1" class="step-card active">
+                <h3>摄像头图像</h3>
+                <div class="camera-grid" id="cameraGrid">
+                    <div class="empty-state"><p>请先点击左侧"摄像头截图"加载图片</p></div>
+                </div>
             </div>
-            <div class="canvas-wrapper" id="canvasWrapper" style="display: none;">
-                <canvas id="imageCanvas"></canvas>
+
+            <div id="step2" class="step-card">
+                <h3>预览结果</h3>
+                <div class="camera-grid" id="previewGrid"></div>
+                <div style="margin-top:20px;text-align:right;">
+                    <button class="btn btn-outline" style="width:auto;" onclick="backToEdit()">返回编辑</button>
+                </div>
             </div>
-        </div>
-
-        <div class="edit-hint" id="editHint" style="display: none;">
-            <h4>编辑模式</h4>
-            <p>• 拖拽调整位置/大小</p>
-            <p>• 双击修改名称/颜色</p>
-            <p>• Delete 删除</p>
-        </div>
-
-        <div class="thumbnail-container" id="thumbnailContainer" style="display: none;">
-            <canvas id="thumbnailCanvas"></canvas>
-            <div class="thumbnail-viewport" id="thumbnailViewport"></div>
-        </div>
-
-        <div class="status-bar">
-            <span id="statusText">就绪</span>
-            <span id="mousePos">X: 0, Y: 0</span>
-            <span id="imageSize"></span>
         </div>
     </div>
-</div>
 
-<script>
-        // ============ 全局变量 ============
-        let image = null;
-        let canvas, ctx;
-        let thumbnailCanvas, thumbnailCtx;
+    <script>
+        // Global state
+        let currentPartType = null;
+        let cameraImages = [];
+        let selectedCameraId = null;
+        let currentMode = 'pan';
+        let annotationIdCounter = 0;
+        let activeCameraId = null; // Camera currently being interacted with
 
-        // 视图状态 (Offset/Scale)
-        let scale = 1;
-        let offsetX = 0, offsetY = 0;
+        // Store states per camera
+        const states = {};
 
-        // 交互状态
-        let currentTool = 'select';
-        let currentMode = null;
-        let isPanning = false;
-        let panStartX = 0, panStartY = 0;
-
-        // 数据状态
-        let templateId = '';
-        let cropArea = null;
-        let annotations = [];
-        let selectedAnnotation = null;
-
-        // 编辑/绘制状态
-        let isDrawing = false;
-        let isEditing = false;
-        let drawStartX = 0, drawStartY = 0;
-        let currentRect = null;
-        let editTarget = null;
-        let editHandle = null;
-        let originalRect = null;
-        let editStartPos = {x:0, y:0};
-
-        // 缓存
-        let cacheCanvas = null;
-
-        // 常量
-        const HANDLE_SIZE = 12;
-        const HIT_TOLERANCE = 15;
-
-        // ============ 初始化 ============
-        window.onload = function() {
-            canvas = document.getElementById('imageCanvas');
-            ctx = canvas.getContext('2d');
-            thumbnailCanvas = document.getElementById('thumbnailCanvas');
-            thumbnailCtx = thumbnailCanvas.getContext('2d');
-
-            resizeCanvas();
-            window.addEventListener('resize', () => {
-                resizeCanvas();
-                render();
-            });
-
-            setupEventListeners();
-        };
-
-        function resizeCanvas() {
-            const container = document.getElementById('canvasContainer');
-            if(container && canvas) {
-                canvas.width = container.clientWidth;
-                canvas.height = container.clientHeight;
-                if(image) render();
-            }
-        }
-
-        function setupEventListeners() {
-            canvas.addEventListener('mousedown', handleMouseDown);
-            canvas.addEventListener('mousemove', handleMouseMove);
-            canvas.addEventListener('mouseup', handleMouseUp);
-            canvas.addEventListener('mouseleave', handleMouseUp);
-            canvas.addEventListener('wheel', handleWheel, {passive: false});
-            canvas.addEventListener('dblclick', handleDoubleClick);
-
-            document.addEventListener('keydown', handleKeyDown);
-            document.addEventListener('keyup', handleKeyUp);
-        }
-
-        // ============ 核心：坐标转换 (Fix: 包含 Offset) ============
-        function screenToImage(screenX, screenY) {
-            const rect = canvas.getBoundingClientRect();
-            const canvasX = screenX - rect.left;
-            const canvasY = screenY - rect.top;
-
-            return {
-                x: (canvasX - offsetX) / scale,
-                y: (canvasY - offsetY) / scale
-            };
-        }
-
-        // ============ API 交互 ============
-        function captureImage() {
+        // ============ Capture ============
+        async function captureImages() {
             const partType = document.getElementById('partType').value.trim();
             if (!partType) { showToast('请输入工件类型', 'error'); return; }
 
-            updateStatus('正在截图...');
-
-            fetch('/api/manual-template/capture', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({partType: partType})
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.success) {
-                    templateId = data.data.templateId;
-                    loadImage(data.data.imageUrl);
-                    showToast('截图成功', 'success');
-                    updateStatus('就绪');
-                } else {
-                    showToast(data.message, 'error');
-                    updateStatus('截图失败');
-                }
-            })
-            .catch(err => {
-                showToast('API调用失败', 'error');
-                updateStatus('截图失败');
-            });
-        }
-
-        function uploadImage(event) {
-            const file = event.target.files[0];
-            if (!file) return;
-
-            const partType = document.getElementById('partType').value.trim();
-            if (!partType) {
-                showToast('请输入工件类型', 'error');
-                event.target.value = '';
-                return;
-            }
-
-            updateStatus('正在上传...');
-
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                const imageData = e.target.result;
-
-                fetch('/api/manual-template/upload', {
+            try {
+                const response = await fetch('/api/manual-template/capture', {
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        partType: partType,
-                        imageData: imageData
-                    })
-                })
-                .then(res => res.json())
-                .then(data => {
-                    if (data.success) {
-                        templateId = data.data.templateId;
-                        loadImage(data.data.imageUrl);
-                        showToast('上传成功', 'success');
-                        updateStatus('就绪');
-                    } else {
-                        showToast(data.message, 'error');
-                        updateStatus('上传失败');
-                    }
-                })
-                .catch(err => {
-                    // Fallback for demo/offline
-                    console.warn("API Fail, fallback to local");
-                    loadImage(imageData);
-                    showToast('API失败，已加载本地预览', 'info');
-                    templateId = 'temp_' + Date.now();
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ partType })
                 });
+                const data = await response.json();
+                if (!data.success) { showToast(data.message, 'error'); return; }
+
+                currentPartType = data.partType;
+                cameraImages = data.cameras.map(cam => ({
+                    cameraId: cam.cameraId,
+                    imageUrl: cam.imageUrl,
+                    cropRect: null,
+                    annotations: []
+                }));
+
+                renderCameraGrid();
+                showToast('截图成功，请点击选择摄像头', 'success');
+
+            } catch (error) {
+                console.error('Capture failed:', error);
+                showToast('截图失败: ' + error.message, 'error');
+            }
+        }
+
+        // ============ Mode ============
+        function setMode(mode) {
+            currentMode = mode;
+            document.getElementById('panModeBtn').classList.toggle('active', mode === 'pan');
+            document.getElementById('cropModeBtn').classList.toggle('active', mode === 'crop');
+            document.getElementById('annotateModeBtn').classList.toggle('active', mode === 'annotate');
+            document.getElementById('annotationSettings').style.display = mode === 'annotate' ? 'block' : 'none';
+
+            const hints = {
+                'pan': '抓手模式：拖拽移动图片',
+                'crop': '框选区域：拖拽框选工件整体',
+                'annotate': '标注细节：拖拽标注特征'
             };
-            reader.readAsDataURL(file);
-            event.target.value = '';
+            document.getElementById('modeHint').textContent = hints[mode];
+
+            updateAllCursors();
+            cameraImages.forEach(cam => updateModeDisplay(cam.cameraId));
         }
 
-        function loadImage(url) {
-            image = new Image();
-            image.crossOrigin = "Anonymous";
-
-            image.onload = function() {
-                document.getElementById('emptyState').style.display = 'none';
-                document.getElementById('canvasWrapper').style.display = 'block';
-                document.getElementById('thumbnailContainer').style.display = 'block';
-
-                resizeCanvas();
-
-                // 离屏缓存
-                cacheCanvas = document.createElement('canvas');
-                cacheCanvas.width = image.width;
-                cacheCanvas.height = image.height;
-                cacheCtx = cacheCanvas.getContext('2d');
-                cacheCtx.drawImage(image, 0, 0);
-
-                // 缩略图
-                thumbnailCanvas.width = 150;
-                thumbnailCanvas.height = 100 * (image.height / image.width);
-                thumbnailCtx.drawImage(image, 0, 0, thumbnailCanvas.width, thumbnailCanvas.height);
-
-                fitToWindow();
-
-                document.getElementById('imageSize').textContent = `图片: ${image.width} x ${image.height}`;
-                document.getElementById('cropAreaBtn').disabled = false;
-                document.getElementById('annotateBtn').disabled = false;
-            };
-            image.src = url;
-        }
-
-        // ============ 预览 & 保存 (Fix: 构造 nested bbox & Preview Blank) ============
-        function previewTemplate() {
-             if (!image || annotations.length === 0) {
-                 showToast('请先添加标注', 'error');
-                 return;
-             }
-
-             // 构造 bbox 结构
-             const requestAnnotations = annotations.map(ann => ({
-                 id: ann.id,
-                 name: ann.name,
-                 classId: ann.classId,
-                 bbox: {
-                     x: Math.round(ann.x),
-                     y: Math.round(ann.y),
-                     width: Math.round(ann.width),
-                     height: Math.round(ann.height)
-                 },
-                 required: true
-             }));
-
-             const requestCropArea = cropArea ? {
-                 x: Math.round(cropArea.x),
-                 y: Math.round(cropArea.y),
-                 width: Math.round(cropArea.width),
-                 height: Math.round(cropArea.height)
-             } : null;
-
-             const req = {
-                 templateId: templateId,
-                 cropArea: requestCropArea,
-                 annotations: requestAnnotations
-             };
-
-             updateStatus('正在生成预览...');
-
-             fetch('/api/manual-template/preview', {
-                 method: 'POST',
-                 headers: {'Content-Type': 'application/json'},
-                 body: JSON.stringify(req)
-             })
-             .then(res => res.json())
-             .then(data => {
-                 if (data.success && data.previewUrl) {
-                     // Fix: 使用 document.write 避免浏览器拦截或 Base64 无法直接导航
-                     const win = window.open('', '_blank');
-                     if(win) {
-                         win.document.write(`
-                             <html><head><title>Preview</title></head>
-                             <body style="margin:0;background:#0d0d1a;display:flex;justify-content:center;align-items:center;height:100vh;">
-                             <img src="${data.previewUrl}" style="max-width:95%;max-height:95%;border:2px solid #4cc9f0;">
-                             </body></html>
-                         `);
-                         win.document.close();
-                         showToast('预览已生成', 'success');
-                         updateStatus('就绪');
-                     } else {
-                         showToast('弹窗被拦截', 'error');
-                     }
-                 } else {
-                     showToast(data.message || '预览URL为空', 'error');
-                     updateStatus('预览失败');
-                 }
-             })
-             .catch(err => {
-                 showToast('预览请求失败', 'error');
-                 updateStatus('预览失败');
-             });
-        }
-
-        function saveTemplate() {
-            if (!image || annotations.length === 0) {
-                showToast('请先添加标注', 'error');
-                return;
-            }
-
-            updateStatus('正在保存...');
-
-            const globalTolX = parseFloat(document.getElementById('toleranceX').value) || 5.0;
-            const globalTolY = parseFloat(document.getElementById('toleranceY').value) || 5.0;
-
-            const requestAnnotations = annotations.map(ann => ({
-                id: ann.id,
-                name: ann.name,
-                classId: ann.classId,
-                // Fix: 构造 nested bbox
-                bbox: {
-                    x: Math.round(ann.x),
-                    y: Math.round(ann.y),
-                    width: Math.round(ann.width),
-                    height: Math.round(ann.height)
-                },
-                toleranceX: globalTolX,
-                toleranceY: globalTolY,
-                required: true
-            }));
-
-            const requestCropArea = cropArea ? {
-                 x: Math.round(cropArea.x),
-                 y: Math.round(cropArea.y),
-                 width: Math.round(cropArea.width),
-                 height: Math.round(cropArea.height)
-            } : null;
-
-            const request = {
-                templateId: templateId,
-                description: document.getElementById('description').value.trim(),
-                cropArea: requestCropArea,
-                toleranceX: globalTolX,
-                toleranceY: globalTolY,
-                annotations: requestAnnotations
-            };
-
-            fetch('/api/manual-template/save', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(request)
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.success) {
-                    showToast('保存成功!', 'success');
-                    updateStatus('就绪');
-                } else {
-                    showToast(data.message, 'error');
-                    updateStatus('保存失败');
-                }
-            })
-            .catch(err => {
-                showToast('保存请求失败', 'error');
-                updateStatus('保存失败');
-                console.error(request);
-            });
-        }
-
-        // ============ 渲染引擎 ============
-        function render() {
-            if (!image || !cacheCanvas) return;
-
-            // 清空全屏
-            ctx.setTransform(1, 0, 0, 1, 0, 0);
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-            // 应用变换 (所有绘制基于此)
-            ctx.setTransform(scale, 0, 0, scale, offsetX, offsetY);
-
-            ctx.drawImage(cacheCanvas, 0, 0);
-
-            // 绘制 CropArea
-            if (cropArea) {
-                const isSelected = selectedAnnotation === 'cropArea';
-                drawRect(cropArea, '#0066ff', isSelected, 'Workpiece Area');
-            }
-
-            // 绘制当前正在画的框
-            if (currentRect) {
-                const color = currentMode === 'cropArea' ? '#0066ff' : '#00d9a0';
-                ctx.strokeStyle = color;
-                ctx.lineWidth = 2 / scale;
-                ctx.setLineDash([5/scale, 5/scale]);
-                ctx.strokeRect(currentRect.x, currentRect.y, currentRect.width, currentRect.height);
-                ctx.setLineDash([]);
-
-                const s = 10 / scale;
-                ctx.beginPath();
-                ctx.strokeStyle = '#fff';
-                ctx.moveTo(drawStartX - s, drawStartY); ctx.lineTo(drawStartX + s, drawStartY);
-                ctx.moveTo(drawStartX, drawStartY - s); ctx.lineTo(drawStartX, drawStartY + s);
-                ctx.stroke();
-            }
-
-            // 绘制 Annotations
-            annotations.forEach((ann, idx) => {
-                const isSelected = selectedAnnotation === ann;
-                const color = getClassColor(ann.classId);
-                drawRect(ann, color, isSelected, `${idx+1}. ${ann.name}`);
-            });
-
-            // UI Updates
-            document.getElementById('zoomLevel').innerText = Math.round(scale * 100) + '%';
-            updateThumbnailViewport();
-        }
-
-        function drawRect(rect, color, isSelected, label) {
-            ctx.save();
-            ctx.strokeStyle = color;
-            ctx.lineWidth = (isSelected ? 3 : 2) / scale;
-            ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
-
-            if (isSelected) {
-                ctx.fillStyle = color + "33";
-                ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
-                drawHandles(rect, color);
-            }
-
-            ctx.fillStyle = color;
-            const fontSize = Math.max(12, 14 / scale);
-            ctx.font = `bold ${fontSize}px Arial`;
-            const textY = Math.max(rect.y - 5/scale, rect.y + fontSize/scale);
-            ctx.fillText(label, rect.x, textY);
-
-            ctx.restore();
-        }
-
-        function drawHandles(rect, color) {
-            const handles = getHandleCoords(rect);
-            const size = HANDLE_SIZE / scale;
-
-            ctx.fillStyle = color;
-            ctx.strokeStyle = '#fff';
-            ctx.lineWidth = 1 / scale;
-
-            for (let h in handles) {
-                const p = handles[h];
-                ctx.beginPath();
-                ctx.rect(p.x - size/2, p.y - size/2, size, size);
-                ctx.fill();
-                ctx.stroke();
-            }
-        }
-
-        // ============ 碰撞检测 (Fix: 双击/移动检测逻辑) ============
-        function getHandleCoords(rect) {
-            return {
-                nw: {x: rect.x, y: rect.y},
-                ne: {x: rect.x + rect.width, y: rect.y},
-                sw: {x: rect.x, y: rect.y + rect.height},
-                se: {x: rect.x + rect.width, y: rect.y + rect.height},
-            };
-        }
-
-        function hitTest(imgX, imgY, rect) {
-            if (!rect) return null;
-            const tol = HIT_TOLERANCE / scale;
-
-            // 1. Handles
-            const handles = getHandleCoords(rect);
-            for (let h in handles) {
-                const p = handles[h];
-                if (Math.abs(imgX - p.x) < tol && Math.abs(imgY - p.y) < tol) return h;
-            }
-            // 2. Inside Body
-            if (imgX >= rect.x && imgX <= rect.x + rect.width &&
-                imgY >= rect.y && imgY <= rect.y + rect.height) return 'move';
-
-            return null;
-        }
-
-        function getCursor(handle) {
-            if(!handle) return 'default';
-            if(handle === 'move') return 'move';
-            return handle + '-resize';
-        }
-
-        // ============ 交互事件 ============
-        function handleMouseDown(e) {
-            if (!image) return;
-            const pos = screenToImage(e.clientX, e.clientY);
-
-            // 1. Pan
-            if (e.button === 1 || currentTool === 'pan' || e.spaceKey) {
-                isPanning = true;
-                panStartX = e.clientX;
-                panStartY = e.clientY;
-                canvas.style.cursor = 'grabbing';
-                return;
-            }
-
-            // 2. Draw
-            if (currentMode) {
-                isDrawing = true;
-                drawStartX = pos.x;
-                drawStartY = pos.y;
-                currentRect = { x: pos.x, y: pos.y, width: 0, height: 0 };
-                return;
-            }
-
-            // 3. Select / Edit
-            if (currentTool === 'select') {
-                let hitTarget = null;
-                let hitHandle = null;
-
-                // Priority: Current Selection -> Crop -> Others (Top-down)
-                if (selectedAnnotation) {
-                    const target = selectedAnnotation === 'cropArea' ? cropArea : selectedAnnotation;
-                    hitHandle = hitTest(pos.x, pos.y, target);
-                    if (hitHandle) hitTarget = target;
-                }
-
-                if (!hitTarget) {
-                    if (cropArea && hitTest(pos.x, pos.y, cropArea)) {
-                        hitTarget = cropArea;
-                        hitHandle = hitTest(pos.x, pos.y, cropArea);
-                        selectedAnnotation = 'cropArea';
+        function updateAllCursors() {
+            cameraImages.forEach(cam => {
+                const viewer = document.getElementById('viewer-' + cam.cameraId);
+                if (viewer) {
+                    if (selectedCameraId === cam.cameraId) {
+                        viewer.style.cursor = currentMode === 'pan' ? 'grab' : 'crosshair';
                     } else {
-                        // Reverse loop for z-index behavior
-                        for (let i = annotations.length - 1; i >= 0; i--) {
-                            const ann = annotations[i];
-                            if (hitTest(pos.x, pos.y, ann)) {
-                                hitTarget = ann;
-                                hitHandle = hitTest(pos.x, pos.y, ann);
-                                selectedAnnotation = ann;
-                                break;
-                            }
-                        }
+                        viewer.style.cursor = 'default';
                     }
                 }
+            });
+        }
 
-                if (hitTarget) {
-                    isEditing = true;
-                    editTarget = hitTarget;
-                    editHandle = hitHandle;
-                    editStartPos = pos;
-                    originalRect = { ...hitTarget };
-                    updateAnnotationList();
-                } else {
-                    selectedAnnotation = null;
-                    updateAnnotationList();
-                }
-                render();
+        function updateModeDisplay(cameraId) {
+            const display = document.getElementById('modeDisplay-' + cameraId);
+            if (!display) return;
+
+            if (selectedCameraId === cameraId) {
+                display.className = 'mode-display ' + currentMode;
+                const labels = { pan: '✋ 抓手', crop: '⬚ 框选区域', annotate: '🎯 标注细节' };
+                display.textContent = labels[currentMode];
+            } else {
+                display.className = 'mode-display';
+                display.textContent = '';
             }
         }
 
-        function handleMouseMove(e) {
-            if (!image) return;
-            const pos = screenToImage(e.clientX, e.clientY);
-            document.getElementById('mousePos').innerText = `X:${Math.round(pos.x)}, Y:${Math.round(pos.y)}`;
-
-            if (isPanning) {
-                const dx = e.clientX - panStartX;
-                const dy = e.clientY - panStartY;
-                offsetX += dx;
-                offsetY += dy;
-                panStartX = e.clientX;
-                panStartY = e.clientY;
-                render();
+        // ============ Render ============
+        function renderCameraGrid() {
+            const grid = document.getElementById('cameraGrid');
+            if (cameraImages.length === 0) {
+                grid.innerHTML = '<div class="empty-state"><p>请先点击左侧"摄像头截图"加载图片</p></div>';
                 return;
             }
 
-            if (isEditing && editTarget) {
-                const dx = pos.x - editStartPos.x;
-                const dy = pos.y - editStartPos.y;
+            grid.innerHTML = cameraImages.map(cam => `
+                <div class="camera-card ${selectedCameraId === cam.cameraId ? 'selected' : ''}" id="card-${cam.cameraId}">
+                    <div class="camera-card-header" onclick="selectCamera(${cam.cameraId})">
+                        <span class="camera-title">摄像头 ${cam.cameraId}${selectedCameraId === cam.cameraId ? ' (已选择)' : ''}</span>
+                        <span class="camera-badge">${cam.annotations.length} 标注</span>
+                    </div>
+                    <div class="image-viewer" id="viewer-${cam.cameraId}" data-camera-id="${cam.cameraId}">
+                        <div class="image-canvas" id="canvas-${cam.cameraId}">
+                            <img src="${cam.imageUrl}" class="camera-image" id="image-${cam.cameraId}" alt="Camera ${cam.cameraId}">
+                            ${cam.cropRect ? `<div class="selection-rect" style="left:${cam.cropRect[0]}px;top:${cam.cropRect[1]}px;width:${cam.cropRect[2]}px;height:${cam.cropRect[3]}px;"></div>` : ''}
+                            ${cam.annotations.map(ann => `<div class="annotation-rect" style="left:${ann.bbox[0]}px;top:${ann.bbox[1]}px;width:${ann.bbox[2]}px;height:${ann.bbox[3]}px;"></div>`).join('')}
+                            <div id="tempRect-${cam.cameraId}" class="temp-rect" style="display:none;"></div>
+                        </div>
+                        <div class="mode-display" id="modeDisplay-${cam.cameraId}"></div>
+                        <div class="zoom-controls">
+                            <button class="zoom-btn ${currentMode === 'pan' ? 'active' : ''}" onclick="setMode('pan')">✋</button>
+                            <button class="zoom-btn" onclick="zoomOut(${cam.cameraId})">−</button>
+                            <button class="zoom-btn" onclick="zoomIn(${cam.cameraId})">+</button>
+                            <button class="zoom-btn" onclick="resetZoom(${cam.cameraId})">⌂</button>
+                        </div>
+                        <div class="zoom-level" id="zoomLevel-${cam.cameraId}">100%</div>
+                    </div>
+                    <div class="crop-area-info">${cam.cropRect ? `区域: ${cam.cropRect[0]}, ${cam.cropRect[1]}, ${cam.cropRect[2]}x${cam.cropRect[3]}` : '未设置工件区域'}</div>
+                    <div class="camera-actions">
+                        <button class="btn btn-outline" onclick="clearCrop(${cam.cameraId})">清除区域</button>
+                        <button class="btn btn-outline" onclick="clearAnnotations(${cam.cameraId})">清除标注</button>
+                    </div>
+                </div>
+            `).join('');
 
-                if (editHandle === 'move') {
-                    editTarget.x = originalRect.x + dx;
-                    editTarget.y = originalRect.y + dy;
-                } else {
-                    // Resize logic (Simplified NW/SE)
-                    if (editHandle.includes('e')) editTarget.width = Math.max(10, originalRect.width + dx);
-                    if (editHandle.includes('s')) editTarget.height = Math.max(10, originalRect.height + dy);
-                    if (editHandle.includes('w')) {
-                        const w = Math.max(10, originalRect.width - dx);
-                        editTarget.x = originalRect.x + originalRect.width - w;
-                        editTarget.width = w;
-                    }
-                    if (editHandle.includes('n')) {
-                        const h = Math.max(10, originalRect.height - dy);
-                        editTarget.y = originalRect.y + originalRect.height - h;
-                        editTarget.height = h;
-                    }
-                }
-                updateAnnotationList();
-                render();
-                return;
-            }
-
-            if (isDrawing && currentRect) {
-                currentRect.width = pos.x - drawStartX;
-                currentRect.height = pos.y - drawStartY;
-                render();
-                return;
-            }
-
-            if (currentTool === 'select' && !currentMode) {
-                let cursor = 'default';
-                const targets = [...annotations];
-                if(cropArea) targets.push(cropArea);
-
-                for(let t of targets) {
-                    const h = hitTest(pos.x, pos.y, t);
-                    if(h) {
-                        cursor = getCursor(h);
-                        break;
-                    }
-                }
-                canvas.style.cursor = cursor;
-            }
+            // Initialize all cameras after DOM is ready
+            // (initCamera now handles existing states properly)
+            setTimeout(() => {
+                cameraImages.forEach(cam => initCamera(cam.cameraId));
+                updateAllCursors();
+                cameraImages.forEach(cam => updateModeDisplay(cam.cameraId));
+            }, 50);
         }
 
-        function handleMouseUp(e) {
-            isPanning = false;
-            isEditing = false;
-            canvas.style.cursor = currentTool === 'pan' ? 'grab' : 'default';
+        // ============ Initialize Camera ============
+        function initCamera(cameraId, forceReattach = false) {
+            const img = document.getElementById('image-' + cameraId);
+            const viewer = document.getElementById('viewer-' + cameraId);
+            const canvas = document.getElementById('canvas-' + cameraId);
+            if (!img || !viewer || !canvas) return;
 
-            if (isDrawing && currentRect) {
-                let r = {
-                    x: currentRect.width < 0 ? currentRect.x + currentRect.width : currentRect.x,
-                    y: currentRect.height < 0 ? currentRect.y + currentRect.height : currentRect.y,
-                    width: Math.abs(currentRect.width),
-                    height: Math.abs(currentRect.height)
+            // Wait for image to load
+            if (!img.complete || img.naturalWidth === 0) {
+                img.onload = () => initCamera(cameraId, forceReattach);
+                return;
+            }
+
+            // Initialize or update state
+            if (!states[cameraId]) {
+                // Calculate fit scale
+                const containerWidth = viewer.clientWidth;
+                const containerHeight = viewer.clientHeight;
+                const imgWidth = img.naturalWidth;
+                const imgHeight = img.naturalHeight;
+
+                const scaleX = containerWidth / imgWidth;
+                const scaleY = containerHeight / imgHeight;
+                const fitScale = Math.min(scaleX, scaleY, 1) * 0.95;
+
+                states[cameraId] = {
+                    scale: fitScale,
+                    offsetX: (containerWidth - imgWidth * fitScale) / 2,
+                    offsetY: (containerHeight - imgHeight * fitScale) / 2,
+                    imgWidth,
+                    imgHeight,
+                    isPanning: false,
+                    isDrawing: false,
+                    startX: 0,
+                    startY: 0,
+                    panStartX: 0,
+                    panStartY: 0
                 };
-
-                if (r.width > 5 && r.height > 5) {
-                    if (currentMode === 'cropArea') {
-                        cropArea = r;
-                        showToast('工件区域已设置', 'success');
-                        toggleCropAreaMode();
-                        selectedAnnotation = 'cropArea';
-                    } else if (currentMode === 'annotate') {
-                        const name = document.getElementById('featureName').value;
-                        const cls = parseInt(document.getElementById('classId').value);
-                        const newAnn = {
-                            id: Date.now(),
-                            name: name,
-                            classId: cls,
-                            ...r
-                        };
-                        annotations.push(newAnn);
-                        selectedAnnotation = newAnn;
-                        showToast(`已添加 ${name}`, 'success');
-                    }
-                    updateAnnotationList();
-                }
-                currentRect = null;
-                isDrawing = false;
-                render();
             }
+
+            updateTransform(cameraId);
+
+            // Always attach events (needed after DOM recreation)
+            attachViewerEvents(viewer, cameraId);
         }
 
-        function handleWheel(e) {
-            if (!image) return;
-            e.preventDefault();
+        function attachViewerEvents(viewer, cameraId) {
+            viewer.setAttribute('data-events-attached', 'true');
 
-            const rect = canvas.getBoundingClientRect();
+            viewer.addEventListener('mousedown', (e) => {
+                if (selectedCameraId !== cameraId) return;
+                activeCameraId = cameraId;
+                handleMouseDown(e, cameraId);
+            });
+
+            viewer.addEventListener('mousemove', (e) => {
+                if (activeCameraId !== cameraId) return;
+                handleMouseMove(e, cameraId);
+            });
+
+            const endAction = () => {
+                if (activeCameraId === cameraId) {
+                    activeCameraId = null;
+                    handleMouseUp(null, cameraId);
+                }
+            };
+
+            viewer.addEventListener('mouseup', endAction);
+            viewer.addEventListener('mouseleave', endAction);
+
+            viewer.addEventListener('wheel', (e) => {
+                if (selectedCameraId !== cameraId) return;
+                e.preventDefault();
+                handleWheel(e, cameraId);
+            }, { passive: false });
+        }
+
+        // ============ Event Handlers ============
+        function handleMouseDown(e, cameraId) {
+            const state = states[cameraId];
+            if (!state) return;
+
+            const viewer = document.getElementById('viewer-' + cameraId);
+            if (!viewer) return;
+
+            const rect = viewer.getBoundingClientRect();
             const mouseX = e.clientX - rect.left;
             const mouseY = e.clientY - rect.top;
 
-            // Zoom logic around mouse point
-            const imgX = (mouseX - offsetX) / scale;
-            const imgY = (mouseY - offsetY) / scale;
+            if (currentMode === 'pan') {
+                state.isPanning = true;
+                state.panStartX = mouseX - state.offsetX;
+                state.panStartY = mouseY - state.offsetY;
+                viewer.style.cursor = 'grabbing';
+                return;
+            }
+
+            if (currentMode === 'crop' || currentMode === 'annotate') {
+                state.isDrawing = true;
+                state.startX = (mouseX - state.offsetX) / state.scale;
+                state.startY = (mouseY - state.offsetY) / state.scale;
+
+                const tempRect = document.getElementById('tempRect-' + cameraId);
+                if (tempRect) {
+                    tempRect.style.display = 'block';
+                    tempRect.style.left = state.startX + 'px';
+                    tempRect.style.top = state.startY + 'px';
+                    tempRect.style.width = '0';
+                    tempRect.style.height = '0';
+                    tempRect.className = 'temp-rect ' + (currentMode === 'crop' ? 'selection-rect' : 'annotation-rect');
+                }
+            }
+        }
+
+        function handleMouseMove(e, cameraId) {
+            const state = states[cameraId];
+            if (!state) return;
+
+            const viewer = document.getElementById('viewer-' + cameraId);
+            if (!viewer) return;
+
+            const rect = viewer.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+
+            if (state.isPanning) {
+                state.offsetX = mouseX - state.panStartX;
+                state.offsetY = mouseY - state.panStartY;
+                updateTransform(cameraId);
+                return;
+            }
+
+            if (state.isDrawing) {
+                const imgX = (mouseX - state.offsetX) / state.scale;
+                const imgY = (mouseY - state.offsetY) / state.scale;
+                const width = imgX - state.startX;
+                const height = imgY - state.startY;
+
+                const tempRect = document.getElementById('tempRect-' + cameraId);
+                if (tempRect) {
+                    tempRect.style.left = (width > 0 ? state.startX : imgX) + 'px';
+                    tempRect.style.top = (height > 0 ? state.startY : imgY) + 'px';
+                    tempRect.style.width = Math.abs(width) + 'px';
+                    tempRect.style.height = Math.abs(height) + 'px';
+                }
+            }
+        }
+
+        function handleMouseUp(e, cameraId) {
+            const state = states[cameraId];
+            if (!state) return;
+
+            const viewer = document.getElementById('viewer-' + cameraId);
+
+            if (state.isPanning) {
+                state.isPanning = false;
+                if (viewer) viewer.style.cursor = 'grab';
+                return;
+            }
+
+            if (state.isDrawing) {
+                state.isDrawing = false;
+                const tempRect = document.getElementById('tempRect-' + cameraId);
+                if (tempRect) tempRect.style.display = 'none';
+
+                const left = parseFloat(tempRect?.style.left) || 0;
+                const top = parseFloat(tempRect?.style.top) || 0;
+                const width = parseFloat(tempRect?.style.width) || 0;
+                const height = parseFloat(tempRect?.style.height) || 0;
+
+                if (width > 5 && height > 5) {
+                    const bbox = [
+                        Math.round(Math.max(0, left)),
+                        Math.round(Math.max(0, top)),
+                        Math.round(width),
+                        Math.round(height)
+                    ];
+                    const cam = cameraImages.find(c => c.cameraId === cameraId);
+
+                    if (currentMode === 'crop') {
+                        cam.cropRect = bbox;
+                        showToast(`摄像头${cameraId}区域已设置`, 'success');
+                        setMode('annotate');
+                    } else if (currentMode === 'annotate') {
+                        if (!cam.cropRect) {
+                            showToast('请先框选工件区域', 'warning');
+                            return;
+                        }
+                        const name = document.getElementById('featureName').value;
+                        const classId = parseInt(document.getElementById('classId').value) || 0;
+                        cam.annotations.push({
+                            id: ++annotationIdCounter,
+                            name,
+                            classId,
+                            bbox
+                        });
+                        showToast(`已添加标注: ${name}`, 'success');
+                    }
+
+                    renderCameraGrid();
+                    updateFeatureList();
+                    updateButtons();
+                }
+            }
+        }
+
+        function handleWheel(e, cameraId) {
+            const state = states[cameraId];
+            if (!state) return;
+
+            const viewer = document.getElementById('viewer-' + cameraId);
+            const rect = viewer.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
 
             const delta = e.deltaY > 0 ? 0.9 : 1.1;
-            const newScale = Math.max(0.05, Math.min(50, scale * delta));
+            const newScale = Math.max(0.1, Math.min(10, state.scale * delta));
 
-            offsetX = mouseX - imgX * newScale;
-            offsetY = mouseY - imgY * newScale;
+            state.offsetX = mouseX - (mouseX - state.offsetX) * (newScale / state.scale);
+            state.offsetY = mouseY - (mouseY - state.offsetY) * (newScale / state.scale);
+            state.scale = newScale;
 
-            scale = newScale;
-            render();
+            updateTransform(cameraId);
         }
 
-        // Fix: Double Click logic
-        function handleDoubleClick(e) {
-            if (!image) return;
-            const pos = screenToImage(e.clientX, e.clientY);
+        function updateTransform(cameraId) {
+            const state = states[cameraId];
+            const canvas = document.getElementById('canvas-' + cameraId);
+            const level = document.getElementById('zoomLevel-' + cameraId);
+            if (!state || !canvas) return;
 
-            // Loop backwards to hit top-most element first
-            for (let i = annotations.length - 1; i >= 0; i--) {
-                const ann = annotations[i];
-                if (hitTest(pos.x, pos.y, ann)) {
-                    // 1. Prompt Name
-                    const newName = prompt('修改特征名称:', ann.name);
-                    if (newName === null) return; // Cancelled
+            canvas.style.transform = `translate(${state.offsetX.toFixed(2)}px, ${state.offsetY.toFixed(2)}px) scale(${state.scale.toFixed(4)})`;
+            if (level) level.textContent = Math.round(state.scale * 100) + '%';
+        }
 
-                    // 2. Prompt Class ID
-                    const newClassIdStr = prompt('修改类别 ID (0-7):', ann.classId);
-                    if (newClassIdStr === null) return; // Cancelled
+        // ============ Zoom ============
+        function zoomIn(cameraId) {
+            const state = states[cameraId];
+            if (!state) return;
 
-                    // 3. Apply
-                    if(newName.trim()) ann.name = newName.trim();
-                    const cid = parseInt(newClassIdStr);
-                    if(!isNaN(cid)) ann.classId = cid;
+            const viewer = document.getElementById('viewer-' + cameraId);
+            const rect = viewer.getBoundingClientRect();
+            const centerX = rect.width / 2;
+            const centerY = rect.height / 2;
 
-                    // 4. Force Update
-                    selectedAnnotation = ann;
-                    updateAnnotationList();
-                    render();
-                    showToast('已修改', 'success');
-                    return;
+            const newScale = Math.min(10, state.scale * 1.2);
+            state.offsetX = centerX - (centerX - state.offsetX) * (newScale / state.scale);
+            state.offsetY = centerY - (centerY - state.offsetY) * (newScale / state.scale);
+            state.scale = newScale;
+
+            updateTransform(cameraId);
+        }
+
+        function zoomOut(cameraId) {
+            const state = states[cameraId];
+            if (!state) return;
+
+            const viewer = document.getElementById('viewer-' + cameraId);
+            const rect = viewer.getBoundingClientRect();
+            const centerX = rect.width / 2;
+            const centerY = rect.height / 2;
+
+            const newScale = Math.max(0.1, state.scale / 1.2);
+            state.offsetX = centerX - (centerX - state.offsetX) * (newScale / state.scale);
+            state.offsetY = centerY - (centerY - state.offsetY) * (newScale / state.scale);
+            state.scale = newScale;
+
+            updateTransform(cameraId);
+        }
+
+        function resetZoom(cameraId) {
+            const state = states[cameraId];
+            if (!state) return;
+
+            const viewer = document.getElementById('viewer-' + cameraId);
+            const containerWidth = viewer.clientWidth;
+            const containerHeight = viewer.clientHeight;
+
+            const scaleX = containerWidth / state.imgWidth;
+            const scaleY = containerHeight / state.imgHeight;
+            const fitScale = Math.min(scaleX, scaleY, 1) * 0.95;
+
+            state.scale = fitScale;
+            state.offsetX = (containerWidth - state.imgWidth * fitScale) / 2;
+            state.offsetY = (containerHeight - state.imgHeight * fitScale) / 2;
+
+            updateTransform(cameraId);
+        }
+
+        // ============ Camera Selection ============
+        function selectCamera(cameraId) {
+            selectedCameraId = cameraId;
+            document.getElementById('selectedCameraInfo').textContent = `摄像头 ${cameraId}`;
+
+            document.querySelectorAll('.camera-card').forEach(card => card.classList.remove('selected'));
+            const selectedCard = document.getElementById('card-' + cameraId);
+            if (selectedCard) selectedCard.classList.add('selected');
+
+            updateAllCursors();
+            cameraImages.forEach(cam => updateModeDisplay(cam.cameraId));
+
+            updateFeatureList();
+            updateButtons();
+        }
+
+        function clearCrop(cameraId) {
+            const cam = cameraImages.find(c => c.cameraId === cameraId);
+            if (cam) {
+                cam.cropRect = null;
+                // Remove selection rect from DOM without re-rendering
+                const canvas = document.getElementById('canvas-' + cameraId);
+                if (canvas) {
+                    const rect = canvas.querySelector('.selection-rect');
+                    if (rect) rect.remove();
+                }
+                // Update info text
+                const info = document.getElementById('card-' + cameraId)?.querySelector('.crop-area-info');
+                if (info) info.textContent = '未设置工件区域';
+                updateButtons();
+            }
+        }
+
+        function clearAnnotations(cameraId) {
+            const cam = cameraImages.find(c => c.cameraId === cameraId);
+            if (cam) {
+                cam.annotations = [];
+                // Remove annotation rects from DOM without re-rendering
+                const canvas = document.getElementById('canvas-' + cameraId);
+                if (canvas) {
+                    canvas.querySelectorAll('.annotation-rect').forEach(el => el.remove());
+                }
+                // Update badge
+                const badge = document.getElementById('card-' + cameraId)?.querySelector('.camera-badge');
+                if (badge) badge.textContent = '0 标注';
+                if (selectedCameraId === cameraId) {
+                    updateFeatureList();
+                    updateButtons();
                 }
             }
         }
 
-        // ============ Helpers ============
-        function fitToWindow() {
-            if (!image) return;
-            const container = document.getElementById('canvasContainer');
-            const cw = container.clientWidth;
-            const ch = container.clientHeight;
-
-            const scaleW = (cw - 40) / image.width;
-            const scaleH = (ch - 40) / image.height;
-            scale = Math.min(scaleW, scaleH);
-
-            offsetX = (cw - image.width * scale) / 2;
-            offsetY = (ch - image.height * scale) / 2;
-            render();
-        }
-
-        function toggleCropAreaMode() {
-            if (currentMode === 'cropArea') {
-                currentMode = null;
-                document.getElementById('cropAreaBtn').classList.remove('active');
-                document.getElementById('cropAreaBtn').innerText = '开始框选';
-                removeIndicator();
-            } else {
-                currentMode = 'cropArea';
-                selectedAnnotation = null;
-                document.getElementById('cropAreaBtn').classList.add('active');
-                document.getElementById('cropAreaBtn').innerText = '取消框选';
-                if(currentMode === 'annotate') toggleAnnotateMode();
-                showIndicator('框选工件区域', 'crop');
+        function deleteAnnotation(annId) {
+            const cam = cameraImages.find(c => c.cameraId === selectedCameraId);
+            if (cam) {
+                cam.annotations = cam.annotations.filter(a => a.id !== annId);
+                // Update UI without re-rendering
+                updateFeatureList();
+                updateButtons();
+                // Re-render this camera's card to update rects
+                renderSingleCamera(cam.cameraId);
             }
-            render();
         }
 
-        function toggleAnnotateMode() {
-            if (currentMode === 'annotate') {
-                currentMode = null;
-                document.getElementById('annotateBtn').classList.remove('active');
-                document.getElementById('annotateBtn').innerText = '开始标注';
-                removeIndicator();
-            } else {
-                currentMode = 'annotate';
-                document.getElementById('annotateBtn').classList.add('active');
-                document.getElementById('annotateBtn').innerText = '取消标注';
-                if(currentMode === 'cropArea') toggleCropAreaMode();
-                showIndicator('标注特征细节', 'annotate');
-            }
-            render();
+        // Render single camera card without affecting others
+        function renderSingleCamera(cameraId) {
+            const cam = cameraImages.find(c => c.cameraId === cameraId);
+            if (!cam) return;
+
+            const canvas = document.getElementById('canvas-' + cameraId);
+            if (!canvas) return;
+
+            // Remove existing annotation rects
+            canvas.querySelectorAll('.annotation-rect').forEach(el => el.remove());
+
+            // Add new annotation rects
+            cam.annotations.forEach(ann => {
+                const rect = document.createElement('div');
+                rect.className = 'annotation-rect';
+                rect.style.left = ann.bbox[0] + 'px';
+                rect.style.top = ann.bbox[1] + 'px';
+                rect.style.width = ann.bbox[2] + 'px';
+                rect.style.height = ann.bbox[3] + 'px';
+                canvas.appendChild(rect);
+            });
+
+            // Update badge
+            const badge = document.getElementById('card-' + cameraId)?.querySelector('.camera-badge');
+            if (badge) badge.textContent = cam.annotations.length + ' 标注';
         }
 
-        function setTool(tool) {
-            currentTool = tool;
-            document.getElementById('panTool').classList.toggle('active', tool === 'pan');
-            document.getElementById('selectTool').classList.toggle('active', tool === 'select');
-            canvas.style.cursor = tool === 'pan' ? 'grab' : 'default';
-        }
+        function updateFeatureList() {
+            const list = document.getElementById('featureList');
+            const cam = cameraImages.find(c => c.cameraId === selectedCameraId);
 
-        function updateAnnotationList() {
-            const list = document.getElementById('annotationList');
-            let html = '';
-
-            if (cropArea) {
-                const active = selectedAnnotation === 'cropArea' ? 'active' : '';
-                html += `
-                    <div class="annotation-item ${active}" onclick="selectItem('cropArea')">
-                        <div class="annotation-item-header"><span>工件整体区域</span></div>
-                        <div class="annotation-item-info">X:${Math.round(cropArea.x)} Y:${Math.round(cropArea.y)} W:${Math.round(cropArea.width)} H:${Math.round(cropArea.height)}</div>
-                    </div>`;
+            if (!cam || cam.annotations.length === 0) {
+                list.innerHTML = '<div style="color:rgba(255,255,255,0.3);text-align:center;padding:20px;font-size:11px;">暂无标注</div>';
+                return;
             }
 
-            if (annotations.length === 0 && !cropArea) {
-                html = '<div style="color: #888; text-align: center; padding: 20px; font-size: 11px;">暂无标注</div>';
-            } else {
-                annotations.forEach((ann, i) => {
-                    const active = selectedAnnotation === ann ? 'active' : '';
-                    html += `
-                    <div class="annotation-item ${active}" onclick="selectItem(${ann.id})">
-                        <div class="annotation-item-header">
-                            <span>${i+1}. ${ann.name}</span>
-                            <button class="annotation-item-delete" onclick="event.stopPropagation(); deleteItem(${ann.id})">×</button>
-                        </div>
-                        <div class="annotation-item-info">ID:${ann.classId} | W:${Math.round(ann.width)} H:${Math.round(ann.height)}</div>
-                    </div>`;
+            list.innerHTML = cam.annotations.map(ann => `
+                <div class="feature-item">
+                    <span>${ann.name} (ID:${ann.classId})</span>
+                    <button class="delete-btn" onclick="deleteAnnotation(${ann.id})">×</button>
+                </div>
+            `).join('');
+        }
+
+        function updateButtons() {
+            const hasCrop = cameraImages.some(c => c.cropRect);
+            const hasAnnotations = cameraImages.some(c => c.annotations.length > 0);
+
+            document.getElementById('annotateModeBtn').disabled = !hasCrop;
+            document.getElementById('previewBtn').disabled = !hasAnnotations;
+            document.getElementById('saveBtn').disabled = !hasAnnotations;
+        }
+
+        // ============ Preview & Save ============
+        async function previewTemplates() {
+            const camerasWithData = cameraImages.filter(c => c.annotations.length > 0);
+            if (camerasWithData.length === 0) { showToast('请先添加标注', 'warning'); return; }
+
+            try {
+                const response = await fetch('/api/manual-template/preview', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        partType: currentPartType,
+                        cameraTemplates: camerasWithData.map(cam => ({
+                            cameraId: cam.cameraId,
+                            cropRect: cam.cropRect,
+                            annotations: cam.annotations
+                        }))
+                    })
                 });
+                const data = await response.json();
+                if (!data.success) { showToast(data.message, 'error'); return; }
+
+                document.getElementById('previewGrid').innerHTML = data.cameras.map(cam => `
+                    <div class="camera-card">
+                        <div class="camera-card-header">
+                            <span class="camera-title">摄像头 ${cam.cameraId}</span>
+                            <span class="camera-badge">${cam.features.length} 特征</span>
+                        </div>
+                        <div class="image-viewer">
+                            <img src="${cam.imageUrl}" style="width:100%;height:100%;object-fit:contain;">
+                        </div>
+                    </div>
+                `).join('');
+
+                document.getElementById('step1').classList.remove('active');
+                document.getElementById('step2').classList.add('active');
+                showToast('预览生成成功', 'success');
+
+            } catch (error) {
+                console.error('Preview failed:', error);
+                showToast('预览失败: ' + error.message, 'error');
             }
-
-            list.innerHTML = html;
-            const count = annotations.length + (cropArea ? 1 : 0);
-            document.getElementById('annotationCount').innerText = count;
-            document.getElementById('cropAreaInfo').innerText = cropArea ? '已设定' : '';
-
-            const canSave = annotations.length > 0;
-            document.getElementById('previewBtn').disabled = !canSave;
-            document.getElementById('saveBtn').disabled = !canSave;
-
-            document.getElementById('editHint').style.display = selectedAnnotation ? 'block' : 'none';
         }
 
-        function selectItem(id) {
-            if (id === 'cropArea') selectedAnnotation = 'cropArea';
-            else selectedAnnotation = annotations.find(a => a.id === id);
-            render();
-            updateAnnotationList();
+        function backToEdit() {
+            document.getElementById('step2').classList.remove('active');
+            document.getElementById('step1').classList.add('active');
         }
 
-        function deleteItem(id) {
-            annotations = annotations.filter(a => a.id !== id);
-            if (selectedAnnotation && selectedAnnotation.id === id) selectedAnnotation = null;
-            render();
-            updateAnnotationList();
-        }
+        async function saveTemplates() {
+            const camerasWithData = cameraImages.filter(c => c.annotations.length > 0);
+            if (camerasWithData.length === 0) { showToast('请先添加标注', 'warning'); return; }
 
-        function getClassColor(id) {
-            const colors = ['#00ff00', '#00ffff', '#ff00ff', '#ffff00', '#ff8000', '#8000ff'];
-            return colors[id % colors.length];
-        }
+            try {
+                const response = await fetch('/api/manual-template/save', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        partType: currentPartType,
+                        description: document.getElementById('description').value.trim(),
+                        toleranceX: parseFloat(document.getElementById('toleranceX').value) || 5,
+                        toleranceY: parseFloat(document.getElementById('toleranceY').value) || 5,
+                        cameraTemplates: camerasWithData.map(cam => ({
+                            cameraId: cam.cameraId,
+                            cropRect: cam.cropRect,
+                            annotations: cam.annotations.map(ann => ({
+                                id: ann.id.toString(),
+                                name: ann.name,
+                                classId: ann.classId,
+                                bbox: ann.bbox,
+                                toleranceX: 5,
+                                toleranceY: 5,
+                                required: true
+                            }))
+                        }))
+                    })
+                });
+                const data = await response.json();
+                if (!data.success) { showToast(data.message, 'error'); return; }
 
-        function handleKeyDown(e) {
-            if (e.code === 'Space' && !e.repeat) { e.spaceKey = true; setTool('pan'); }
-            if (e.code === 'Delete' && selectedAnnotation) {
-                if (selectedAnnotation === 'cropArea') {
-                    if(confirm('删除工件整体框?')) { cropArea = null; selectedAnnotation = null; }
-                } else {
-                    deleteItem(selectedAnnotation.id);
-                }
-                updateAnnotationList();
-                render();
+                showToast(`保存成功！创建了 ${data.templates.length} 个模板`, 'success');
+
+                // Reset
+                currentPartType = null;
+                cameraImages = [];
+                selectedCameraId = null;
+                activeCameraId = null;
+                Object.keys(states).forEach(key => delete states[key]);
+                document.getElementById('step2').classList.remove('active');
+                document.getElementById('step1').classList.add('active');
+                renderCameraGrid();
+                updateFeatureList();
+                updateButtons();
+                document.getElementById('partType').value = '';
+                document.getElementById('description').value = '';
+                setMode('pan');
+
+            } catch (error) {
+                console.error('Save failed:', error);
+                showToast('保存失败: ' + error.message, 'error');
             }
-            if (e.code === 'KeyF') fitToWindow();
-            if (e.code === 'KeyV') setTool('select');
         }
 
-        function handleKeyUp(e) {
-            if (e.code === 'Space') { e.spaceKey = false; setTool('select'); }
-        }
-
-        function zoomIn() { scale *= 1.2; render(); }
-        function zoomOut() { scale /= 1.2; render(); }
-
-        function showIndicator(text, mode) {
-            removeIndicator();
-            const el = document.createElement('div');
-            el.className = `mode-indicator mode-${mode}`;
-            el.innerText = text;
-            el.id = 'activeIndicator';
-            document.querySelector('.canvas-area').appendChild(el);
-        }
-
-        function removeIndicator() {
-            const el = document.getElementById('activeIndicator');
-            if(el) el.remove();
-        }
-
-        function showToast(msg, type) {
-            const t = document.createElement('div');
-            t.className = `toast toast-${type}`;
-            t.innerText = msg;
-            document.body.appendChild(t);
-            setTimeout(() => t.remove(), 3000);
-        }
-
-        function updateStatus(text) {
-            document.getElementById('statusText').textContent = text;
-        }
-
-        function updateThumbnailViewport() {
-            if(!image) return;
-            const viewW = canvas.width / scale;
-            const viewH = canvas.height / scale;
-            const viewX = -offsetX / scale;
-            const viewY = -offsetY / scale;
-
-            const thumbScale = thumbnailCanvas.width / image.width;
-            const vp = document.getElementById('thumbnailViewport');
-
-            vp.style.left = (viewX * thumbScale) + 'px';
-            vp.style.top = (viewY * thumbScale) + 'px';
-            vp.style.width = (viewW * thumbScale) + 'px';
-            vp.style.height = (viewH * thumbScale) + 'px';
+        function showToast(message, type = 'info') {
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
         }
     </script>
 </body>
