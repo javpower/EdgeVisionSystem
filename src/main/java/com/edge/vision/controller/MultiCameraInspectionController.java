@@ -10,6 +10,12 @@ import com.edge.vision.service.CameraService;
 import com.edge.vision.service.DataManager;
 import com.edge.vision.service.PartCameraTemplateService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.opencv.core.Mat;
 import org.opencv.imgcodecs.Imgcodecs;
@@ -17,6 +23,7 @@ import org.opencv.imgproc.Imgproc;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -32,8 +39,14 @@ import java.util.Map;
 
 /**
  * 多摄像头质检控制器
+ * <p>
+ * 提供基于多摄像头模板的质量检测功能，支持：
+ * - 多摄像头并行质检
+ * - 基于模板的特征比对
+ * - 质检记录保存
+ * - 数据采集（支持模板匹配生成标注）
  */
-@Tag(name = "多摄像头质检", description = "基于多个摄像头模板的质量检测")
+@Tag(name = "多摄像头质检", description = "基于多个摄像头模板的质量检测，支持多摄像头并行质检、特征比对和数据采集")
 @RestController
 @RequestMapping("/api/multi-camera-inspection")
 public class MultiCameraInspectionController {
@@ -58,8 +71,111 @@ public class MultiCameraInspectionController {
     /**
      * 多摄像头质检
      */
-    @Operation(summary = "多摄像头质检", description = "对工件的所有摄像头模板进行质量检测")
     @PostMapping("/inspect")
+    @Operation(
+            summary = "多摄像头质检",
+            description = """
+                    对工件的所有摄像头模板进行质量检测。
+
+                    **功能说明**：
+                    1. 根据工件类型加载所有摄像头模板
+                    2. 使用 SIFT 特征匹配定位工件位置
+                    3. 使用 YOLO 检测各特征点
+                    4. 与模板进行坐标比对，判断是否在容差范围内
+                    5. 返回每个摄像头的检测结果和特征比对详情
+
+                    **检测流程**：
+                    ```
+                    加载工件模板 → 获取摄像头图像 → SIFT 匹配定位 → YOLO 检测 → 坐标比对 → 判定结果
+                    ```
+
+                    **错误处理**：
+                    - 工件未对齐 → 返回 "请对齐到正确位置"
+                    - 工件方向错误 → 返回 "请调整工件方向"
+                    - 模板匹配失败 → 返回 "工件检测失败"
+                    """
+    )
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(
+            description = "质检请求参数",
+            required = true,
+            content = @Content(
+                    mediaType = "application/json",
+                    schema = @Schema(implementation = MultiCameraInspectionRequest.class),
+                    examples = @ExampleObject(
+                            name = "质检请求示例",
+                            value = """
+                                    {
+                                      "partType": "CX756601",
+                                      "batchId": "BATCH-2024-001",
+                                      "operator": "张三"
+                                    }
+                                    """
+                    )
+            )
+    )
+    @ApiResponses(value = {
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "质检完成",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = MultiCameraInspectionResponse.class),
+                            examples = @ExampleObject(
+                                    name = "质检成功示例",
+                                    value = """
+                                            {
+                                              "success": true,
+                                              "partType": "CX756601",
+                                              "allPassed": true,
+                                              "cameraResults": [
+                                                {
+                                                  "cameraId": 0,
+                                                  "templateId": "CX756601_camera_0",
+                                                  "passed": true,
+                                                  "imageUrl": "data:image/jpeg;base64,...",
+                                                  "features": [
+                                                    {
+                                                      "featureId": "hole_1",
+                                                      "featureName": "孔1",
+                                                      "className": "hole",
+                                                      "classId": 0,
+                                                      "templateX": 100.0,
+                                                      "templateY": 200.0,
+                                                      "detectedX": 102.5,
+                                                      "detectedY": 198.3,
+                                                      "xError": 2.5,
+                                                      "yError": -1.7,
+                                                      "totalError": 2.92,
+                                                      "toleranceX": 20.0,
+                                                      "toleranceY": 20.0,
+                                                      "withinTolerance": true,
+                                                      "status": "PASSED"
+                                                    }
+                                                  ]
+                                                }
+                                              ]
+                                            }
+                                            """
+                            )
+                    )
+            ),
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "质检失败（工件未对齐或方向错误）",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(
+                                    name = "质检失败示例",
+                                    value = """
+                                            {
+                                              "success": false,
+                                              "message": "请调整工件方向"
+                                            }
+                                            """
+                            )
+                    )
+            )
+    })
     public ResponseEntity<MultiCameraInspectionResponse> inspect(@RequestBody MultiCameraInspectionRequest request) {
         try {
             String partType = request.getPartType();
@@ -150,8 +266,89 @@ public class MultiCameraInspectionController {
      * 数据采集接口 - 多摄像头版本
      * 不调用YOLO模型，只保存图片和基于模板的标注JSON
      */
-    @Operation(summary = "多摄像头数据采集", description = "保存每个摄像头对应的图片和基于模板生成标注JSON（不使用YOLO）")
     @PostMapping("/collect-data")
+    @Operation(
+            summary = "多摄像头数据采集",
+            description = """
+                    保存每个摄像头对应的图片和基于模板生成标注JSON（不使用YOLO）。
+
+                    **功能说明**：
+                    - 不调用 YOLO 模型，仅使用模板匹配生成标注
+                    - 支持有模板和无模板两种模式：
+                      - 有模板：使用 SIFT 匹配计算实际坐标，生成标注 JSON
+                      - 无模板：仅保存图片
+
+                    **采集模式**：
+                    1. 有模板时：只采集有模板的摄像头，使用模板匹配计算实际坐标
+                    2. 无模板 + 指定 cameraIds：采集指定的摄像头
+                    3. 无模板 + 未指定 cameraIds：采集所有摄像头
+
+                    **JSON 格式**（与 InspectController 一致）：
+                    ```json
+                    {
+                      "labels": [
+                        {"name": "hole", "x1": 100, "y1": 200, "x2": 150, "y2": 250}
+                      ]
+                    }
+                    ```
+
+                    **文件命名规则**：
+                    - 图片：{partType}_{timestamp}_camera{N}.jpg
+                    - JSON：{partType}_{timestamp}_camera{N}.json
+                    """
+    )
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(
+            description = "数据采集请求参数",
+            required = true,
+            content = @Content(
+                    mediaType = "application/json",
+                    examples = @ExampleObject(
+                            name = "数据采集请求示例",
+                            value = """
+                                    {
+                                      "confirmed_part_name": "CX756601",
+                                      "camera_ids": [0, 1],
+                                      "save_dir": "D:/data/collected"
+                                    }
+                                    """
+                    )
+            )
+    )
+    @ApiResponses(value = {
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "采集成功",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(
+                                    name = "采集成功示例",
+                                    value = """
+                                            {
+                                              "success": true,
+                                              "message": "数据采集成功（图片+JSON）",
+                                              "collected": true,
+                                              "partType": "CX756601",
+                                              "fileBaseName": "CX756601_20260205_140230",
+                                              "collectDir": "D:/data/collected",
+                                              "hasTemplate": true,
+                                              "savedFiles": [
+                                                {
+                                                  "cameraId": 0,
+                                                  "templateId": "CX756601_camera_0",
+                                                  "imagePath": "D:/data/collected/CX756601_20260205_140230_camera0.jpg",
+                                                  "fileName": "CX756601_20260205_140230_camera0.jpg"
+                                                }
+                                              ]
+                                            }
+                                            """
+                            )
+                    )
+            ),
+            @ApiResponse(
+                    responseCode = "400",
+                    description = "请求参数错误（摄像头未启动、未提供工件类型等）"
+            )
+    })
     public ResponseEntity<Map<String, Object>> collectData(@RequestBody com.edge.vision.model.CollectDataRequest request) {
         Map<String, Object> response = new HashMap<>();
 
@@ -571,9 +768,43 @@ public class MultiCameraInspectionController {
     /**
      * 获取工件的摄像头模板信息
      */
-    @Operation(summary = "获取工件摄像头信息", description = "获取指定工件的所有摄像头模板映射信息")
     @GetMapping("/{partType}/cameras")
-    public ResponseEntity<Map<String, Object>> getCameras(@PathVariable String partType) {
+    @Operation(
+            summary = "获取工件摄像头信息",
+            description = "获取指定工件的所有摄像头模板映射信息，包括摄像头ID和对应的模板ID"
+    )
+    @Parameter(
+            name = "partType",
+            description = "工件类型，如：CX756601",
+            required = true,
+            example = "CX756601"
+    )
+    @ApiResponses(value = {
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "查询成功",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(
+                                    name = "查询成功示例",
+                                    value = """
+                                            {
+                                              "success": true,
+                                              "partType": "CX756601",
+                                              "cameras": [
+                                                {"cameraId": 0, "templateId": "CX756601_camera_0"},
+                                                {"cameraId": 1, "templateId": "CX756601_camera_1"}
+                                              ],
+                                              "cameraCount": 2
+                                            }
+                                            """
+                            )
+                    )
+            )
+    })
+    public ResponseEntity<Map<String, Object>> getCameras(
+            @Parameter(description = "工件类型", required = true, example = "CX756601")
+            @PathVariable String partType) {
         try {
             Map<Integer, String> cameraTemplates = partCameraTemplateService.getCameraTemplates(partType);
 
