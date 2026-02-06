@@ -11,24 +11,35 @@ public class MultiCameraInspectionResponse {
     private boolean success;
     private String message;
     private String partType;
+
+    private Boolean passed;
     private List<CameraInspectionResult> cameraResults;
+
+    public Boolean getPassed() {
+        return passed;
+    }
+
+    public void setPassed(Boolean passed) {
+        this.passed = passed;
+    }
 
     public MultiCameraInspectionResponse() {
     }
 
-    public MultiCameraInspectionResponse(boolean success, String message, String partType, List<CameraInspectionResult> cameraResults) {
+    public MultiCameraInspectionResponse(boolean success, String message, String partType, List<CameraInspectionResult> cameraResults,Boolean passed) {
         this.success = success;
         this.message = message;
         this.partType = partType;
         this.cameraResults = cameraResults;
+        this.passed=passed;
     }
 
-    public static MultiCameraInspectionResponse success(String partType, List<CameraInspectionResult> cameraResults) {
-        return new MultiCameraInspectionResponse(true, "质检完成", partType, cameraResults);
+    public static MultiCameraInspectionResponse success(String partType, List<CameraInspectionResult> cameraResults,Boolean passed) {
+        return new MultiCameraInspectionResponse(true, "质检完成", partType, cameraResults,passed);
     }
 
     public static MultiCameraInspectionResponse error(String message) {
-        return new MultiCameraInspectionResponse(false, message, null, null);
+        return new MultiCameraInspectionResponse(false, message, null, null,false);
     }
 
     public boolean isSuccess() {
@@ -72,13 +83,17 @@ public class MultiCameraInspectionResponse {
         private boolean passed;
         private String imageUrl;  // 带框的图片
         private String errorMessage;  // 错误信息
-        private List<FeatureComparison> features;
+        private List<FeatureComparison> templateComparisons;
 
         private List<Detection> details;
 
+        public List<FeatureComparison> getTemplateComparisons() {
+            return templateComparisons;
+        }
 
-
-
+        public void setTemplateComparisons(List<FeatureComparison> templateComparisons) {
+            this.templateComparisons = templateComparisons;
+        }
 
         public CameraInspectionResult() {
         }
@@ -89,7 +104,7 @@ public class MultiCameraInspectionResponse {
             this.passed = passed;
             this.imageUrl = imageUrl;
             this.errorMessage = errorMessage;
-            this.features = features;
+            this.templateComparisons = features;
             this.details = details;
         }
         public List<Detection> getDetails() {
@@ -141,11 +156,11 @@ public class MultiCameraInspectionResponse {
         }
 
         public List<FeatureComparison> getFeatures() {
-            return features;
+            return templateComparisons;
         }
 
         public void setFeatures(List<FeatureComparison> features) {
-            this.features = features;
+            this.templateComparisons = features;
         }
     }
 

@@ -12,6 +12,11 @@ import org.opencv.core.MatOfByte;
 import org.opencv.core.Scalar;
 import org.opencv.imgcodecs.Imgcodecs;
 import org.opencv.imgproc.Imgproc;
+import org.opencv.core.Mat;
+import org.opencv.core.MatOfByte;
+import org.opencv.core.Scalar;
+import org.opencv.imgcodecs.Imgcodecs;
+import org.opencv.imgproc.Imgproc;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -591,6 +596,33 @@ public class PartCameraTemplateService {
     }
 
     /**
+     * 将四角坐标转换为最小外接矩形
+     * 输入: [x1, y1, x2, y2, x3, y3, x4, y4]
+     * 输出: [x, y, width, height]
+     */
+    private int[] convertFourCornerToBoundingBox(int[] fourCorners) {
+        if (fourCorners == null || fourCorners.length < 8) {
+            return new int[]{0, 0, 0, 0};
+        }
+
+        int minX = Integer.MAX_VALUE;
+        int minY = Integer.MAX_VALUE;
+        int maxX = Integer.MIN_VALUE;
+        int maxY = Integer.MIN_VALUE;
+
+        for (int i = 0; i < 4; i++) {
+            int x = fourCorners[i * 2];
+            int y = fourCorners[i * 2 + 1];
+            minX = Math.min(minX, x);
+            minY = Math.min(minY, y);
+            maxX = Math.max(maxX, x);
+            maxY = Math.max(maxY, y);
+        }
+
+        return new int[]{minX, minY, maxX - minX, maxY - minY};
+    }
+
+    /**
      * 摄像头质检结果（内部使用）
      */
     public static class CameraInspectionResult {
@@ -902,10 +934,21 @@ public class PartCameraTemplateService {
                     // 读取图片为base64
                     String base64Image = matToBase64(imageMats.get(i));
 
+                    // 转换 cropRect，支持两种格式：
+                    // - 4个数据：[x, y, width, height] 矩形格式
+                    // - 8个数据：[x1, y1, x2, y2, x3, y3, x4, y4] 四角坐标格式
+                    int[] cropRect = imageData.cropRect;
+                    if (cropRect != null && cropRect.length == 8) {
+                        // 八个数据：四角坐标格式，计算最小外接矩形
+                        cropRect = convertFourCornerToBoundingBox(cropRect);
+                        logger.info("Camera {}: Converted 4-corner cropRect to bounding box: [{},{},{},{}]",
+                            imageData.cameraId, cropRect[0], cropRect[1], cropRect[2], cropRect[3]);
+                    }
+
                     // 创建模板
                     Template template = VisionTool.createTemplate(
                         base64Image,
-                        imageData.cropRect,
+                        cropRect,
                         detectedObjects,
                         templateId
                     );

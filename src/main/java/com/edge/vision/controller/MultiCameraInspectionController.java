@@ -23,7 +23,6 @@ import org.opencv.imgproc.Imgproc;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -251,7 +250,7 @@ public class MultiCameraInspectionController {
             // 只有在没有错误时才保存检测记录
             saveInspectionRecord(request, cameraResults, allPassed);
 
-            return ResponseEntity.ok(MultiCameraInspectionResponse.success(partType, cameraResults));
+            return ResponseEntity.ok(MultiCameraInspectionResponse.success(partType, cameraResults,allPassed));
 
         } catch (IllegalStateException e) {
             logger.warn("Inspection failed: {}", e.getMessage());

@@ -169,7 +169,13 @@ public class ManualTemplateController {
 
                 // 绘制裁剪区域（工件整体）
                 if (camData.getCropRect() != null && camData.getCropRect().length >= 4) {
+                    logger.info("Drawing crop area for camera {}: length={}",
+                        camData.getCameraId(), camData.getCropRect().length);
                     drawCropArea(resultMat, camData.getCropRect());
+                } else {
+                    logger.warn("No valid cropRect for camera {}: cropRect={}",
+                        camData.getCameraId(),
+                        camData.getCropRect() == null ? "null" : "length=" + camData.getCropRect().length);
                 }
 
                 // 绘制所有标注
@@ -254,13 +260,21 @@ public class ManualTemplateController {
                 // 读取图片为 base64
                 String base64Image = matToBase64(originalImage);
 
-                // 转换 cropRect
+                // 转换 cropRect，支持两种格式：
+                // - 4个数据：[x, y, width, height] 矩形格式
+                // - 8个数据：[x1, y1, x2, y2, x3, y3, x4, y4] 四角坐标格式
                 int[] cropRect = new int[4];
                 if (camData.getCropRect() != null && camData.getCropRect().length >= 4) {
-                    cropRect[0] = camData.getCropRect()[0];
-                    cropRect[1] = camData.getCropRect()[1];
-                    cropRect[2] = camData.getCropRect()[2];
-                    cropRect[3] = camData.getCropRect()[3];
+                    if (camData.getCropRect().length == 8) {
+                        // 八个数据：四角坐标格式，计算最小外接矩形
+                        cropRect = convertFourCornerToBoundingBox(camData.getCropRect());
+                    } else {
+                        // 四个数据：矩形格式 [x, y, width, height]
+                        cropRect[0] = camData.getCropRect()[0];
+                        cropRect[1] = camData.getCropRect()[1];
+                        cropRect[2] = camData.getCropRect()[2];
+                        cropRect[3] = camData.getCropRect()[3];
+                    }
                 } else {
                     // 如果没有指定裁剪区域，使用整张图片
                     cropRect[0] = 0;
@@ -402,22 +416,84 @@ public class ManualTemplateController {
     // ============ 工具方法 ============
 
     /**
+     * 将四角坐标转换为最小外接矩形
+     * 输入: [x1, y1, x2, y2, x3, y3, x4, y4]
+     * 输出: [x, y, width, height]
+     */
+    private int[] convertFourCornerToBoundingBox(int[] fourCorners) {
+        if (fourCorners == null || fourCorners.length < 8) {
+            return new int[]{0, 0, 0, 0};
+        }
+
+        int minX = Integer.MAX_VALUE;
+        int minY = Integer.MAX_VALUE;
+        int maxX = Integer.MIN_VALUE;
+        int maxY = Integer.MIN_VALUE;
+
+        for (int i = 0; i < 4; i++) {
+            int x = fourCorners[i * 2];
+            int y = fourCorners[i * 2 + 1];
+            minX = Math.min(minX, x);
+            minY = Math.min(minY, y);
+            maxX = Math.max(maxX, x);
+            maxY = Math.max(maxY, y);
+        }
+
+        return new int[]{minX, minY, maxX - minX, maxY - minY};
+    }
+
+    /**
      * 绘制裁剪区域（工件整体）
+     * 支持两种格式：
+     * - 4个数据：[x, y, width, height] 矩形格式
+     * - 8个数据：[x1, y1, x2, y2, x3, y3, x4, y4] 四角坐标格式
      */
     private void drawCropArea(Mat image, int[] cropRect) {
-        // 绘制蓝色边界框
-        org.opencv.core.Point p1 = new org.opencv.core.Point(cropRect[0], cropRect[1]);
-        org.opencv.core.Point p2 = new org.opencv.core.Point(
-            cropRect[0] + cropRect[2],
-            cropRect[1] + cropRect[3]
-        );
-        Imgproc.rectangle(image, p1, p2, new Scalar(255, 0, 0), 3);
+        if (cropRect == null || cropRect.length < 4) {
+            logger.warn("drawCropArea: invalid cropRect (null or length < 4)");
+            return;
+        }
 
-        // 绘制标签
-        String label = "Workpiece Area";
-        org.opencv.core.Point textPos = new org.opencv.core.Point(cropRect[0], cropRect[1] - 10);
-        Imgproc.putText(image, label, textPos,
-            Imgproc.FONT_HERSHEY_SIMPLEX, 0.8, new Scalar(255, 0, 0), 2);
+        if (cropRect.length == 8) {
+            // 四角坐标格式：绘制任意四边形
+            logger.info("Drawing 4-corner cropRect: [{},{},{},{},{},{},{},{}]",
+                cropRect[0], cropRect[1], cropRect[2], cropRect[3],
+                cropRect[4], cropRect[5], cropRect[6], cropRect[7]);
+
+            List<org.opencv.core.Point> points = new ArrayList<>();
+            for (int i = 0; i < 4; i++) {
+                points.add(new org.opencv.core.Point(cropRect[i * 2], cropRect[i * 2 + 1]));
+            }
+            // 绘制四边形（蓝色线条）
+            for (int i = 0; i < 4; i++) {
+                org.opencv.core.Point p1 = points.get(i);
+                org.opencv.core.Point p2 = points.get((i + 1) % 4);
+                Imgproc.line(image, p1, p2, new Scalar(255, 0, 0), 3);
+            }
+            // 绘制标签
+            String label = "Workpiece Area (4-Corner)";
+            org.opencv.core.Point textPos = new org.opencv.core.Point(cropRect[0], cropRect[1] - 10);
+            Imgproc.putText(image, label, textPos,
+                Imgproc.FONT_HERSHEY_SIMPLEX, 0.8, new Scalar(255, 0, 0), 2);
+        } else {
+            // 矩形格式 [x, y, width, height] 或其他格式（取前4个值）
+            int x = cropRect[0];
+            int y = cropRect[1];
+            int w = cropRect[2];
+            int h = cropRect[3];
+
+            logger.info("Drawing rectangle cropRect: x={}, y={}, width={}, height={}", x, y, w, h);
+
+            org.opencv.core.Point p1 = new org.opencv.core.Point(x, y);
+            org.opencv.core.Point p2 = new org.opencv.core.Point(x + w, y + h);
+            Imgproc.rectangle(image, p1, p2, new Scalar(255, 0, 0), 3);
+
+            // 绘制标签
+            String label = "Workpiece Area";
+            org.opencv.core.Point textPos = new org.opencv.core.Point(x, y - 10);
+            Imgproc.putText(image, label, textPos,
+                Imgproc.FONT_HERSHEY_SIMPLEX, 0.8, new Scalar(255, 0, 0), 2);
+        }
     }
 
     /**
